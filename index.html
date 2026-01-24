@@ -38,8 +38,11 @@
         let firebaseEnabled = false;
         
         try {
-            // Firebase config kontrolü
-            if (firebaseConfig.apiKey !== "BURAYA_KENDI_API_KEY") {
+            // Firebase SDK yüklü mü kontrol et
+            if (typeof firebase === 'undefined') {
+                console.log('⚠️ Firebase SDK yüklenemedi - sadece localStorage kullanılıyor');
+            } else if (firebaseConfig.apiKey !== "BURAYA_KENDI_API_KEY") {
+                // Firebase'i başlat
                 firebase.initializeApp(firebaseConfig);
                 db = firebase.firestore();
                 firebaseEnabled = true;
@@ -50,6 +53,8 @@
         } catch (error) {
             console.error('❌ Firebase başlatma hatası:', error);
             console.log('⚠️ Sadece localStorage kullanılacak');
+            firebaseEnabled = false;
+            db = null;
         }
 
         // ==========================================
@@ -316,27 +321,6 @@
                     if (unsubscribe) unsubscribe();
                 };
             }, [firebaseSync]);
-                if (savedLastBackup) setLastBackupDate(new Date(savedLastBackup));
-                
-                const savedBackupInterval = localStorage.getItem('backup_interval');
-                if (savedBackupInterval) setBackupInterval(parseInt(savedBackupInterval));
-                
-                const handleEsc = (e) => { if (e.key === 'Escape') setLightbox(null); };
-                document.addEventListener('keydown', handleEsc);
-                
-                // Number input'larda mouse scroll'u engelle
-                const preventNumberScroll = (e) => {
-                    if (e.target.type === 'number') {
-                        e.preventDefault();
-                    }
-                };
-                document.addEventListener('wheel', preventNumberScroll, { passive: false });
-                
-                return () => {
-                    document.removeEventListener('keydown', handleEsc);
-                    document.removeEventListener('wheel', preventNumberScroll);
-                };
-            }, []);
 
             const getProject = () => projects.find(p => p.id === currentPrj) || projects[0];
             const apartments = getProject().apartments;
