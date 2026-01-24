@@ -460,6 +460,7 @@
             const [fieldLabels, setFieldLabels] = useState(DEFAULT_FIELD_LABELS);
             const [materials, setMaterials] = useState(DEFAULT_MATERIALS);
             const [showDB, setShowDB] = useState(false);
+            const [activeDBTab, setActiveDBTab] = useState('Zemin');
             const [showFieldManager, setShowFieldManager] = useState(false);
             const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
             const [lastBackupDate, setLastBackupDate] = useState(null);
@@ -2314,9 +2315,28 @@
                                         <button onClick={() => setShowDB(false)} className="text-2xl">×</button>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
+                                
+                                {/* Sekmeler */}
+                                <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b-2">
                                     {Object.keys(materials).map(cat => (
-                                        <div key={cat} className="border-2 border-gray-300 rounded-lg p-4 hover:border-blue-400 transition-colors bg-gradient-to-br from-white to-gray-50">
+                                        <button
+                                            key={cat}
+                                            onClick={() => setActiveDBTab(cat)}
+                                            className={`px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap transition-all ${
+                                                activeDBTab === cat 
+                                                    ? 'bg-blue-500 text-white shadow-md' 
+                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                            }`}
+                                        >
+                                            {cat}
+                                        </button>
+                                    ))}
+                                </div>
+                                
+                                {/* Sekme İçeriği */}
+                                <div className="overflow-auto max-h-96">
+                                    {Object.keys(materials).map(cat => activeDBTab === cat && (
+                                        <div key={cat} className="border-2 border-gray-300 rounded-lg p-4 bg-gradient-to-br from-white to-gray-50">
                                             <div className="flex justify-between items-center mb-3 pb-3 border-b-2 border-gray-200">
                                                 <h3 className="font-bold text-blue-700 text-lg flex items-center gap-2">
                                                     <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
