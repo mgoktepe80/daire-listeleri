@@ -13,6 +13,7 @@
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 </head>
 <body>
     <div id="root"></div>
@@ -35,6 +36,7 @@
 
         // Firebase'i başlat
         let db = null;
+        let auth = null;
         let firebaseEnabled = false;
         
         try {
@@ -45,10 +47,74 @@
                 // Firebase'i başlat
                 firebase.initializeApp(firebaseConfig);
                 db = firebase.firestore();
+                auth = firebase.auth();
                 firebaseEnabled = true;
                 console.log('✅ Firebase bağlantısı başarılı!');
             } else {
                 console.log('⚠️ Firebase yapılandırması eksik - sadece localStorage kullanılıyor');
+            }
+        } catch (error) {
+            console.error('❌ Firebase başlatma hatası:', error);
+            console.log('⚠️ Sadece localStorage kullanılacak');
+        }
+
+        // ==========================================
+        // AUTHENTICATION FONKSİYONLARI
+        // ==========================================
+        
+        // Kullanıcı girişi
+        const signIn = async (email, password) => {
+            if (!auth) return { success: false, error: 'Firebase yapılandırılmamış' };
+            try {
+                await auth.signInWithEmailAndPassword(email, password);
+                return { success: true };
+            } catch (error) {
+                let errorMsg = 'Giriş başarısız';
+                if (error.code === 'auth/wrong-password') errorMsg = 'Şifre yanlış';
+                else if (error.code === 'auth/user-not-found') errorMsg = 'Kullanıcı bulunamadı';
+                else if (error.code === 'auth/invalid-email') errorMsg = 'Geçersiz email';
+                return { success: false, error: errorMsg };
+            }
+        };
+
+        // Kullanıcı kaydı
+        const signUp = async (email, password) => {
+            if (!auth) return { success: false, error: 'Firebase yapılandırılmamış' };
+            try {
+                await auth.createUserWithEmailAndPassword(email, password);
+                return { success: true };
+            } catch (error) {
+                let errorMsg = 'Kayıt başarısız';
+                if (error.code === 'auth/email-already-in-use') errorMsg = 'Bu email zaten kullanımda';
+                else if (error.code === 'auth/weak-password') errorMsg = 'Şifre en az 6 karakter olmalı';
+                else if (error.code === 'auth/invalid-email') errorMsg = 'Geçersiz email';
+                return { success: false, error: errorMsg };
+            }
+        };
+
+        // Çıkış yap
+        const signOut = async () => {
+            if (!auth) return;
+            try {
+                await auth.signOut();
+            } catch (error) {
+                console.error('Çıkış hatası:', error);
+            }
+        };
+
+        // Şifremi unuttum
+        const resetPassword = async (email) => {
+            if (!auth) return { success: false, error: 'Firebase yapılandırılmamış' };
+            try {
+                await auth.sendPasswordResetEmail(email);
+                return { success: true };
+            } catch (error) {
+                let errorMsg = 'Şifre sıfırlama başarısız';
+                if (error.code === 'auth/user-not-found') errorMsg = 'Bu email kayıtlı değil';
+                else if (error.code === 'auth/invalid-email') errorMsg = 'Geçersiz email';
+                return { success: false, error: errorMsg };
+            }
+        };
             }
         } catch (error) {
             console.error('❌ Firebase başlatma hatası:', error);
@@ -199,7 +265,198 @@
             }
         };
 
+        // ==========================================
+        // LOGIN SCREEN COMPONENT
+        // ==========================================
+        
+        function LoginScreen() {
+            const [mode, setMode] = useState('login'); // 'login', 'signup', 'reset'
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+            const [success, setSuccess] = useState('');
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                setSuccess('');
+                setLoading(true);
+
+                if (mode === 'login') {
+                    const result = await signIn(email, password);
+                    if (!result.success) {
+                        setError(result.error);
+                    }
+                } else if (mode === 'signup') {
+                    if (password.length < 6) {
+                        setError('Şifre en az 6 karakter olmalı');
+                        setLoading(false);
+                        return;
+                    }
+                    const result = await signUp(email, password);
+                    if (result.success) {
+                        setSuccess('Hesap oluşturuldu! Giriş yapılıyor...');
+                    } else {
+                        setError(result.error);
+                    }
+                } else if (mode === 'reset') {
+                    const result = await resetPassword(email);
+                    if (result.success) {
+                        setSuccess('Şifre sıfırlama linki email adresinize gönderildi!');
+                        setTimeout(() => setMode('login'), 2000);
+                    } else {
+                        setError(result.error);
+                    }
+                }
+
+                setLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+                        {/* Logo */}
+                        <div className="text-center mb-8">
+                            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-full p-4 inline-block mb-4">
+                                <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                                </svg>
+                            </div>
+                            <h1 className="text-3xl font-bold text-gray-800 mb-2">İnşaat Malzeme</h1>
+                            <p className="text-gray-600">
+                                {mode === 'login' && 'Hesabınıza giriş yapın'}
+                                {mode === 'signup' && 'Yeni hesap oluşturun'}
+                                {mode === 'reset' && 'Şifrenizi sıfırlayın'}
+                            </p>
+                        </div>
+
+                        {/* Error/Success Messages */}
+                        {error && (
+                            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+                                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <span className="text-red-800 text-sm">{error}</span>
+                            </div>
+                        )}
+                        {success && (
+                            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+                                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <span className="text-green-800 text-sm">{success}</span>
+                            </div>
+                        )}
+
+                        {/* Form */}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Email
+                                </label>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
+                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                    placeholder="ornek@email.com"
+                                />
+                            </div>
+
+                            {mode !== 'reset' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Şifre
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required
+                                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                        placeholder="••••••"
+                                    />
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        <span>İşleniyor...</span>
+                                    </span>
+                                ) : (
+                                    <>
+                                        {mode === 'login' && 'Giriş Yap'}
+                                        {mode === 'signup' && 'Hesap Oluştur'}
+                                        {mode === 'reset' && 'Şifre Sıfırlama Linki Gönder'}
+                                    </>
+                                )}
+                            </button>
+                        </form>
+
+                        {/* Mode Switch */}
+                        <div className="mt-6 text-center space-y-2">
+                            {mode === 'login' && (
+                                <>
+                                    <button
+                                        onClick={() => setMode('reset')}
+                                        className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                                    >
+                                        Şifremi unuttum
+                                    </button>
+                                    <div className="text-gray-600 text-sm">
+                                        Hesabınız yok mu?{' '}
+                                        <button
+                                            onClick={() => setMode('signup')}
+                                            className="text-blue-600 hover:text-blue-800 font-medium"
+                                        >
+                                            Kayıt olun
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                            {mode === 'signup' && (
+                                <div className="text-gray-600 text-sm">
+                                    Zaten hesabınız var mı?{' '}
+                                    <button
+                                        onClick={() => setMode('login')}
+                                        className="text-blue-600 hover:text-blue-800 font-medium"
+                                    >
+                                        Giriş yapın
+                                    </button>
+                                </div>
+                            )}
+                            {mode === 'reset' && (
+                                <button
+                                    onClick={() => setMode('login')}
+                                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                                >
+                                    ← Giriş sayfasına dön
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ==========================================
+        // MAIN APP COMPONENT
+        // ==========================================
+
         function App() {
+            const [user, setUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
             const [projects, setProjects] = useState([{ id: 1, name: 'Proje 1', apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }] }]);
             const [currentPrj, setCurrentPrj] = useState(1);
             const [currentApt, setCurrentApt] = useState(1);
@@ -217,6 +474,26 @@
             const [lightbox, setLightbox] = useState(null);
             const [firebaseSync, setFirebaseSync] = useState(firebaseEnabled);
             const [lastSyncTime, setLastSyncTime] = useState(null);
+
+            // Authentication durumunu dinle
+            useEffect(() => {
+                if (!auth) {
+                    setAuthLoading(false);
+                    return;
+                }
+                
+                const unsubscribe = auth.onAuthStateChanged((user) => {
+                    setUser(user);
+                    setAuthLoading(false);
+                    if (user) {
+                        console.log('✅ Kullanıcı giriş yaptı:', user.email);
+                    } else {
+                        console.log('❌ Kullanıcı çıkış yaptı');
+                    }
+                });
+                
+                return () => unsubscribe();
+            }, []);
 
             // İlk yükleme - localStorage ve Firebase'den veri yükle
             useEffect(() => {
@@ -2009,6 +2286,23 @@
 
             const room = allRooms.find(r => r.id === currentRoom);
 
+            // Auth yükleniyor ekranı
+            if (authLoading) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
+                            <p className="text-white text-xl font-semibold">Yükleniyor...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Giriş yapılmamışsa login ekranını göster
+            if (!user && firebaseEnabled) {
+                return <LoginScreen />;
+            }
+
             return (
                 <div className="min-h-screen bg-gray-100 p-4">
                     {showDB && (
@@ -2635,11 +2929,31 @@
                                                 </p>
                                             </div>
                                         </div>
-                                        {/* Tarih Badge */}
-                                        <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-lg px-4 py-2">
-                                            <p className="text-white text-xs font-medium">
-                                                {new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                                            </p>
+                                        {/* Sağ Taraf: Tarih ve Çıkış */}
+                                        <div className="flex items-center gap-3">
+                                            {/* Tarih Badge */}
+                                            <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-lg px-4 py-2">
+                                                <p className="text-white text-xs font-medium">
+                                                    {new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                                </p>
+                                            </div>
+                                            {/* Çıkış Butonu */}
+                                            {user && firebaseEnabled && (
+                                                <button 
+                                                    onClick={async () => {
+                                                        if (confirm('Çıkış yapmak istediğinize emin misiniz?')) {
+                                                            await signOut();
+                                                        }
+                                                    }}
+                                                    className="bg-white bg-opacity-20 hover:bg-opacity-30 backdrop-blur-sm rounded-lg px-4 py-2 flex items-center gap-2 transition-all"
+                                                    title={user.email}
+                                                >
+                                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                                                    </svg>
+                                                    <span className="text-white text-sm font-medium">Çıkış</span>
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
