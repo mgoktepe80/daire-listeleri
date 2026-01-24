@@ -461,6 +461,7 @@
             const [materials, setMaterials] = useState(DEFAULT_MATERIALS);
             const [showDB, setShowDB] = useState(false);
             const [activeDBTab, setActiveDBTab] = useState('Zemin');
+            const [draggedTab, setDraggedTab] = useState(null);
             const [showFieldManager, setShowFieldManager] = useState(false);
             const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
             const [lastBackupDate, setLastBackupDate] = useState(null);
@@ -1477,6 +1478,21 @@
                 }
             };
 
+            // Sekme sırasını değiştir (drag & drop)
+            const reorderTabs = (fromIndex, toIndex) => {
+                const categories = Object.keys(materials);
+                const [movedCat] = categories.splice(fromIndex, 1);
+                categories.splice(toIndex, 0, movedCat);
+                
+                const newMat = {};
+                categories.forEach(cat => {
+                    newMat[cat] = materials[cat];
+                });
+                
+                setMaterials(newMat);
+                localStorage.setItem('material_database', JSON.stringify(newMat));
+            };
+
             const exportData = () => {
                 const exportObj = {
                     projects: projects,
@@ -2301,7 +2317,7 @@
                 <div className="min-h-screen bg-gray-100 p-4">
                     {showDB && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-auto">
+                            <div className="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
                                 <div className="flex justify-between mb-4">
                                     <h2 className="text-xl font-bold">Malzeme Veritabani</h2>
                                     <div className="flex gap-2 items-center">
@@ -2317,24 +2333,42 @@
                                 </div>
                                 
                                 {/* Sekmeler */}
-                                <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b-2">
-                                    {Object.keys(materials).map(cat => (
+                                <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b-2 flex-shrink-0">
+                                    {Object.keys(materials).map((cat, index) => (
                                         <button
                                             key={cat}
+                                            draggable
+                                            onDragStart={() => setDraggedTab(index)}
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                e.currentTarget.style.borderLeft = '3px solid #3b82f6';
+                                            }}
+                                            onDragLeave={(e) => {
+                                                e.currentTarget.style.borderLeft = 'none';
+                                            }}
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                e.currentTarget.style.borderLeft = 'none';
+                                                if (draggedTab !== null && draggedTab !== index) {
+                                                    reorderTabs(draggedTab, index);
+                                                }
+                                                setDraggedTab(null);
+                                            }}
                                             onClick={() => setActiveDBTab(cat)}
-                                            className={`px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap transition-all ${
+                                            className={`px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap transition-all cursor-move ${
                                                 activeDBTab === cat 
                                                     ? 'bg-blue-500 text-white shadow-md' 
                                                     : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                             }`}
+                                            title="Sürükleyerek sıra değiştir"
                                         >
-                                            {cat}
+                                            ⠿ {cat}
                                         </button>
                                     ))}
                                 </div>
                                 
                                 {/* Sekme İçeriği */}
-                                <div className="overflow-auto max-h-96">
+                                <div className="flex-1 overflow-auto">
                                     {Object.keys(materials).map(cat => activeDBTab === cat && (
                                         <div key={cat} className="border-2 border-gray-300 rounded-lg p-4 bg-gradient-to-br from-white to-gray-50">
                                             <div className="flex justify-between items-center mb-3 pb-3 border-b-2 border-gray-200">
