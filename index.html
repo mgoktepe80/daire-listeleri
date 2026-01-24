@@ -1,0 +1,2677 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>İnşaat Malzeme Sistemi</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ==========================================
+        // FIREBASE YAPILANDIRMASI
+        // ==========================================
+        // ⚠️ ÖNEMLİ: Aşağıdaki bilgileri kendi Firebase projenizden alın!
+        // Firebase Console → Project Settings → Your apps → Firebase SDK snippet
+        const firebaseConfig = {
+            apiKey: "AIzaSyArx5M6zeXeAqYToThIIDwC3YNi8iWmd3Q",
+            authDomain: "malzeme-takip-6e4d5.firebaseapp.com",
+            projectId: "malzeme-takip-6e4d5",
+            storageBucket: "malzeme-takip-6e4d5.firebasestorage.app",
+            messagingSenderId: "473422973374",
+            appId: "1:473422973374:web:f05b4573c9fcac19a511ef"
+        };
+
+        // Firebase'i başlat
+        let db = null;
+        let firebaseEnabled = false;
+        
+        try {
+            // Firebase config kontrolü
+            if (firebaseConfig.apiKey !== "BURAYA_KENDI_API_KEY") {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                firebaseEnabled = true;
+                console.log('✅ Firebase bağlantısı başarılı!');
+            } else {
+                console.log('⚠️ Firebase yapılandırması eksik - sadece localStorage kullanılıyor');
+            }
+        } catch (error) {
+            console.error('❌ Firebase başlatma hatası:', error);
+            console.log('⚠️ Sadece localStorage kullanılacak');
+        }
+
+        // ==========================================
+        // FIREBASE SYNC FONKSİYONLARI
+        // ==========================================
+        
+        // Verileri Firebase'e kaydet
+        const saveToFirebase = async (data) => {
+            if (!firebaseEnabled || !db) return false;
+            
+            try {
+                await db.collection('appData').doc('mainData').set({
+                    ...data,
+                    lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                console.log('✅ Firebase\'e kaydedildi');
+                return true;
+            } catch (error) {
+                console.error('❌ Firebase kayıt hatası:', error);
+                return false;
+            }
+        };
+
+        // Firebase'den verileri yükle
+        const loadFromFirebase = async () => {
+            if (!firebaseEnabled || !db) return null;
+            
+            try {
+                const doc = await db.collection('appData').doc('mainData').get();
+                if (doc.exists) {
+                    console.log('✅ Firebase\'den yüklendi');
+                    return doc.data();
+                }
+                return null;
+            } catch (error) {
+                console.error('❌ Firebase yükleme hatası:', error);
+                return null;
+            }
+        };
+
+        // Gerçek zamanlı senkronizasyon dinleyicisi
+        const setupFirebaseListener = (callback) => {
+            if (!firebaseEnabled || !db) return null;
+            
+            return db.collection('appData').doc('mainData').onSnapshot((doc) => {
+                if (doc.exists) {
+                    console.log('🔄 Firebase\'den güncelleme alındı');
+                    callback(doc.data());
+                }
+            }, (error) => {
+                console.error('❌ Firebase listener hatası:', error);
+            });
+        };
+
+        // ==========================================
+        // UYGULAMA KODLARI
+        // ==========================================
+
+        const DEFAULT_ROOMS = [
+            { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+            { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'], editable: true, deletable: true },
+            { id: 'hol', name: 'Hol ve Antre', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+            { id: 'genel_banyo', name: 'Genel Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+            { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+            { id: 'oda1', name: 'Oda-1', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+            { id: 'oda2', name: 'Oda-2', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+            { id: 'ebeveyn_oda', name: 'Ebeveyn Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
+        ];
+
+        const DEFAULT_FIELD_LABELS = {
+            zemin: { label: 'Zemin Kaplama', unit: 'm²', category: 'Zemin' },
+            boya: { label: 'Duvar Boya', unit: 'm²', category: 'Boya' },
+            dolap_alt: { label: 'Dolap Alt', unit: 'Adet', category: 'Dolap' },
+            dolap_ust: { label: 'Dolap Üst', unit: 'Adet', category: 'Dolap' },
+            tezgah: { label: 'Tezgah', unit: 'mt', category: 'Tezgah' },
+            panel: { label: 'Panel', unit: 'm²', category: 'Panel' },
+            duvar_kaplama: { label: 'Duvar Kaplama', unit: 'm²', category: 'Kaplama' },
+            lavabo: { label: 'Lavabo', unit: 'Adet', category: 'Armatür' },
+            klozet: { label: 'Klozet', unit: 'Adet', category: 'Armatür' },
+            dus: { label: 'Duş', unit: 'Adet', category: 'Armatür' },
+            batarya: { label: 'Batarya', unit: 'Adet', category: 'Armatür' },
+            ayna: { label: 'Ayna', unit: 'Adet', category: 'Aksesuar' },
+            aydinlatma: { label: 'Aydınlatma', unit: 'Adet', category: 'Elektrik' },
+            priz: { label: 'Priz', unit: 'Adet', category: 'Elektrik' },
+            kapi: { label: 'Kapı', unit: 'Adet', category: 'Doğrama' },
+            pencere: { label: 'Pencere', unit: 'Adet', category: 'Doğrama' },
+            perde: { label: 'Perde', unit: 'm', category: 'Tekstil' },
+            tavan: { label: 'Tavan Kaplama', unit: 'm²', category: 'Kaplama' },
+            foto: { label: 'Fotoğraf', unit: '', category: 'Diğer' }
+        };
+
+        const DEFAULT_MATERIALS = {
+            'Zemin': {
+                'Seramik': ['60x60 Beyaz Seramik', '80x80 Gri Seramik', 'Mozaik Seramik'],
+                'Parke': ['Laminat Parke Meşe', 'Laminat Parke Ceviz', 'Masif Parke'],
+                'Granit': ['Siyah Granit', 'Beyaz Granit', 'Gri Granit'],
+                'Mermer': ['Beyaz Mermer', 'Krem Mermer', 'Siyah Mermer']
+            },
+            'Boya': {
+                'Saten': ['Beyaz Saten', 'Krem Saten', 'Gri Saten'],
+                'Mat': ['Mat Beyaz', 'Mat Gri', 'Mat Bej'],
+                'İpek': ['İpek Beyaz', 'İpek Krem']
+            },
+            'Kaplama': {
+                'Seramik': ['Beyaz Seramik 30x60', 'Gri Seramik 30x60', 'Mozaik'],
+                'Taş': ['Doğal Taş', 'Traverten', 'Kültür Taşı']
+            },
+            'Dolap': {
+                'Lake': ['Beyaz Lake', 'Gri Lake', 'Antrasit Lake'],
+                'Ahşap': ['Meşe Kaplama', 'Ceviz Kaplama']
+            },
+            'Tezgah': {
+                'Granit': ['Granit Siyah', 'Granit Beyaz'],
+                'Mermer': ['Mermer Beyaz', 'Mermer Krem'],
+                'Kompakt': ['Kompakt Beyaz', 'Kompakt Gri']
+            },
+            'Panel': {
+                'Cam': ['Cam Panel Beyaz', 'Cam Panel Gri'],
+                'Seramik': ['Seramik Panel']
+            },
+            'Armatür': {
+                'Krom': ['Standart Krom', 'Parlak Krom'],
+                'Mat Siyah': ['Mat Siyah Batarya', 'Mat Siyah Duş'],
+                'Gold': ['Gold Batarya', 'Gold Duş']
+            },
+            'Aksesuar': {
+                'Ayna': ['Ayna 60x80', 'Ayna 80x100', 'LED Ayna'],
+                'Raf': ['Cam Raf', 'Ahşap Raf']
+            },
+            'Elektrik': {
+                'Aydınlatma': ['LED Spot', 'Avize', 'Aplik', 'Şerit LED'],
+                'Priz': ['Beyaz Priz', 'Gri Priz', 'USB\'li Priz']
+            },
+            'Doğrama': {
+                'PVC': ['Beyaz PVC', 'Gri PVC'],
+                'Ahşap': ['Ahşap Kaplama', 'Masif Ahşap'],
+                'Alüminyum': ['Beyaz Alüminyum', 'Gri Alüminyum']
+            },
+            'Tekstil': {
+                'Perde': ['Blackout', 'Tül', 'Jaluzi'],
+                'Stor': ['Zebra Stor', 'Rulo Stor']
+            }
+        };
+
+        function App() {
+            const [projects, setProjects] = useState([{ id: 1, name: 'Proje 1', apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }] }]);
+            const [currentPrj, setCurrentPrj] = useState(1);
+            const [currentApt, setCurrentApt] = useState(1);
+            const [currentRoom, setCurrentRoom] = useState('salon');
+            const [customRooms, setCustomRooms] = useState([]);
+            const [baseRooms, setBaseRooms] = useState(DEFAULT_ROOMS);
+            const [roomOrder, setRoomOrder] = useState([]);
+            const [fieldLabels, setFieldLabels] = useState(DEFAULT_FIELD_LABELS);
+            const [materials, setMaterials] = useState(DEFAULT_MATERIALS);
+            const [showDB, setShowDB] = useState(false);
+            const [showFieldManager, setShowFieldManager] = useState(false);
+            const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
+            const [lastBackupDate, setLastBackupDate] = useState(null);
+            const [backupInterval, setBackupInterval] = useState(7);
+            const [lightbox, setLightbox] = useState(null);
+            const [firebaseSync, setFirebaseSync] = useState(firebaseEnabled);
+            const [lastSyncTime, setLastSyncTime] = useState(null);
+
+            // İlk yükleme - localStorage ve Firebase'den veri yükle
+            useEffect(() => {
+                const loadData = async () => {
+                    // Önce localStorage'dan yükle
+                    const saved = localStorage.getItem('projects_data');
+                    if (saved) {
+                        const loaded = JSON.parse(saved);
+                        setProjects(loaded);
+                        if (loaded[0] && loaded[0].apartments[0]) setCurrentApt(loaded[0].apartments[0].id);
+                    }
+                    const savedRooms = localStorage.getItem('custom_rooms');
+                    if (savedRooms) setCustomRooms(JSON.parse(savedRooms));
+                    
+                    const savedBaseRooms = localStorage.getItem('base_rooms');
+                    if (savedBaseRooms) setBaseRooms(JSON.parse(savedBaseRooms));
+                    
+                    const savedFieldLabels = localStorage.getItem('field_labels');
+                    if (savedFieldLabels) setFieldLabels(JSON.parse(savedFieldLabels));
+                    
+                    const savedRoomOrder = localStorage.getItem('room_order');
+                    if (savedRoomOrder) setRoomOrder(JSON.parse(savedRoomOrder));
+                    
+                    const savedMat = localStorage.getItem('material_database');
+                    if (savedMat) setMaterials(JSON.parse(savedMat));
+                    
+                    // Otomatik yedekleme ayarlarını yükle
+                    const savedAutoBackup = localStorage.getItem('auto_backup_enabled');
+                    if (savedAutoBackup === 'true') setAutoBackupEnabled(true);
+                    
+                    const savedLastBackup = localStorage.getItem('last_backup_date');
+                    if (savedLastBackup) setLastBackupDate(new Date(savedLastBackup));
+                    
+                    const savedBackupInterval = localStorage.getItem('backup_interval');
+                    if (savedBackupInterval) setBackupInterval(parseInt(savedBackupInterval));
+                    
+                    // Firebase'den yükle (varsa ve daha güncel ise)
+                    if (firebaseEnabled) {
+                        const firebaseData = await loadFromFirebase();
+                        if (firebaseData) {
+                            const localTimestamp = localStorage.getItem('last_sync_time');
+                            const firebaseTimestamp = firebaseData.lastUpdate?.toMillis() || 0;
+                            
+                            // Firebase daha güncel ise, ondan yükle
+                            if (!localTimestamp || firebaseTimestamp > parseInt(localTimestamp)) {
+                                console.log('🔄 Firebase\'den güncel veriler yükleniyor...');
+                                if (firebaseData.projects) setProjects(firebaseData.projects);
+                                if (firebaseData.customRooms) setCustomRooms(firebaseData.customRooms);
+                                if (firebaseData.baseRooms) setBaseRooms(firebaseData.baseRooms);
+                                if (firebaseData.fieldLabels) setFieldLabels(firebaseData.fieldLabels);
+                                if (firebaseData.roomOrder) setRoomOrder(firebaseData.roomOrder);
+                                if (firebaseData.materials) setMaterials(firebaseData.materials);
+                                setLastSyncTime(new Date(firebaseTimestamp));
+                                localStorage.setItem('last_sync_time', firebaseTimestamp.toString());
+                            }
+                        }
+                    }
+                };
+                
+                loadData();
+                
+                const handleEsc = (e) => { if (e.key === 'Escape') setLightbox(null); };
+                document.addEventListener('keydown', handleEsc);
+                
+                // Number input'larda mouse scroll'u engelle
+                const preventNumberScroll = (e) => {
+                    if (e.target.type === 'number') {
+                        e.preventDefault();
+                    }
+                };
+                document.addEventListener('wheel', preventNumberScroll, { passive: false });
+                
+                return () => {
+                    document.removeEventListener('keydown', handleEsc);
+                    document.removeEventListener('wheel', preventNumberScroll);
+                };
+            }, []);
+
+            // Firebase gerçek zamanlı senkronizasyon
+            useEffect(() => {
+                if (!firebaseSync || !firebaseEnabled) return;
+                
+                const unsubscribe = setupFirebaseListener((data) => {
+                    const localTimestamp = localStorage.getItem('last_sync_time');
+                    const firebaseTimestamp = data.lastUpdate?.toMillis() || 0;
+                    
+                    // Sadece Firebase daha yeni ise güncelle (kendi değişikliklerimizi geri alma)
+                    if (!localTimestamp || firebaseTimestamp > parseInt(localTimestamp)) {
+                        console.log('🔄 Başka cihazdan güncelleme alındı');
+                        if (data.projects) setProjects(data.projects);
+                        if (data.customRooms) setCustomRooms(data.customRooms);
+                        if (data.baseRooms) setBaseRooms(data.baseRooms);
+                        if (data.fieldLabels) setFieldLabels(data.fieldLabels);
+                        if (data.roomOrder) setRoomOrder(data.roomOrder);
+                        if (data.materials) setMaterials(data.materials);
+                        setLastSyncTime(new Date(firebaseTimestamp));
+                        localStorage.setItem('last_sync_time', firebaseTimestamp.toString());
+                    }
+                });
+                
+                return () => {
+                    if (unsubscribe) unsubscribe();
+                };
+            }, [firebaseSync]);
+                if (savedLastBackup) setLastBackupDate(new Date(savedLastBackup));
+                
+                const savedBackupInterval = localStorage.getItem('backup_interval');
+                if (savedBackupInterval) setBackupInterval(parseInt(savedBackupInterval));
+                
+                const handleEsc = (e) => { if (e.key === 'Escape') setLightbox(null); };
+                document.addEventListener('keydown', handleEsc);
+                
+                // Number input'larda mouse scroll'u engelle
+                const preventNumberScroll = (e) => {
+                    if (e.target.type === 'number') {
+                        e.preventDefault();
+                    }
+                };
+                document.addEventListener('wheel', preventNumberScroll, { passive: false });
+                
+                return () => {
+                    document.removeEventListener('keydown', handleEsc);
+                    document.removeEventListener('wheel', preventNumberScroll);
+                };
+            }, []);
+
+            const getProject = () => projects.find(p => p.id === currentPrj) || projects[0];
+            const apartments = getProject().apartments;
+            const getApt = () => apartments.find(a => a.id === currentApt) || apartments[0];
+            const getRoomData = () => (getApt().data[currentRoom] || {});
+
+            // Her daire için görünür mekanları filtrele ve sırala
+            const allRoomsUnsorted = [...baseRooms, ...customRooms];
+            const allRooms = roomOrder.length > 0 
+                ? roomOrder.map(id => allRoomsUnsorted.find(r => r.id === id)).filter(r => r)
+                    .concat(allRoomsUnsorted.filter(r => !roomOrder.includes(r.id)))
+                : allRoomsUnsorted;
+            const visibleRooms = allRooms.filter(room => {
+                const apt = getApt();
+                const hiddenRooms = apt.hiddenRooms || [];
+                return !hiddenRooms.includes(room.id);
+            });
+
+            const updateProjects = (newProjects) => setProjects(newProjects);
+            const updateApartments = (newApts) => {
+                setProjects(projects.map(p => p.id === currentPrj ? { ...p, apartments: newApts } : p));
+            };
+
+            const save = async () => {
+                // localStorage'a kaydet
+                localStorage.setItem('projects_data', JSON.stringify(projects));
+                localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
+                localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
+                localStorage.setItem('room_order', JSON.stringify(roomOrder));
+                localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
+                localStorage.setItem('material_database', JSON.stringify(materials));
+                
+                // Firebase'e kaydet (aktifse)
+                if (firebaseSync && firebaseEnabled) {
+                    const success = await saveToFirebase({
+                        projects,
+                        customRooms,
+                        baseRooms,
+                        roomOrder,
+                        fieldLabels,
+                        materials
+                    });
+                    
+                    if (success) {
+                        const now = Date.now();
+                        setLastSyncTime(new Date(now));
+                        localStorage.setItem('last_sync_time', now.toString());
+                        alert('✅ Kaydedildi!\n\n💾 Yerel: Başarılı\n☁️ Firebase: Başarılı\n🔄 Tüm cihazlar senkron');
+                    } else {
+                        alert('⚠️ Kaydedildi!\n\n💾 Yerel: Başarılı\n☁️ Firebase: Bağlantı hatası');
+                    }
+                } else {
+                    alert('✅ Kaydedildi!\n\n💾 Yerel: Başarılı');
+                }
+                
+                // Otomatik yedekleme kontrolü
+                setTimeout(checkAutoBackup, 500);
+            };
+
+            // Metin formatını dönüştür: ilk harf BÜYÜK, diğerleri küçük
+            const convertAllText = () => {
+                if (!confirm('TÜM METİNLERİ ve MALZEME VERİTABANINI dönüştürmek istediğinize emin misiniz?\n\nFormat: "İlk Harf Büyük diğerleri küçük"\n\nÖrnek: "VB - NOCTURNE BEYAZ 60X120" → "Vb - Nocturne Beyaz 60x120"\n\nHem veri girişleri hem de malzeme veritabanı güncellenecek!\n\nBu işlem GERİ ALINAMAZ!')) {
+                    return;
+                }
+                
+                const convertText = (text) => {
+                    if (!text || typeof text !== 'string') return text;
+                    
+                    // Kelimeleri böl
+                    const words = text.split(' ');
+                    
+                    // Her kelimeyi dönüştür: ilk harf BÜYÜK, diğerleri küçük
+                    const converted = words.map(word => {
+                        if (word.length === 0) return word;
+                        if (word.length === 1) return word.toUpperCase();
+                        
+                        // İlk karakter BÜYÜK, diğerleri küçük
+                        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+                    });
+                    
+                    return converted.join(' ');
+                };
+                
+                // 1. MALZEME VERİTABANINI DÖNÜŞTÜR
+                const convertedMaterials = {};
+                Object.keys(materials).forEach(category => {
+                    const categoryData = materials[category];
+                    
+                    // Hiyerarşik yapı mı (alt gruplar var mı)?
+                    if (typeof categoryData === 'object' && !Array.isArray(categoryData)) {
+                        // Alt gruplu yapı
+                        convertedMaterials[category] = {};
+                        Object.keys(categoryData).forEach(subgroup => {
+                            const convertedSubgroup = convertText(subgroup);
+                            const malzemeList = categoryData[subgroup];
+                            
+                            // Malzemeleri dönüştür
+                            convertedMaterials[category][convertedSubgroup] = malzemeList.map(m => convertText(m));
+                        });
+                    } else if (Array.isArray(categoryData)) {
+                        // Düz liste
+                        convertedMaterials[category] = categoryData.map(m => convertText(m));
+                    } else {
+                        // Diğer tipler
+                        convertedMaterials[category] = categoryData;
+                    }
+                });
+                
+                // 2. VERİ GİRİŞLERİNİ DÖNÜŞTÜR
+                const updatedProjects = projects.map(proj => ({
+                    ...proj,
+                    apartments: proj.apartments.map(apt => {
+                        const newData = {};
+                        
+                        // Her mekanın verilerini dönüştür
+                        Object.keys(apt.data).forEach(roomId => {
+                            const roomData = apt.data[roomId];
+                            const convertedRoomData = {};
+                            
+                            Object.keys(roomData).forEach(fieldKey => {
+                                const fieldValue = roomData[fieldKey];
+                                
+                                // Fotoğraf alanını atla
+                                if (fieldKey === 'foto') {
+                                    convertedRoomData[fieldKey] = fieldValue;
+                                    return;
+                                }
+                                
+                                // Duvar kaplama (object içinde object)
+                                if (fieldKey === 'duvar_kaplama' && typeof fieldValue === 'object') {
+                                    const convertedWalls = {};
+                                    Object.keys(fieldValue).forEach(wallIdx => {
+                                        const wall = fieldValue[wallIdx];
+                                        convertedWalls[wallIdx] = {
+                                            ...wall,
+                                            subgroup: wall.subgroup ? convertText(wall.subgroup) : wall.subgroup,
+                                            malzeme: wall.malzeme ? convertText(wall.malzeme) : wall.malzeme
+                                        };
+                                    });
+                                    convertedRoomData[fieldKey] = convertedWalls;
+                                }
+                                // Normal alanlar (object: {subgroup, malzeme, miktar})
+                                else if (fieldValue && typeof fieldValue === 'object' && !Array.isArray(fieldValue)) {
+                                    convertedRoomData[fieldKey] = {
+                                        ...fieldValue,
+                                        subgroup: fieldValue.subgroup ? convertText(fieldValue.subgroup) : fieldValue.subgroup,
+                                        malzeme: fieldValue.malzeme ? convertText(fieldValue.malzeme) : fieldValue.malzeme
+                                    };
+                                }
+                                // Diğer tipler (string veya number)
+                                else {
+                                    convertedRoomData[fieldKey] = fieldValue;
+                                }
+                            });
+                            
+                            newData[roomId] = convertedRoomData;
+                        });
+                        
+                        return { ...apt, data: newData };
+                    })
+                }));
+                
+                // 3. STATE'LERİ GÜNCELLE
+                setMaterials(convertedMaterials);
+                setProjects(updatedProjects);
+                
+                // 4. LOCALSTORAGE'A KAYDET
+                localStorage.setItem('material_database', JSON.stringify(convertedMaterials));
+                localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                
+                alert('✅ Tüm metinler dönüştürüldü!\n\n"İlk Harf Büyük diğerleri küçük" formatı uygulandı.\n\n📦 Malzeme veritabanı güncellendi\n📝 Veri girişleri güncellendi');
+            };
+
+            // Drag & Drop fonksiyonları
+            const [draggedRoom, setDraggedRoom] = useState(null);
+
+            const handleDragStart = (e, roomId) => {
+                setDraggedRoom(roomId);
+                e.dataTransfer.effectAllowed = 'move';
+                e.currentTarget.style.opacity = '0.4';
+            };
+
+            const handleDragEnd = (e) => {
+                e.currentTarget.style.opacity = '1';
+                setDraggedRoom(null);
+            };
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            };
+
+            const handleDrop = (e, targetRoomId) => {
+                e.preventDefault();
+                if (!draggedRoom || draggedRoom === targetRoomId) return;
+
+                const visibleRoomIds = visibleRooms.map(r => r.id);
+                const draggedIndex = visibleRoomIds.indexOf(draggedRoom);
+                const targetIndex = visibleRoomIds.indexOf(targetRoomId);
+
+                if (draggedIndex === -1 || targetIndex === -1) return;
+
+                // Yeni sıralama oluştur
+                const newOrder = [...visibleRoomIds];
+                newOrder.splice(draggedIndex, 1);
+                newOrder.splice(targetIndex, 0, draggedRoom);
+
+                setRoomOrder(newOrder);
+                localStorage.setItem('room_order', JSON.stringify(newOrder));
+            };
+
+            const resetRoomOrder = () => {
+                if (confirm('Mekan sıralamasını varsayılana döndürmek istediğinize emin misiniz?')) {
+                    setRoomOrder([]);
+                    localStorage.removeItem('room_order');
+                    alert('Sıralama sıfırlandı!');
+                }
+            };
+
+            // Otomatik Yedekleme Fonksiyonları
+            const createBackup = (autoMode = false) => {
+                const data = {
+                    projects,
+                    customRooms,
+                    baseRooms,
+                    roomOrder,
+                    fieldLabels,
+                    materials,
+                    exportDate: new Date().toISOString(),
+                    version: '2.0'
+                };
+
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                // Genel dosya adı: malzeme_yedek_2026-01-24_14-30-45.json
+                const date = new Date();
+                const dateStr = date.toISOString().slice(0, 10); // 2026-01-24
+                const timeStr = date.toTimeString().slice(0, 8).replace(/:/g, '-'); // 14-30-45
+                const fileName = 'malzeme_yedek_' + dateStr + '_' + timeStr + '.json';
+                
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = fileName;
+                link.click();
+                URL.revokeObjectURL(link.href);
+
+                // Son yedek tarihini kaydet
+                const now = new Date();
+                setLastBackupDate(now);
+                localStorage.setItem('last_backup_date', now.toISOString());
+
+                if (!autoMode) {
+                    alert('✅ Yedek oluşturuldu!\n\n📁 Dosya: ' + fileName + '\n📂 Konum: İndirilenler klasörü');
+                }
+            };
+
+            const checkAutoBackup = () => {
+                if (!autoBackupEnabled) return;
+                if (!lastBackupDate) {
+                    // İlk yedek
+                    if (confirm('🔔 Otomatik yedekleme açık!\n\nİlk yedeğinizi almak ister misiniz?')) {
+                        createBackup(true);
+                    }
+                    return;
+                }
+
+                const daysSinceBackup = (new Date() - lastBackupDate) / (1000 * 60 * 60 * 24);
+                if (daysSinceBackup >= backupInterval) {
+                    if (confirm('🔔 Yedekleme Zamanı!\n\nSon yedeğiniz ' + Math.floor(daysSinceBackup) + ' gün önce alındı.\n\nŞimdi yedek almak ister misiniz?')) {
+                        createBackup(true);
+                    }
+                }
+            };
+
+            const toggleAutoBackup = () => {
+                const newState = !autoBackupEnabled;
+                setAutoBackupEnabled(newState);
+                localStorage.setItem('auto_backup_enabled', newState);
+                
+                if (newState) {
+                    alert('✅ Otomatik yedekleme aktif!\n\n📅 Sıklık: Her ' + backupInterval + ' günde bir\n🔔 Size hatırlatma göndereceğiz');
+                } else {
+                    alert('❌ Otomatik yedekleme kapatıldı');
+                }
+            };
+
+            const updateBackupInterval = (days) => {
+                setBackupInterval(days);
+                localStorage.setItem('backup_interval', days);
+            };
+
+            // Sayfa yüklendiğinde ve her saatte bir kontrol et
+            React.useEffect(() => {
+                checkAutoBackup();
+                const interval = setInterval(checkAutoBackup, 60 * 60 * 1000); // Her saat
+                return () => clearInterval(interval);
+            }, [autoBackupEnabled, lastBackupDate, backupInterval]);
+
+            const addField = () => {
+                const id = prompt('Alan ID (kucuk harf, bosluksuz, ornek: mutfak_dolabi):');
+                if (!id || !id.trim()) return;
+                const fieldId = id.trim().toLowerCase().replace(/\s+/g, '_');
+                
+                if (fieldLabels[fieldId]) {
+                    alert('Bu ID zaten mevcut!');
+                    return;
+                }
+                
+                const label = prompt('Alan Adi (ornek: Mutfak Dolabı):');
+                if (!label || !label.trim()) return;
+                
+                const unit = prompt('Birim (m², Adet, mt, vb.) - OPSIYONEL, bos birakilabilir:');
+                
+                const category = prompt('Kategori (ornek: Dolap, Armatür, Elektrik):');
+                if (!category || !category.trim()) return;
+                
+                const newFieldLabels = {
+                    ...fieldLabels,
+                    [fieldId]: {
+                        label: label.trim(),
+                        unit: unit ? unit.trim() : '',
+                        category: category.trim()
+                    }
+                };
+                
+                setFieldLabels(newFieldLabels);
+                localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
+                
+                // Kategoriye malzeme veritabanı ekle
+                if (!materials[category.trim()]) {
+                    const newMaterials = { ...materials, [category.trim()]: [] };
+                    setMaterials(newMaterials);
+                    localStorage.setItem('material_database', JSON.stringify(newMaterials));
+                }
+                
+                alert('Alan eklendi!\n\nID: ' + fieldId + '\nAd: ' + label.trim() + '\nBirim: ' + (unit ? unit.trim() : '(Yok)') + '\nKategori: ' + category.trim());
+            };
+
+            const deleteField = (fieldId) => {
+                if (fieldId === 'foto') {
+                    alert('Fotograf alani silinemez!');
+                    return;
+                }
+                
+                if (confirm('Bu alani silmek istediginize emin misiniz?\n\nAlan ID: ' + fieldId + '\nAd: ' + fieldLabels[fieldId].label + '\n\nBu alan tüm mekanlardan kaldırılacaktır!')) {
+                    // fieldLabels'dan sil
+                    const newFieldLabels = { ...fieldLabels };
+                    delete newFieldLabels[fieldId];
+                    setFieldLabels(newFieldLabels);
+                    localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
+                    
+                    // Tüm mekanların fields dizisinden sil
+                    const updatedBaseRooms = baseRooms.map(room => ({
+                        ...room,
+                        fields: room.fields.filter(f => f !== fieldId)
+                    }));
+                    setBaseRooms(updatedBaseRooms);
+                    localStorage.setItem('base_rooms', JSON.stringify(updatedBaseRooms));
+                    
+                    const updatedCustomRooms = customRooms.map(room => ({
+                        ...room,
+                        fields: room.fields.filter(f => f !== fieldId)
+                    }));
+                    setCustomRooms(updatedCustomRooms);
+                    localStorage.setItem('custom_rooms', JSON.stringify(updatedCustomRooms));
+                    
+                    // Tüm projelerdeki tüm dairelerdeki bu alanın verisini sil
+                    const updatedProjects = projects.map(proj => ({
+                        ...proj,
+                        apartments: proj.apartments.map(apt => {
+                            const newData = { ...apt.data };
+                            // Her mekandan bu alanı sil
+                            Object.keys(newData).forEach(roomId => {
+                                if (newData[roomId] && newData[roomId][fieldId]) {
+                                    const roomData = { ...newData[roomId] };
+                                    delete roomData[fieldId];
+                                    newData[roomId] = roomData;
+                                }
+                            });
+                            return { ...apt, data: newData };
+                        })
+                    }));
+                    setProjects(updatedProjects);
+                    localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                    
+                    alert('Alan ve tüm veriler tüm mekanlardan kaldırıldı!');
+                }
+            };
+
+            const editField = (fieldId) => {
+                if (fieldId === 'foto') {
+                    alert('Fotograf alani duzenlenemez!');
+                    return;
+                }
+                
+                const field = fieldLabels[fieldId];
+                const label = prompt('Alan Adi:', field.label);
+                if (!label || !label.trim()) return;
+                
+                const unit = prompt('Birim (OPSIYONEL, bos birakilabilir):', field.unit);
+                
+                const category = prompt('Kategori:', field.category);
+                if (!category || !category.trim()) return;
+                
+                const newFieldLabels = {
+                    ...fieldLabels,
+                    [fieldId]: {
+                        label: label.trim(),
+                        unit: unit ? unit.trim() : '',
+                        category: category.trim()
+                    }
+                };
+                
+                setFieldLabels(newFieldLabels);
+                localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
+                alert('Alan guncellendi!');
+            };
+
+            const addCustomRoom = () => {
+                const name = prompt('Yeni mekan adi:');
+                if (!name || !name.trim()) return;
+                
+                // fieldLabels'dan dinamik olarak alan listesi oluştur
+                const availableFields = Object.entries(fieldLabels).map(([id, field], index) => ({
+                    id,
+                    label: field.label,
+                    number: index + 1
+                }));
+                
+                // Prompt metnini dinamik oluştur
+                let promptText = 'Hangi alanlari eklemek istiyorsunuz?\n\n';
+                
+                // Alanları listele (her satırda 3 alan)
+                availableFields.forEach((field, idx) => {
+                    promptText += field.number + '=' + field.label;
+                    if ((idx + 1) % 3 === 0) {
+                        promptText += '\n';
+                    } else {
+                        promptText += ', ';
+                    }
+                });
+                
+                promptText += '\n\nOrnekler:\n';
+                promptText += '- "1,2" = Zemin + Boya\n';
+                promptText += '- Virgülle ayırarak secin\n\n';
+                promptText += 'Seciminiz:';
+                
+                let selectedFields = ['zemin', 'boya', 'foto']; // Varsayılan
+                const selection = prompt(promptText, '1,2');
+                
+                if (selection) {
+                    const nums = selection.split(',').map(n => parseInt(n.trim()));
+                    
+                    // Numara -> ID mapping
+                    selectedFields = nums.map(num => {
+                        const found = availableFields.find(f => f.number === num);
+                        return found ? found.id : null;
+                    }).filter(f => f !== null);
+                    
+                    if (selectedFields.length === 0) selectedFields = ['zemin', 'boya', 'foto'];
+                }
+                
+                const id = 'custom_' + Date.now();
+                const newRoom = { id, name: name.trim(), fields: selectedFields, custom: true };
+                const updated = [...customRooms, newRoom];
+                setCustomRooms(updated);
+                localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                setCurrentRoom(id);
+                
+                // Toplu ekleme seçeneği
+                const applyChoice = prompt(
+                    'Bu mekani nereye eklemek istiyorsunuz?\n\n' +
+                    '1 = Sadece bu daire\n' +
+                    '2 = Bu projedeki TUM daireler\n' +
+                    '3 = TUM projeler, TUM daireler\n\n' +
+                    'Seciminiz (1/2/3):',
+                    '1'
+                );
+                
+                if (applyChoice === '2') {
+                    // Bu projedeki tüm dairelere ekle
+                    const currentProj = getProject();
+                    const confirmMsg = currentProj.name + ' projesindeki ' + currentProj.apartments.length + ' daireye "' + name.trim() + '" mekani eklensin mi?';
+                    if (confirm(confirmMsg)) {
+                        const updatedApts = currentProj.apartments.map(apt => ({
+                            ...apt,
+                            wallCount: { ...apt.wallCount, [id]: selectedFields.includes('duvar_kaplama') ? 1 : 0 }
+                        }));
+                        updateProjects(projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p));
+                        alert('Eklendi! ' + currentProj.apartments.length + ' daireye "' + name.trim() + '" mekani eklendi.');
+                    }
+                } else if (applyChoice === '3') {
+                    // Tüm projelerdeki tüm dairelere ekle
+                    let totalApts = 0;
+                    projects.forEach(p => { totalApts += p.apartments.length; });
+                    const confirmMsg = 'TUM projelerdeki ' + totalApts + ' daireye "' + name.trim() + '" mekani eklensin mi?';
+                    if (confirm(confirmMsg)) {
+                        const updatedProjects = projects.map(proj => ({
+                            ...proj,
+                            apartments: proj.apartments.map(apt => ({
+                                ...apt,
+                                wallCount: { ...apt.wallCount, [id]: selectedFields.includes('duvar_kaplama') ? 1 : 0 }
+                            }))
+                        }));
+                        setProjects(updatedProjects);
+                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        alert('Eklendi! ' + totalApts + ' daireye "' + name.trim() + '" mekani eklendi.');
+                    }
+                }
+                
+                alert('Mekan olusturuldu!\nEklenen alanlar:\n' + selectedFields.map(f => fieldNames[f] || f).join('\n'));
+            };
+
+            const editRoomName = (roomId) => {
+                const room = allRooms.find(r => r.id === roomId);
+                if (!room) {
+                    alert('Mekan bulunamadi!');
+                    return;
+                }
+                
+                const newName = prompt('Yeni mekan adi:', room.name);
+                if (newName && newName.trim()) {
+                    if (room.custom) {
+                        // Özel mekan
+                        const updated = customRooms.map(r => r.id === roomId ? { ...r, name: newName.trim() } : r);
+                        setCustomRooms(updated);
+                        localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                    } else {
+                        // Varsayılan mekan
+                        const updated = baseRooms.map(r => r.id === roomId ? { ...r, name: newName.trim() } : r);
+                        setBaseRooms(updated);
+                        localStorage.setItem('base_rooms', JSON.stringify(updated));
+                    }
+                }
+            };
+
+            const copyRoom = (roomId) => {
+                const room = allRooms.find(r => r.id === roomId);
+                if (!room) {
+                    alert('Mekan bulunamadi!');
+                    return;
+                }
+                
+                const newName = prompt('Yeni mekan adi:', room.name + ' Kopya');
+                if (!newName || !newName.trim()) return;
+                
+                const newId = 'custom_' + Date.now();
+                const newRoom = {
+                    id: newId,
+                    name: newName.trim(),
+                    fields: [...room.fields],
+                    custom: true
+                };
+                
+                const updated = [...customRooms, newRoom];
+                setCustomRooms(updated);
+                localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                
+                // Toplu ekleme seçeneği
+                const applyChoice = prompt(
+                    'Bu mekani nereye eklemek istiyorsunuz?\n\n' +
+                    '1 = Sadece bu daire\n' +
+                    '2 = Bu projedeki TUM daireler\n' +
+                    '3 = TUM projeler, TUM daireler\n\n' +
+                    'Seciminiz (1/2/3):',
+                    '1'
+                );
+                
+                if (applyChoice === '2') {
+                    const currentProj = getProject();
+                    if (confirm(currentProj.name + ' projesindeki ' + currentProj.apartments.length + ' daireye "' + newName.trim() + '" mekani eklensin mi?')) {
+                        const updatedApts = currentProj.apartments.map(apt => ({
+                            ...apt,
+                            wallCount: { ...apt.wallCount, [newId]: room.fields.includes('duvar_kaplama') ? 1 : 0 }
+                        }));
+                        updateProjects(projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p));
+                        alert('Eklendi! ' + currentProj.apartments.length + ' daireye "' + newName.trim() + '" mekani eklendi.');
+                    }
+                } else if (applyChoice === '3') {
+                    let totalApts = 0;
+                    projects.forEach(p => { totalApts += p.apartments.length; });
+                    if (confirm('TUM projelerdeki ' + totalApts + ' daireye "' + newName.trim() + '" mekani eklensin mi?')) {
+                        const updatedProjects = projects.map(proj => ({
+                            ...proj,
+                            apartments: proj.apartments.map(apt => ({
+                                ...apt,
+                                wallCount: { ...apt.wallCount, [newId]: room.fields.includes('duvar_kaplama') ? 1 : 0 }
+                            }))
+                        }));
+                        setProjects(updatedProjects);
+                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        alert('Eklendi! ' + totalApts + ' daireye "' + newName.trim() + '" mekani eklendi.');
+                    }
+                }
+                
+                setCurrentRoom(newId);
+                alert('Mekan kopyalandi!\n\n"' + room.name + '" -> "' + newName.trim() + '"\n\nAlanlar: ' + room.fields.length + ' adet');
+            };
+
+            const editRoomFields = (roomId) => {
+                const room = allRooms.find(r => r.id === roomId);
+                if (!room) {
+                    alert('Mekan bulunamadi!');
+                    return;
+                }
+                
+                // fieldLabels'dan dinamik olarak alan listesi oluştur
+                const availableFields = Object.entries(fieldLabels).map(([id, field], index) => ({
+                    id,
+                    label: field.label,
+                    number: index + 1
+                }));
+                
+                // Mevcut alanları göster
+                const currentFieldsText = room.fields.map(f => {
+                    const field = fieldLabels[f];
+                    return field ? field.label : f;
+                }).join(', ');
+                
+                // Prompt metnini dinamik oluştur
+                let promptText = room.name + ' - Mevcut alanlar:\n' + currentFieldsText + '\n\n' +
+                    'Yeni alan secimi:\n\n';
+                
+                // Alanları listele (her satırda 3 alan)
+                availableFields.forEach((field, idx) => {
+                    promptText += field.number + '=' + field.label;
+                    if ((idx + 1) % 3 === 0) {
+                        promptText += '\n';
+                    } else {
+                        promptText += ', ';
+                    }
+                });
+                
+                promptText += '\n\nSeciminiz (virgülle ayırın):';
+                
+                // Mevcut alanları numara olarak göster
+                const currentFieldNumbers = room.fields.map(f => {
+                    const found = availableFields.find(af => af.id === f);
+                    return found ? found.number : null;
+                }).filter(n => n !== null).join(',');
+                
+                const selection = prompt(promptText, currentFieldNumbers);
+                
+                if (selection) {
+                    const nums = selection.split(',').map(n => parseInt(n.trim()));
+                    
+                    // Numara -> ID mapping
+                    let newFields = nums.map(num => {
+                        const found = availableFields.find(f => f.number === num);
+                        return found ? found.id : null;
+                    }).filter(f => f !== null);
+                    
+                    if (newFields.length === 0) newFields = ['zemin', 'boya'];
+                    
+                    if (room.custom) {
+                        // Özel mekan - customRooms'da güncelle
+                        const updated = customRooms.map(r => r.id === roomId ? { ...r, fields: newFields } : r);
+                        setCustomRooms(updated);
+                        localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                    } else {
+                        // Varsayılan mekan - baseRooms'da güncelle
+                        const updated = baseRooms.map(r => r.id === roomId ? { ...r, fields: newFields } : r);
+                        setBaseRooms(updated);
+                        localStorage.setItem('base_rooms', JSON.stringify(updated));
+                    }
+                    
+                    // Güncellenen alanları göster
+                    const updatedFieldNames = newFields.map(f => {
+                        const field = fieldLabels[f];
+                        return field ? field.label : f;
+                    }).join('\n');
+                    
+                    alert('Guncellenen alanlar:\n' + updatedFieldNames);
+                }
+            };
+
+            const deleteRoom = (roomId) => {
+                const room = allRooms.find(r => r.id === roomId);
+                if (!room) {
+                    alert('Mekan bulunamadi!');
+                    return;
+                }
+                
+                const deleteChoice = prompt(
+                    '"' + room.name + '" mekanini nereden silmek istiyorsunuz?\n\n' +
+                    '1 = Sadece bu daire (listeden KALKAR + veriler silinir)\n' +
+                    '2 = Bu projedeki TUM daireler (listeden KALKAR)\n' +
+                    '3 = TUM projeler, TUM daireler (mekani TAMAMEN sil)\n' +
+                    '4 = IPTAL\n\n' +
+                    'Seciminiz (1/2/3/4):',
+                    '1'
+                );
+                
+                if (deleteChoice === '1') {
+                    // Sadece bu daireden tamamen kaldır (listeden + veriler)
+                    console.log('SECENEK 1 - Basladi');
+                    console.log('roomId:', roomId);
+                    console.log('currentApt:', currentApt);
+                    console.log('currentPrj:', currentPrj);
+                    
+                    if (confirm('Bu daireden "' + room.name + '" mekani TAMAMEN kaldirilacak (listeden de gidecek). Diger daireler etkilenmez. Devam?')) {
+                        console.log('Onaylandi, isleme baslaniyor...');
+                        const currentProj = getProject();
+                        
+                        const updatedApts = currentProj.apartments.map(a => {
+                            if (a.id === currentApt) {
+                                console.log('Daire bulundu, silme yapiliyor:', a.name);
+                                
+                                // Veriyi sil
+                                const newData = { ...a.data };
+                                delete newData[roomId];
+                                
+                                // Duvar sayısını sil
+                                const newWallCount = { ...a.wallCount };
+                                delete newWallCount[roomId];
+                                
+                                // Gizli mekanlar listesine ekle
+                                const newHiddenRooms = [...(a.hiddenRooms || [])];
+                                if (!newHiddenRooms.includes(roomId)) {
+                                    newHiddenRooms.push(roomId);
+                                }
+                                
+                                console.log('Yeni data:', newData);
+                                console.log('Gizli mekanlar:', newHiddenRooms);
+                                
+                                return { ...a, data: newData, wallCount: newWallCount, hiddenRooms: newHiddenRooms };
+                            }
+                            return a;
+                        });
+                        
+                        console.log('updatedApts:', updatedApts);
+                        const updatedProjects = projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p);
+                        console.log('updatedProjects:', updatedProjects);
+                        
+                        setProjects(updatedProjects);
+                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        console.log('State ve localStorage guncellendi');
+                        
+                        setCurrentRoom('salon');
+                        alert('Mekan bu daireden TAMAMEN kaldirildi! Diger daireler etkilenmedi.');
+                        console.log('SECENEK 1 - Tamamlandi');
+                    } else {
+                        console.log('Kullanici iptal etti');
+                    }
+                } else if (deleteChoice === '2') {
+                    // Bu projedeki tüm dairelerden tamamen kaldır
+                    const currentProj = getProject();
+                    if (confirm(currentProj.name + ' projesindeki ' + currentProj.apartments.length + ' daireden "' + room.name + '" mekani TAMAMEN kaldirilsin mi?')) {
+                        const updatedApts = currentProj.apartments.map(apt => {
+                            // Veriyi sil
+                            const newData = { ...apt.data };
+                            delete newData[roomId];
+                            
+                            // Duvar sayısını sil
+                            const newWallCount = { ...apt.wallCount };
+                            delete newWallCount[roomId];
+                            
+                            // Gizli mekanlar listesine ekle
+                            const newHiddenRooms = [...(apt.hiddenRooms || [])];
+                            if (!newHiddenRooms.includes(roomId)) {
+                                newHiddenRooms.push(roomId);
+                            }
+                            
+                            return { ...apt, data: newData, wallCount: newWallCount, hiddenRooms: newHiddenRooms };
+                        });
+                        const updatedProjects = projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p);
+                        setProjects(updatedProjects);
+                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        setCurrentRoom('salon');
+                        alert('Mekan bu projedeki tum dairelerden TAMAMEN kaldirildi!');
+                    }
+                } else if (deleteChoice === '3') {
+                    // Tüm projelerden tamamen sil
+                    let totalApts = 0;
+                    projects.forEach(p => { totalApts += p.apartments.length; });
+                    if (confirm('TUM projelerdeki ' + totalApts + ' daireden "' + room.name + '" mekani tamamen silinecek. Devam?')) {
+                        // Önce tüm dairelerden verileri temizle
+                        const updatedProjects = projects.map(proj => ({
+                            ...proj,
+                            apartments: proj.apartments.map(apt => {
+                                const newData = { ...apt.data };
+                                delete newData[roomId];
+                                const newWallCount = { ...apt.wallCount };
+                                delete newWallCount[roomId];
+                                return { ...apt, data: newData, wallCount: newWallCount };
+                            })
+                        }));
+                        setProjects(updatedProjects);
+                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        
+                        // Sonra mekanı tamamen sil
+                        if (room.custom) {
+                            const updated = customRooms.filter(r => r.id !== roomId);
+                            setCustomRooms(updated);
+                            localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                        } else {
+                            const updated = baseRooms.filter(r => r.id !== roomId);
+                            setBaseRooms(updated);
+                            localStorage.setItem('base_rooms', JSON.stringify(updated));
+                        }
+                        
+                        setCurrentRoom('salon');
+                        alert('Mekan tamamen silindi! ' + totalApts + ' daireden tum veriler temizlendi.');
+                    }
+                }
+                // 4 veya başka bir değer = İptal (hiçbir şey yapma)
+            };
+
+            const updateField = (field, value) => {
+                updateApartments(apartments.map(a => {
+                    if (a.id === currentApt) {
+                        return { ...a, data: { ...a.data, [currentRoom]: { ...a.data[currentRoom], [field]: value } } };
+                    }
+                    return a;
+                }));
+            };
+
+            const updateWallCover = (idx, type, val) => {
+                const current = getRoomData().duvar_kaplama || {};
+                const updated = { ...current, [idx]: { ...current[idx], [type]: val } };
+                updateField('duvar_kaplama', updated);
+            };
+
+            const addWallCover = () => {
+                const rd = getRoomData();
+                const currentWalls = rd.duvar_kaplama || {};
+                const currentCount = getApt().wallCount && getApt().wallCount[currentRoom] ? getApt().wallCount[currentRoom] : 1;
+                
+                // Yeni duvar için boş object ekle
+                const newWalls = { ...currentWalls };
+                newWalls[currentCount] = {}; // Yeni index için boş object
+                
+                updateField('duvar_kaplama', newWalls);
+                
+                // wallCount'u artır
+                updateApartments(apartments.map(a => {
+                    if (a.id === currentApt) {
+                        return { ...a, wallCount: { ...a.wallCount, [currentRoom]: currentCount + 1 } };
+                    }
+                    return a;
+                }));
+            };
+
+            const uploadPhoto = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (file.size > 5000000) { alert('Max 5MB!'); return; }
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const rd = getRoomData();
+                    const photos = rd.foto || {};
+                    updateField('foto', { ...photos, [Object.keys(photos).length]: ev.target.result });
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+            };
+
+            const delPhoto = (idx) => {
+                const photos = { ...getRoomData().foto };
+                delete photos[idx];
+                updateField('foto', Object.keys(photos).length > 0 ? photos : undefined);
+            };
+
+            const addMaterial = (cat, name) => {
+                const newMat = { ...materials };
+                if (Array.isArray(materials[cat])) {
+                    newMat[cat] = [...materials[cat], name];
+                } else {
+                    // Hiyerarşik yapı - kullanılmıyor artık, UI'dan direkt ekleniyor
+                    return;
+                }
+                setMaterials(newMat);
+                localStorage.setItem('material_database', JSON.stringify(newMat));
+            };
+
+            const deleteMaterial = (cat, name) => {
+                if (confirm('Bu malzemeyi silmek istediginize emin misiniz?\n\nKategori: ' + cat + '\nMalzeme: ' + name)) {
+                    const newMat = { ...materials };
+                    if (Array.isArray(materials[cat])) {
+                        newMat[cat] = materials[cat].filter(m => m !== name);
+                    }
+                    setMaterials(newMat);
+                    localStorage.setItem('material_database', JSON.stringify(newMat));
+                }
+            };
+
+            const exportData = () => {
+                const exportObj = {
+                    projects: projects,
+                    customRooms: customRooms,
+                    baseRooms: baseRooms,
+                    fieldLabels: fieldLabels,
+                    materials: materials,
+                    exportDate: new Date().toISOString(),
+                    version: '1.0'
+                };
+                const dataStr = JSON.stringify(exportObj, null, 2);
+                const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(dataBlob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'malzeme_sistemi_yedek_' + new Date().toISOString().split('T')[0] + '.json';
+                link.click();
+                URL.revokeObjectURL(url);
+                alert('Veriler indirildi! Bu dosyayi baska cihazda yukleyebilirsiniz.');
+            };
+
+            const importData = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.json';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        try {
+                            const imported = JSON.parse(ev.target.result);
+                            if (!imported.projects || !Array.isArray(imported.projects)) {
+                                alert('Gecersiz dosya formati!');
+                                return;
+                            }
+                            if (confirm('Mevcut veriler silinecek ve yukleyeceginiz veriler ile degistirilecek. Devam etmek istiyor musunuz?\n\n(Oneri: Once mevcut verilerinizi yedegin disa aktarin)')) {
+                                setProjects(imported.projects || []);
+                                setCustomRooms(imported.customRooms || []);
+                                setBaseRooms(imported.baseRooms || DEFAULT_ROOMS);
+                                setFieldLabels(imported.fieldLabels || DEFAULT_FIELD_LABELS);
+                                setMaterials(imported.materials || DEFAULT_MATERIALS);
+                                localStorage.setItem('projects_data', JSON.stringify(imported.projects));
+                                localStorage.setItem('custom_rooms', JSON.stringify(imported.customRooms || []));
+                                localStorage.setItem('base_rooms', JSON.stringify(imported.baseRooms || DEFAULT_ROOMS));
+                                localStorage.setItem('field_labels', JSON.stringify(imported.fieldLabels || DEFAULT_FIELD_LABELS));
+                                localStorage.setItem('material_database', JSON.stringify(imported.materials || DEFAULT_MATERIALS));
+                                if (imported.projects[0]) {
+                                    setCurrentPrj(imported.projects[0].id);
+                                    if (imported.projects[0].apartments[0]) {
+                                        setCurrentApt(imported.projects[0].apartments[0].id);
+                                    }
+                                }
+                                alert('Veriler basariyla yuklendi!\nProje sayisi: ' + imported.projects.length + '\nOzel mekan sayisi: ' + (imported.customRooms?.length || 0));
+                            }
+                        } catch (err) {
+                            alert('Dosya okunamadi! Hata: ' + err.message);
+                        }
+                    };
+                    reader.readAsText(file);
+                };
+                input.click();
+            };
+
+            const downloadExcel = () => {
+                const wb = XLSX.utils.book_new();
+                const proj = getProject();
+                
+                // GENEL ÖZET SAYFASI
+                const summaryData = [
+                    ['═══════════════════════════════════════════════════════════'],
+                    ['📊 PROJE ÖZET RAPORU'],
+                    ['═══════════════════════════════════════════════════════════'],
+                    [],
+                    ['🏢 Proje Adı:', proj.name],
+                    ['📅 Rapor Tarihi:', new Date().toLocaleDateString('tr-TR')],
+                    ['🏠 Toplam Daire Sayısı:', proj.apartments.length],
+                    [],
+                    ['─────────────────────────────────────────────────────────────'],
+                    ['📋 DAİRE LİSTESİ'],
+                    ['─────────────────────────────────────────────────────────────'],
+                    ['No', 'Daire Adı', 'Mekan Sayısı', 'Malzeme Sayısı', 'Fotoğraf Sayısı']
+                ];
+                
+                proj.apartments.forEach((apt, idx) => {
+                    let mekanSayisi = 0;
+                    let malzemeSayisi = 0;
+                    let fotoSayisi = 0;
+                    
+                    allRooms.forEach(room => {
+                        const rd = apt.data[room.id];
+                        if (rd) {
+                            mekanSayisi++;
+                            room.fields.forEach(f => {
+                                if (f === 'foto') {
+                                    fotoSayisi += Object.keys(rd.foto || {}).length;
+                                } else if (f === 'duvar_kaplama' && rd[f]) {
+                                    malzemeSayisi += Object.values(rd[f]).filter(v => v && v.malzeme).length;
+                                } else if (rd[f] && rd[f].malzeme) {
+                                    malzemeSayisi++;
+                                }
+                            });
+                        }
+                    });
+                    
+                    summaryData.push([idx + 1, apt.name, mekanSayisi, malzemeSayisi, fotoSayisi]);
+                });
+                
+                const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+                summaryWs['!cols'] = [{ wch: 5 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+                summaryWs['!rows'] = [
+                    { hpt: 5 },  // Üst çizgi
+                    { hpt: 25 }, // Başlık
+                    { hpt: 5 },  // Alt çizgi
+                    { hpt: 10 }, // Boşluk
+                    { hpt: 18 }, // Proje adı
+                    { hpt: 18 }, // Tarih
+                    { hpt: 18 }, // Daire sayısı
+                    { hpt: 10 }, // Boşluk
+                    { hpt: 5 },  // Ayırıcı çizgi
+                    { hpt: 20 }, // Alt başlık
+                    { hpt: 5 },  // Ayırıcı çizgi
+                    { hpt: 20 }  // Tablo başlıkları
+                ];
+                // Başlık satırını birleştir
+                if (!summaryWs['!merges']) summaryWs['!merges'] = [];
+                summaryWs['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }); // Üst çizgi
+                summaryWs['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 4 } }); // Başlık
+                summaryWs['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 4 } }); // Alt çizgi
+                summaryWs['!merges'].push({ s: { r: 8, c: 0 }, e: { r: 8, c: 4 } }); // Ayırıcı
+                summaryWs['!merges'].push({ s: { r: 9, c: 0 }, e: { r: 9, c: 4 } }); // Alt başlık
+                summaryWs['!merges'].push({ s: { r: 10, c: 0 }, e: { r: 10, c: 4 } }); // Ayırıcı
+                // Otomatik filtre ekleme (tablo başlık satırı = 11. satır, index 11)
+                summaryWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 11, c: 0 }, e: { r: 11 + proj.apartments.length, c: 4 } }) };
+                XLSX.utils.book_append_sheet(wb, summaryWs, '📊 ÖZET');
+                
+                // PROJE TOPLAM MALZEME LİSTESİ
+                const allMaterials = {};
+                proj.apartments.forEach(apt => {
+                    allRooms.forEach(room => {
+                        const rd = apt.data[room.id];
+                        if (!rd) return;
+                        room.fields.forEach(f => {
+                            if (f === 'foto') return;
+                            const fc = fieldLabels[f];
+                            if (!fc) return; // Alan tanımı yoksa atla
+                            if (!rd[f]) return; // Veri yoksa atla
+                            
+                            if (f === 'duvar_kaplama' && rd[f]) {
+                                // wallCount'a göre sadece o kadar duvar say
+                                const wallCount = apt.wallCount && apt.wallCount[room.id] ? apt.wallCount[room.id] : 1;
+                                for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
+                                    const v = rd[f][wallIdx];
+                                    if (v && v.malzeme) {
+                                        const subgroup = v.subgroup || '-';
+                                        const materialKey = fc.category + '|' + subgroup + '|' + v.malzeme + '|' + (fc.unit || '');
+                                        allMaterials[materialKey] = (allMaterials[materialKey] || 0) + parseFloat(v.miktar || 0);
+                                    }
+                                }
+                            } else if (rd[f] && rd[f].malzeme) {
+                                const subgroup = rd[f].subgroup || '-';
+                                const key = fc.category + '|' + subgroup + '|' + rd[f].malzeme + '|' + (fc.unit || '');
+                                allMaterials[key] = (allMaterials[key] || 0) + parseFloat(rd[f].miktar || 0);
+                            }
+                        });
+                    });
+                });
+                
+                const totalData = [
+                    ['═══════════════════════════════════════════════════════════════════'],
+                    ['📦 PROJE TOPLAM MALZEME LİSTESİ'],
+                    ['═══════════════════════════════════════════════════════════════════'],
+                    [],
+                    ['🏢 Proje:', proj.name],
+                    ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')],
+                    [],
+                    ['─────────────────────────────────────────────────────────────────────'],
+                    ['KATEGORİ', 'ALT GRUP', 'MALZEME', 'TOPLAM MİKTAR', 'BİRİM']
+                ];
+                
+                Object.keys(allMaterials).sort().forEach(key => {
+                    const [category, subgroup, material, unit] = key.split('|');
+                    // Sayıyı number olarak tut, Excel'de görünmesi için
+                    totalData.push([category, subgroup, material, parseFloat(allMaterials[key].toFixed(2)), unit]);
+                });
+                
+                const totalWs = XLSX.utils.aoa_to_sheet(totalData);
+                totalWs['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 35 }, { wch: 15 }, { wch: 10 }];
+                if (!totalWs['!merges']) totalWs['!merges'] = [];
+                totalWs['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }); // Üst çizgi
+                totalWs['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 4 } }); // Başlık
+                totalWs['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 4 } }); // Alt çizgi
+                totalWs['!merges'].push({ s: { r: 7, c: 0 }, e: { r: 7, c: 4 } }); // Ayırıcı
+                // Otomatik filtre (tablo başlık satırı = 8. satır, index 8)
+                const totalDataRows = totalData.length - 1; // Veri satır sayısı
+                totalWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: totalDataRows, c: 4 } }) };
+                XLSX.utils.book_append_sheet(wb, totalWs, '📦 TOPLAM MALZEME');
+                
+                // HER DAİRE İÇİN AYRI SAYFA
+                proj.apartments.forEach(apt => {
+                    const data = [
+                        ['═══════════════════════════════════════════════════════════════════════'],
+                        ['🏠 ' + apt.name.toUpperCase() + ' - DETAYLI MALZEME LİSTESİ'],
+                        ['═══════════════════════════════════════════════════════════════════════'],
+                        [],
+                        ['🏢 Proje:', proj.name],
+                        ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')],
+                        [],
+                        ['─────────────────────────────────────────────────────────────────────────'],
+                        ['MEKAN', 'TÜR', 'ALT GRUP', 'MALZEME', 'MİKTAR', 'BİRİM']
+                    ];
+                    
+                    let hasData = false;
+                    allRooms.forEach(room => {
+                        const rd = apt.data[room.id];
+                        if (!rd) return;
+                        
+                        let roomHasData = false;
+                        const roomData = [];
+                        
+                        room.fields.forEach(f => {
+                            if (f === 'foto') return;
+                            const fc = fieldLabels[f];
+                            if (!fc) return; // Alan tanımı yoksa atla
+                            if (!rd[f]) return; // Veri yoksa atla
+                            
+                            if (f === 'duvar_kaplama' && rd[f]) {
+                                // wallCount'a göre sadece o kadar duvar yaz
+                                const wallCount = apt.wallCount && apt.wallCount[room.id] ? apt.wallCount[room.id] : 1;
+                                for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
+                                    const v = rd[f][wallIdx];
+                                    if (v && v.malzeme) {
+                                        const miktar = v.miktar ? (isNaN(v.miktar) ? v.miktar : parseFloat(v.miktar)) : '-';
+                                        const subgroup = v.subgroup || '-';
+                                        roomData.push([room.name, fc.label + ' ' + (wallIdx + 1), subgroup, v.malzeme, miktar, fc.unit || '']);
+                                        roomHasData = true;
+                                    }
+                                }
+                            } else if (rd[f] && rd[f].malzeme) {
+                                const miktar = rd[f].miktar ? (isNaN(rd[f].miktar) ? rd[f].miktar : parseFloat(rd[f].miktar)) : '-';
+                                const subgroup = rd[f].subgroup || '-';
+                                roomData.push([room.name, fc.label, subgroup, rd[f].malzeme, miktar, fc.unit || '']);
+                                roomHasData = true;
+                            }
+                        });
+                        
+                        if (roomHasData) {
+                            data.push(...roomData);
+                            hasData = true;
+                        }
+                    });
+                    
+                    if (hasData) {
+                        // Fotoğraf sayısı bilgisi ekle
+                        let totalPhotos = 0;
+                        allRooms.forEach(room => {
+                            const rd = apt.data[room.id];
+                            if (rd && rd.foto) {
+                                totalPhotos += Object.keys(rd.foto).length;
+                            }
+                        });
+                        
+                        if (totalPhotos > 0) {
+                            data.push([]);
+                            data.push(['FOTOĞRAF BİLGİSİ']);
+                            allRooms.forEach(room => {
+                                const rd = apt.data[room.id];
+                                if (rd && rd.foto && Object.keys(rd.foto).length > 0) {
+                                    data.push([room.name, 'Fotoğraf', Object.keys(rd.foto).length + ' adet', '', '']);
+                                }
+                            });
+                        }
+                        
+                        const ws = XLSX.utils.aoa_to_sheet(data);
+                        ws['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 18 }, { wch: 32 }, { wch: 12 }, { wch: 10 }];
+                        if (!ws['!merges']) ws['!merges'] = [];
+                        ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }); // Üst çizgi
+                        ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }); // Başlık
+                        ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 5 } }); // Alt çizgi
+                        ws['!merges'].push({ s: { r: 7, c: 0 }, e: { r: 7, c: 5 } }); // Ayırıcı
+                        // Otomatik filtre (tablo başlık satırı = 8. satır)
+                        const dataRows = data.length - 1;
+                        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: dataRows, c: 5 } }) };
+                        XLSX.utils.book_append_sheet(wb, ws, '🏠 ' + apt.name.substring(0, 28));
+                    }
+                });
+                
+                // MEKAN BAZLI ÖZET
+                const roomSummaryData = [
+                    ['═══════════════════════════════════════════════════════════'],
+                    ['🏘️ MEKAN BAZLI MALZEME ÖZET'],
+                    ['═══════════════════════════════════════════════════════════'],
+                    [],
+                    ['🏢 Proje:', proj.name],
+                    [],
+                    ['─────────────────────────────────────────────────────────────'],
+                    ['MEKAN', 'MALZEME TÜRÜ', 'TOPLAM KULLANIM (Daire Sayısı)']
+                ];
+                
+                const roomMaterials = {};
+                proj.apartments.forEach(apt => {
+                    allRooms.forEach(room => {
+                        const rd = apt.data[room.id];
+                        if (!rd) return;
+                        
+                        if (!roomMaterials[room.name]) roomMaterials[room.name] = {};
+                        
+                        room.fields.forEach(f => {
+                            if (f === 'foto') return;
+                            const fc = fieldLabels[f];
+                            if (!fc) return; // Alan tanımı yoksa atla
+                            if (!rd[f]) return; // Veri yoksa atla
+                            
+                            if (f === 'duvar_kaplama' && rd[f]) {
+                                // wallCount'a göre sadece o kadar duvar say
+                                const wallCount = apt.wallCount && apt.wallCount[room.id] ? apt.wallCount[room.id] : 1;
+                                for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
+                                    const v = rd[f][wallIdx];
+                                    if (v && v.malzeme) {
+                                        if (!roomMaterials[room.name][fc.label]) roomMaterials[room.name][fc.label] = 0;
+                                        roomMaterials[room.name][fc.label]++;
+                                    }
+                                }
+                            } else if (rd[f] && rd[f].malzeme) {
+                                if (!roomMaterials[room.name][fc.label]) roomMaterials[room.name][fc.label] = 0;
+                                roomMaterials[room.name][fc.label]++;
+                            }
+                        });
+                    });
+                });
+                
+                Object.keys(roomMaterials).sort().forEach(roomName => {
+                    Object.keys(roomMaterials[roomName]).sort().forEach(materialType => {
+                        roomSummaryData.push([roomName, materialType, roomMaterials[roomName][materialType] + ' daire']);
+                    });
+                });
+                
+                const roomSummaryWs = XLSX.utils.aoa_to_sheet(roomSummaryData);
+                roomSummaryWs['!cols'] = [{ wch: 28 }, { wch: 28 }, { wch: 22 }];
+                if (!roomSummaryWs['!merges']) roomSummaryWs['!merges'] = [];
+                roomSummaryWs['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }); // Üst çizgi
+                roomSummaryWs['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 2 } }); // Başlık
+                roomSummaryWs['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 2 } }); // Alt çizgi
+                roomSummaryWs['!merges'].push({ s: { r: 6, c: 0 }, e: { r: 6, c: 2 } }); // Ayırıcı
+                // Otomatik filtre (tablo başlık satırı = 7. satır)
+                const roomDataRows = roomSummaryData.length - 1;
+                roomSummaryWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 7, c: 0 }, e: { r: roomDataRows, c: 2 } }) };
+                XLSX.utils.book_append_sheet(wb, roomSummaryWs, '🏘️ MEKAN ÖZET');
+                
+                XLSX.writeFile(wb, proj.name + '_detayli_rapor_' + new Date().toISOString().split('T')[0] + '.xlsx');
+                alert('✅ Detaylı Excel raporu oluşturuldu!\n\n📊 Sayfalar:\n- 📊 ÖZET\n- 📦 TOPLAM MALZEME (Alt gruplu)\n- 🏘️ MEKAN ÖZET\n- 🏠 Her daire için ayrı sayfa\n\n✨ Özellikler:\n✅ Profesyonel görünüm\n✅ Hiyerarşik malzeme yapısı\n🔍 Otomatik filtreler (tüm sayfalarda)');
+            };
+
+            const generatePrintForm = () => {
+                const apt = getApt();
+                const proj = getProject();
+                const photoSize = prompt('Fotograf boyutu:\n1=Kucuk(200px) 2=Orta(300px) 3=Buyuk(400px) 4=CokBuyuk(500px)', '3');
+                const size = { '1': 200, '2': 300, '3': 400, '4': 500 }[photoSize] || 400;
+                
+                let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + proj.name + ' - ' + apt.name + '</title><style>';
+                html += 'body{font-family:Arial;margin:40px}h1{text-align:center;color:#2563eb;border-bottom:3px solid #2563eb;padding-bottom:10px}';
+                html += 'h2{color:#1e40af;margin-top:30px;border-bottom:2px solid #ddd}table{width:100%;border-collapse:collapse;margin:20px 0}';
+                html += 'th,td{border:1px solid #ddd;padding:12px}th{background:#2563eb;color:white}tr:nth-child(even){background:#f8f9fa}';
+                html += '.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(' + size + 'px,1fr));gap:20px;margin:20px 0}';
+                html += '.photo-item{border:3px solid #ddd;padding:15px;text-align:center;border-radius:8px}';
+                html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:5px}';
+                html += '.print-btn{position:fixed;top:20px;right:20px;background:#2563eb;color:white;padding:15px 30px;cursor:pointer;border-radius:5px}';
+                html += '@media print{.print-btn{display:none}}</style></head><body>';
+                html += '<button class="print-btn" onclick="window.print()">Yazdir/PDF</button>';
+                html += '<h1>MALZEME ONAY FORMU</h1><div style="text-align:center;font-size:20px;margin-bottom:30px">' + proj.name + ' - ' + apt.name + '<br>Tarih: ' + new Date().toLocaleDateString('tr-TR') + '</div>';
+                
+                allRooms.forEach(room => {
+                    const rd = apt.data[room.id];
+                    if (!rd) return;
+                    html += '<h2>' + room.name + '</h2><table><tr><th>Tur</th><th>Alt Grup</th><th>Malzeme</th><th>Miktar/Detay</th><th>Birim</th></tr>';
+                    room.fields.forEach(f => {
+                        if (f === 'foto') return;
+                        const fc = fieldLabels[f];
+                        if (!fc) return; // Alan tanımı yoksa atla
+                        if (!rd[f]) return; // Veri yoksa atla
+                        
+                        if (f === 'duvar_kaplama' && rd[f]) {
+                            // wallCount'a göre sadece o kadar duvar yaz
+                            const wallCount = apt.wallCount && apt.wallCount[room.id] ? apt.wallCount[room.id] : 1;
+                            for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
+                                const v = rd[f][wallIdx];
+                                if (v && v.malzeme) {
+                                    const subgroup = v.subgroup || '-';
+                                    html += '<tr><td>' + fc.label + ' ' + (wallIdx + 1) + '</td><td>' + subgroup + '</td><td>' + v.malzeme + '</td><td>' + (v.miktar || '-') + '</td><td>' + (fc.unit || '-') + '</td></tr>';
+                                }
+                            }
+                        } else if (rd[f] && rd[f].malzeme) {
+                            const subgroup = rd[f].subgroup || '-';
+                            html += '<tr><td>' + fc.label + '</td><td>' + subgroup + '</td><td>' + rd[f].malzeme + '</td><td>' + (rd[f].miktar || '-') + '</td><td>' + (fc.unit || '-') + '</td></tr>';
+                        }
+                    });
+                    html += '</table>';
+                    if (rd.foto && Object.keys(rd.foto).length > 0) {
+                        html += '<h3>Fotograflar</h3><div class="photo-grid">';
+                        Object.values(rd.foto).forEach((p, i) => {
+                            if (p) html += '<div class="photo-item"><img src="' + p + '"><div>Foto ' + (i + 1) + '</div></div>';
+                        });
+                        html += '</div>';
+                    }
+                });
+                html += '<div style="margin-top:50px;border-top:2px solid #333;padding-top:30px"><h2>ONAY</h2><p>Belirtilen malzemeleri onayliyorum.</p><br><br>';
+                html += 'Daire Sahibi: _____________________ Imza: _____________________ Tarih: _____________________</div></body></html>';
+                
+                const w = window.open('', '_blank');
+                w.document.write(html);
+                w.document.close();
+            };
+
+            const renderField = (f) => {
+                const data = getRoomData();
+                const fc = fieldLabels[f];
+                if (!fc) return null; // Alan tanımı yoksa gösterme
+                const opts = materials[fc.category] || [];
+
+                if (f === 'foto') {
+                    const photos = Object.entries(data.foto || {}).filter(([_, p]) => p);
+                    return (
+                        <div key="foto" className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 border border-purple-100">
+                            <label className="block text-sm font-semibold text-purple-900 mb-4 flex items-center gap-2">
+                                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                </svg>
+                                Fotoğraflar
+                                <span className="ml-auto bg-purple-600 text-white text-xs px-2.5 py-1 rounded-full">{photos.length}</span>
+                            </label>
+                            <input type="file" accept="image/*" onChange={uploadPhoto} className="hidden" id="file-up" />
+                            <label htmlFor="file-up" className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg cursor-pointer hover:from-purple-700 hover:to-pink-700 shadow-md hover:shadow-lg transition-all">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                Fotoğraf Ekle
+                            </label>
+                            {photos.length > 0 && (
+                                <div className="grid grid-cols-3 gap-3 mt-4">
+                                    {photos.map(([i, p]) => (
+                                        <div key={i} className="relative group">
+                                            <img src={p} className="w-full h-32 object-cover rounded-lg cursor-pointer border-2 border-transparent hover:border-purple-400 transition-all shadow-sm" onClick={() => setLightbox(p)} />
+                                            <button onClick={() => delPhoto(i)} className="absolute top-2 right-2 bg-red-500 text-white w-7 h-7 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg hover:bg-red-600 flex items-center justify-center">×</button>
+                                            <div className="absolute bottom-2 left-2 bg-black bg-opacity-60 text-white text-xs px-2 py-1 rounded">#{parseInt(i) + 1}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    );
+                }
+
+                if (f === 'duvar_kaplama') {
+                    const count = getApt().wallCount[currentRoom] || 1;
+                    const categoryData = materials[fc.category] || {};
+                    const isHierarchical = typeof categoryData === 'object' && !Array.isArray(categoryData);
+                    
+                    return (
+                        <div key={f} className="bg-gradient-to-br from-orange-50 to-yellow-50 rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 border border-orange-100">
+                            <div className="flex justify-between items-center mb-4">
+                                <label className="font-semibold text-orange-900 flex items-center gap-2">
+                                    <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>
+                                    </svg>
+                                    {fc.label}
+                                    <span className="ml-auto bg-orange-600 text-white text-xs px-2.5 py-1 rounded-full">{count} Duvar</span>
+                                </label>
+                                <button onClick={addWallCover} className="px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs rounded-lg hover:from-green-600 hover:to-green-700 shadow-md flex items-center gap-1">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    Duvar Ekle
+                                </button>
+                            </div>
+                            <div className="space-y-3">
+                                {[...Array(count)].map((_, i) => {
+                                    const wallData = data.duvar_kaplama && data.duvar_kaplama[i] ? data.duvar_kaplama[i] : {};
+                                    return (
+                                        <div key={i} className="bg-white rounded-lg p-4 border-2 border-orange-200 hover:border-orange-300 transition-all">
+                                            <div className="flex justify-between items-center mb-3">
+                                                <span className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+                                                    <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs">{i + 1}</span>
+                                                    Duvar {i + 1}
+                                                </span>
+                                                {count > 1 && (
+                                                    <button 
+                                                        onClick={() => {
+                                                            if (confirm('Bu duvar kaplamasını silmek istediğinize emin misiniz?')) {
+                                                                // GÜNCEL veriyi al
+                                                                const currentData = getRoomData();
+                                                                const currentWalls = currentData.duvar_kaplama || {};
+                                                                
+                                                                // Sadece malzemesi olan duvarları array'e al (seçileni hariç tut)
+                                                                const newWallArray = [];
+                                                                for (let j = 0; j < count; j++) {
+                                                                    if (j !== i) { // Seçilen duvarı atlama
+                                                                        if (currentWalls[j] && currentWalls[j].malzeme) {
+                                                                            // Sadece dolu duvarları ekle
+                                                                            newWallArray.push(currentWalls[j]);
+                                                                        }
+                                                                    }
+                                                                }
+                                                                
+                                                                // Yeni object oluştur - array'i 0'dan başlayarak indexle
+                                                                const newWallData = {};
+                                                                newWallArray.forEach((wall, idx) => {
+                                                                    newWallData[idx] = wall;
+                                                                });
+                                                                
+                                                                // wallCount'u azalt
+                                                                const newCount = count - 1;
+                                                                
+                                                                // İKİ state'i de aynı anda güncelle
+                                                                const updatedApts = apartments.map(a => {
+                                                                    if (a.id === currentApt) {
+                                                                        return {
+                                                                            ...a,
+                                                                            wallCount: { ...a.wallCount, [currentRoom]: newCount },
+                                                                            data: {
+                                                                                ...a.data,
+                                                                                [currentRoom]: {
+                                                                                    ...a.data[currentRoom],
+                                                                                    duvar_kaplama: newWallData
+                                                                                }
+                                                                            }
+                                                                        };
+                                                                    }
+                                                                    return a;
+                                                                });
+                                                                
+                                                                updateApartments(updatedApts);
+                                                            }
+                                                        }}
+                                                        className="px-2 py-1 bg-red-500 text-white rounded-lg text-xs hover:bg-red-600 flex items-center gap-1"
+                                                    >
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                        </svg>
+                                                        Sil
+                                                    </button>
+                                                )}
+                                            </div>
+                                        {isHierarchical ? (
+                                            /* Hiyerarşik Seçim */
+                                            <div className="space-y-2">
+                                                <div className="flex flex-col gap-2">
+                                                    <select 
+                                                        value={wallData.subgroup || ''} 
+                                                        onChange={(e) => updateWallCover(i, 'subgroup', e.target.value)} 
+                                                        className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm w-auto min-w-full focus:border-orange-500 focus:ring focus:ring-orange-200 transition-all"
+                                                        style={{ width: 'fit-content', minWidth: '100%' }}
+                                                    >
+                                                        <option value="">🔹 Alt Grup Seçiniz</option>
+                                                        {Object.keys(categoryData).map(sg => (
+                                                            <option key={sg} value={sg}>{sg}</option>
+                                                        ))}
+                                                    </select>
+                                                    {wallData.subgroup ? (
+                                                        <select 
+                                                            value={wallData.malzeme || ''} 
+                                                            onChange={(e) => updateWallCover(i, 'malzeme', e.target.value)} 
+                                                            className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm w-auto min-w-full focus:border-orange-500 focus:ring focus:ring-orange-200 transition-all"
+                                                            style={{ width: 'fit-content', minWidth: '100%' }}
+                                                        >
+                                                            <option value="">🔸 Malzeme Seçiniz</option>
+                                                            {(categoryData[wallData.subgroup] || []).map(m => (
+                                                                <option key={m} value={m}>{m}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <div className="border-2 border-dashed border-gray-200 rounded-lg px-3 py-2 bg-gray-50 text-gray-400 flex items-center text-xs">
+                                                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                            </svg>
+                                                            Önce alt grup seçiniz
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {wallData.malzeme && (
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.01" 
+                                                            value={wallData.miktar || ''} 
+                                                            onChange={(e) => updateWallCover(i, 'miktar', e.target.value)} 
+                                                            placeholder="0.00" 
+                                                            className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:border-green-500 focus:ring focus:ring-green-200 transition-all pr-12" 
+                                                        />
+                                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">m²</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            /* Düz Liste */
+                                            <div className="flex flex-col gap-2">
+                                                <select 
+                                                    value={wallData.malzeme || ''} 
+                                                    onChange={(e) => updateWallCover(i, 'malzeme', e.target.value)} 
+                                                    className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm w-auto min-w-full focus:border-orange-500 focus:ring focus:ring-orange-200 transition-all"
+                                                    style={{ width: 'fit-content', minWidth: '100%' }}
+                                                >
+                                                    <option value="">Seçiniz...</option>
+                                                    {(Array.isArray(categoryData) ? categoryData : []).map(m => (
+                                                        <option key={m} value={m}>{m}</option>
+                                                    ))}
+                                                </select>
+                                                <div className="relative">
+                                                    <input 
+                                                        type="number" 
+                                                        step="0.01" 
+                                                        value={wallData.miktar || ''} 
+                                                        onChange={(e) => updateWallCover(i, 'miktar', e.target.value)} 
+                                                        placeholder="0.00" 
+                                                        className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:border-green-500 focus:ring focus:ring-green-200 transition-all pr-12" 
+                                                    />
+                                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium">m²</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            </div>
+                        </div>
+                    );
+                }
+
+                // Kategoriye göre renk ve ikon belirleme
+                const getCategoryStyle = (category) => {
+                    const styles = {
+                        'Zemin': { 
+                            from: 'from-emerald-50', to: 'to-green-50', border: 'border-emerald-200', 
+                            icon: 'text-emerald-600', badge: 'bg-emerald-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>'
+                        },
+                        'Boya': { 
+                            from: 'from-blue-50', to: 'to-cyan-50', border: 'border-blue-200', 
+                            icon: 'text-blue-600', badge: 'bg-blue-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>'
+                        },
+                        'Kaplama': { 
+                            from: 'from-purple-50', to: 'to-pink-50', border: 'border-purple-200', 
+                            icon: 'text-purple-600', badge: 'bg-purple-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>'
+                        },
+                        'Dolap': { 
+                            from: 'from-amber-50', to: 'to-yellow-50', border: 'border-amber-200', 
+                            icon: 'text-amber-600', badge: 'bg-amber-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>'
+                        },
+                        'Tezgah': { 
+                            from: 'from-orange-50', to: 'to-red-50', border: 'border-orange-200', 
+                            icon: 'text-orange-600', badge: 'bg-orange-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>'
+                        },
+                        'Panel': { 
+                            from: 'from-teal-50', to: 'to-cyan-50', border: 'border-teal-200', 
+                            icon: 'text-teal-600', badge: 'bg-teal-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path>'
+                        },
+                        'Armatür': { 
+                            from: 'from-indigo-50', to: 'to-purple-50', border: 'border-indigo-200', 
+                            icon: 'text-indigo-600', badge: 'bg-indigo-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>'
+                        },
+                        'Aksesuar': { 
+                            from: 'from-pink-50', to: 'to-rose-50', border: 'border-pink-200', 
+                            icon: 'text-pink-600', badge: 'bg-pink-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>'
+                        },
+                        'Elektrik': { 
+                            from: 'from-yellow-50', to: 'to-amber-50', border: 'border-yellow-200', 
+                            icon: 'text-yellow-600', badge: 'bg-yellow-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>'
+                        },
+                        'Doğrama': { 
+                            from: 'from-slate-50', to: 'to-gray-50', border: 'border-slate-200', 
+                            icon: 'text-slate-600', badge: 'bg-slate-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>'
+                        },
+                        'Tekstil': { 
+                            from: 'from-rose-50', to: 'to-pink-50', border: 'border-rose-200', 
+                            icon: 'text-rose-600', badge: 'bg-rose-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>'
+                        },
+                        'Elektrik': { 
+                            from: 'from-yellow-50', to: 'to-amber-50', border: 'border-yellow-200', 
+                            icon: 'text-yellow-600', badge: 'bg-yellow-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>'
+                        },
+                        'Doğrama': { 
+                            from: 'from-slate-50', to: 'to-gray-50', border: 'border-slate-200', 
+                            icon: 'text-slate-600', badge: 'bg-slate-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>'
+                        },
+                        'Tekstil': { 
+                            from: 'from-rose-50', to: 'to-pink-50', border: 'border-rose-200', 
+                            icon: 'text-rose-600', badge: 'bg-rose-600',
+                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>'
+                        }
+                    };
+                    return styles[category] || { 
+                        from: 'from-gray-50', to: 'to-slate-50', border: 'border-gray-200', 
+                        icon: 'text-gray-600', badge: 'bg-gray-600',
+                        svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>'
+                    };
+                };
+
+                const categoryStyle = getCategoryStyle(fc.category);
+
+                return (
+                    <div key={f} className={`bg-gradient-to-br ${categoryStyle.from} ${categoryStyle.to} rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 border-2 ${categoryStyle.border}`}>
+                        <label className={`block text-sm font-semibold mb-4 flex items-center gap-2 ${categoryStyle.icon}`}>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: categoryStyle.svg }}>
+                            </svg>
+                            {fc.label}
+                            {fc.unit && <span className={`ml-auto text-white text-xs px-3 py-1 rounded-full ${categoryStyle.badge}`}>{fc.unit}</span>}
+                        </label>
+                        <div className="flex flex-col gap-3">
+                            {/* Ana Kategori Altında Alt Gruplar Var mı Kontrol */}
+                            {typeof materials[fc.category] === 'object' && !Array.isArray(materials[fc.category]) ? (
+                                <>
+                                    {/* Alt Grup Seçimi */}
+                                    <select 
+                                        value={data[f] ? data[f].subgroup || '' : ''} 
+                                        onChange={(e) => updateField(f, { ...(data[f] || {}), subgroup: e.target.value, malzeme: '' })} 
+                                        className="border-2 border-gray-200 bg-white rounded-lg px-4 py-2.5 w-auto min-w-full focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                        style={{ width: 'fit-content', minWidth: '100%' }}
+                                    >
+                                        <option value="">🔹 Alt Grup Seçiniz</option>
+                                        {Object.keys(materials[fc.category]).map(sg => (
+                                            <option key={sg} value={sg}>{sg}</option>
+                                        ))}
+                                    </select>
+                                    {/* Malzeme Seçimi - Sadece alt grup seçilmişse */}
+                                    {data[f] && data[f].subgroup ? (
+                                        <select 
+                                            value={data[f].malzeme || ''} 
+                                            onChange={(e) => updateField(f, { ...(data[f] || {}), malzeme: e.target.value })} 
+                                            className="border-2 border-gray-200 bg-white rounded-lg px-4 py-2.5 w-auto min-w-full focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                            style={{ width: 'fit-content', minWidth: '100%' }}
+                                        >
+                                            <option value="">🔸 Malzeme Seçiniz</option>
+                                            {(materials[fc.category][data[f].subgroup] || []).map(m => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <div className="border-2 border-dashed border-gray-300 rounded-lg px-4 py-3 bg-white text-gray-400 flex items-center text-sm">
+                                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                            Önce alt grup seçiniz
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                /* Eski Düz Liste Yapısı - Geriye Uyumluluk */
+                                <select 
+                                    value={data[f] ? data[f].malzeme || '' : ''} 
+                                    onChange={(e) => updateField(f, { ...(data[f] || {}), malzeme: e.target.value })} 
+                                    className="border-2 border-gray-200 bg-white rounded-lg px-4 py-2.5 w-auto min-w-full focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                    style={{ width: 'fit-content', minWidth: '100%' }}
+                                >
+                                    <option value="">Seçiniz...</option>
+                                    {(Array.isArray(materials[fc.category]) ? materials[fc.category] : []).map(m => (
+                                        <option key={m} value={m}>{m}</option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+                        {/* Miktar/Detay - Alt satır */}
+                        {(data[f] && data[f].malzeme) && (
+                            <div className="mt-3 pt-3 border-t-2 border-white">
+                                {fc.unit ? (
+                                    <div className="relative">
+                                        <input 
+                                            type="number" 
+                                            step="0.01" 
+                                            value={data[f].miktar || ''} 
+                                            onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value })} 
+                                            placeholder="0.00" 
+                                            className="border-2 border-gray-200 bg-white rounded-lg px-4 py-2.5 w-full focus:border-green-500 focus:ring focus:ring-green-200 transition-all pr-16" 
+                                        />
+                                        <span className={`absolute right-4 top-1/2 -translate-y-1/2 text-white text-sm font-bold px-2 py-1 rounded ${categoryStyle.badge}`}>{fc.unit}</span>
+                                    </div>
+                                ) : (
+                                    <input 
+                                        type="text" 
+                                        value={data[f].miktar || ''} 
+                                        onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value })} 
+                                        placeholder="Detay giriniz..." 
+                                        className="border-2 border-gray-200 bg-white rounded-lg px-4 py-2.5 w-full focus:border-green-500 focus:ring focus:ring-green-200 transition-all" 
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            const room = allRooms.find(r => r.id === currentRoom);
+
+            return (
+                <div className="min-h-screen bg-gray-100 p-4">
+                    {showDB && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-auto">
+                                <div className="flex justify-between mb-4">
+                                    <h2 className="text-xl font-bold">Malzeme Veritabani</h2>
+                                    <div className="flex gap-2 items-center">
+                                        <button onClick={() => {
+                                            if (confirm('Malzeme veritabanini varsayilan degerlere sifirlamak istediginize emin misiniz?\n\nBu islem geri alinamaz!')) {
+                                                setMaterials(DEFAULT_MATERIALS);
+                                                localStorage.setItem('material_database', JSON.stringify(DEFAULT_MATERIALS));
+                                                alert('Malzeme veritabani sifirandi!');
+                                            }
+                                        }} className="px-3 py-1 bg-orange-500 text-white rounded text-sm hover:bg-orange-600">🔄 Sıfırla</button>
+                                        <button onClick={() => setShowDB(false)} className="text-2xl">×</button>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {Object.keys(materials).map(cat => (
+                                        <div key={cat} className="border-2 border-gray-300 rounded-lg p-4 hover:border-blue-400 transition-colors bg-gradient-to-br from-white to-gray-50">
+                                            <div className="flex justify-between items-center mb-3 pb-3 border-b-2 border-gray-200">
+                                                <h3 className="font-bold text-blue-700 text-lg flex items-center gap-2">
+                                                    <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+                                                    {cat}
+                                                </h3>
+                                                <div className="flex gap-2">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const newName = prompt('Yeni kategori adı:', cat);
+                                                            if (newName && newName.trim() && newName !== cat) {
+                                                                if (materials[newName.trim()]) {
+                                                                    alert('Bu kategori adı zaten mevcut!');
+                                                                    return;
+                                                                }
+                                                                const newMat = { ...materials };
+                                                                newMat[newName.trim()] = newMat[cat];
+                                                                delete newMat[cat];
+                                                                setMaterials(newMat);
+                                                                localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                            }
+                                                        }}
+                                                        className="px-3 py-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-lg text-sm font-semibold hover:from-yellow-600 hover:to-amber-600 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                                        title="Kategori adını değiştir"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                        </svg>
+                                                        Düzenle
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => {
+                                                            if (confirm(`"${cat}" kategorisini ve tüm içeriğini silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+                                                                const newMat = { ...materials };
+                                                                delete newMat[cat];
+                                                                setMaterials(newMat);
+                                                                localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                            }
+                                                        }}
+                                                        className="px-3 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg text-sm font-semibold hover:from-red-600 hover:to-rose-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                                        title="Kategoriyi sil"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                        </svg>
+                                                        Sil
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Hiyerarşik Yapı */}
+                                            {typeof materials[cat] === 'object' && !Array.isArray(materials[cat]) ? (
+                                                <div className="space-y-3">
+                                                    {Object.keys(materials[cat]).map(subgroup => (
+                                                        <div key={subgroup} className="border-l-4 border-blue-400 pl-3 bg-blue-50 rounded-r-lg py-2">
+                                                            <div className="flex justify-between items-center mb-2">
+                                                                <div className="font-semibold text-sm text-gray-800">{subgroup}</div>
+                                                                <div className="flex gap-1">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const newName = prompt('Yeni alt grup adı:', subgroup);
+                                                                            if (newName && newName.trim() && newName !== subgroup) {
+                                                                                if (materials[cat][newName.trim()]) {
+                                                                                    alert('Bu alt grup adı zaten mevcut!');
+                                                                                    return;
+                                                                                }
+                                                                                const newMat = { ...materials };
+                                                                                newMat[cat][newName.trim()] = newMat[cat][subgroup];
+                                                                                delete newMat[cat][subgroup];
+                                                                                setMaterials(newMat);
+                                                                                localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                            }
+                                                                        }}
+                                                                        className="px-2 py-1 bg-gradient-to-r from-yellow-400 to-amber-400 text-white rounded-lg text-xs font-semibold hover:from-yellow-500 hover:to-amber-500 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+                                                                        title="Alt grup adını değiştir"
+                                                                    >
+                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                                        </svg>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (confirm(`"${subgroup}" alt grubunu ve tüm malzemelerini silmek istediğinize emin misiniz?`)) {
+                                                                                const newMat = { ...materials };
+                                                                                delete newMat[cat][subgroup];
+                                                                                setMaterials(newMat);
+                                                                                localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                            }
+                                                                        }}
+                                                                        className="px-2 py-1 bg-gradient-to-r from-red-400 to-rose-500 text-white rounded-lg text-xs font-semibold hover:from-red-500 hover:to-rose-600 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+                                                                        title="Alt grubu sil"
+                                                                    >
+                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex gap-2 mb-2">
+                                                                <input type="text" id={'new-' + cat + '-' + subgroup} placeholder="Yeni malzeme ekle..." className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all" />
+                                                                <button onClick={() => {
+                                                                    const inp = document.getElementById('new-' + cat + '-' + subgroup);
+                                                                    if (inp.value.trim()) {
+                                                                        const newMat = { ...materials };
+                                                                        newMat[cat][subgroup].push(inp.value.trim());
+                                                                        setMaterials(newMat);
+                                                                        localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                        inp.value = '';
+                                                                    }
+                                                                }} className="px-3 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg text-sm font-bold hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg transition-all">+</button>
+                                                            </div>
+                                                            <div className="space-y-1 max-h-24 overflow-auto">
+                                                                {materials[cat][subgroup].map(m => (
+                                                                    <div key={m} className="flex justify-between items-center bg-white border border-gray-200 px-3 py-2 rounded-lg text-sm group hover:border-blue-300 hover:shadow-sm transition-all">
+                                                                        <span className="text-gray-700">{m}</span>
+                                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    const newName = prompt('Yeni malzeme adı:', m);
+                                                                                    if (newName && newName.trim() && newName !== m) {
+                                                                                        const newMat = { ...materials };
+                                                                                        const index = newMat[cat][subgroup].indexOf(m);
+                                                                                        if (index !== -1) {
+                                                                                            newMat[cat][subgroup][index] = newName.trim();
+                                                                                            setMaterials(newMat);
+                                                                                            localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                                        }
+                                                                                    }
+                                                                                }}
+                                                                                className="px-2 py-1 bg-gradient-to-r from-blue-500 to-cyan-600 text-white rounded-lg text-xs font-semibold hover:from-blue-600 hover:to-cyan-700 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+                                                                                title="Malzeme adını değiştir"
+                                                                            >
+                                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => {
+                                                                                    if (confirm('Silmek istediginize emin misiniz?\n' + m)) {
+                                                                                        const newMat = { ...materials };
+                                                                                        newMat[cat][subgroup] = newMat[cat][subgroup].filter(item => item !== m);
+                                                                                        setMaterials(newMat);
+                                                                                        localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                                    }
+                                                                                }}
+                                                                                className="px-2 py-1 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg text-xs font-semibold hover:from-red-600 hover:to-rose-700 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+                                                                                title="Malzemeyi sil"
+                                                                            >
+                                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                                                </svg>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {/* Yeni Alt Grup Ekle */}
+                                                    <button onClick={() => {
+                                                        const newSubgroup = prompt('Yeni alt grup adi (' + cat + ' icin):');
+                                                        if (newSubgroup && newSubgroup.trim()) {
+                                                            const newMat = { ...materials };
+                                                            newMat[cat][newSubgroup.trim()] = [];
+                                                            setMaterials(newMat);
+                                                            localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                        }
+                                                    }} className="w-full px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">+ Alt Grup Ekle</button>
+                                                </div>
+                                            ) : (
+                                                /* Eski Düz Liste */
+                                                <div>
+                                                    <div className="flex gap-2 mb-2">
+                                                        <input type="text" id={'new-' + cat} placeholder="Yeni malzeme ekle..." className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all" />
+                                                        <button onClick={() => {
+                                                            const inp = document.getElementById('new-' + cat);
+                                                            if (inp.value.trim()) { addMaterial(cat, inp.value.trim()); inp.value = ''; }
+                                                        }} className="px-3 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg text-sm font-bold hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg transition-all">+</button>
+                                                    </div>
+                                                    <div className="space-y-2 max-h-40 overflow-auto">
+                                                        {(Array.isArray(materials[cat]) ? materials[cat] : []).map(m => (
+                                                            <div key={m} className="flex justify-between items-center bg-white border border-gray-200 px-3 py-2 rounded-lg text-sm group hover:border-blue-300 hover:shadow-sm transition-all">
+                                                                <span className="text-gray-700">{m}</span>
+                                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            const newName = prompt('Yeni malzeme adı:', m);
+                                                                            if (newName && newName.trim() && newName !== m) {
+                                                                                const newMat = { ...materials };
+                                                                                const index = newMat[cat].indexOf(m);
+                                                                                if (index !== -1) {
+                                                                                    newMat[cat][index] = newName.trim();
+                                                                                    setMaterials(newMat);
+                                                                                    localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        className="px-2 py-1 bg-gradient-to-r from-blue-500 to-cyan-600 text-white rounded-lg text-xs font-semibold hover:from-blue-600 hover:to-cyan-700 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+                                                                        title="Malzeme adını değiştir"
+                                                                    >
+                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                                        </svg>
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => deleteMaterial(cat, m)} 
+                                                                        className="px-2 py-1 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg text-xs font-semibold hover:from-red-600 hover:to-rose-700 shadow-sm hover:shadow-md transition-all flex items-center gap-1" 
+                                                                        title="Malzemeyi sil"
+                                                                    >
+                                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    
+                    {showFieldManager && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-lg p-6 max-w-5xl w-full max-h-[85vh] overflow-auto">
+                                <div className="flex justify-between mb-4">
+                                    <h2 className="text-xl font-bold">Alan Yönetimi</h2>
+                                    <button onClick={() => setShowFieldManager(false)} className="text-2xl hover:text-red-500">×</button>
+                                </div>
+                                
+                                <div className="mb-4 p-4 bg-blue-50 rounded border border-blue-200">
+                                    <p className="text-sm text-blue-800">
+                                        Buradan yeni alanlar ekleyebilir, mevcut alanları düzenleyebilir veya silebilirsiniz. 
+                                        Eklediğiniz alanlar mekan oluştururken ve düzenlerken kullanılabilir olacaktır.
+                                    </p>
+                                </div>
+                                
+                                <button onClick={addField} className="mb-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-semibold">
+                                    + Yeni Alan Ekle
+                                </button>
+                                
+                                <div className="overflow-x-auto">
+                                    <table className="w-full border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-100">
+                                                <th className="border px-4 py-2 text-left">ID</th>
+                                                <th className="border px-4 py-2 text-left">Alan Adı</th>
+                                                <th className="border px-4 py-2 text-left">Birim</th>
+                                                <th className="border px-4 py-2 text-left">Kategori</th>
+                                                <th className="border px-4 py-2 text-center">İşlemler</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {Object.entries(fieldLabels).map(([fieldId, field]) => (
+                                                <tr key={fieldId} className="hover:bg-gray-50">
+                                                    <td className="border px-4 py-2 font-mono text-sm">{fieldId}</td>
+                                                    <td className="border px-4 py-2">{field.label}</td>
+                                                    <td className="border px-4 py-2">
+                                                        {field.unit || <span className="text-gray-400 italic">Yok</span>}
+                                                    </td>
+                                                    <td className="border px-4 py-2">
+                                                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
+                                                            {field.category}
+                                                        </span>
+                                                    </td>
+                                                    <td className="border px-4 py-2 text-center">
+                                                        <button onClick={() => editField(fieldId)} className="px-3 py-1 bg-yellow-500 text-white rounded text-sm mr-2 hover:bg-yellow-600" title="Düzenle">✏️</button>
+                                                        <button onClick={() => deleteField(fieldId)} className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600" title="Sil">🗑️</button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                <div className="mt-4 p-4 bg-yellow-50 rounded border border-yellow-200">
+                                    <p className="text-sm text-yellow-800">
+                                        <strong>Not:</strong> Alan silerseniz, o alanı kullanan mekanlardan otomatik olarak kaldırılmaz. 
+                                        Manuel olarak mekan düzenlemeden kaldırmanız gerekir.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {lightbox && (
+                        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50" onClick={() => setLightbox(null)}>
+                            <img src={lightbox} className="max-w-full max-h-full rounded" />
+                            <button className="absolute top-4 right-4 text-white text-3xl bg-black bg-opacity-50 w-12 h-12 rounded-full">×</button>
+                        </div>
+                    )}
+                    
+                    <div className="max-w-6xl mx-auto bg-white rounded-lg shadow p-6">
+                        <h1 className="text-2xl font-bold mb-4 text-blue-600">Insaat Malzeme Sistemi</h1>
+                        
+                        <div className="mb-4 pb-3 border-b space-y-3">
+                            <div className="flex gap-2 items-center">
+                                <span className="font-semibold text-purple-600">Proje:</span>
+                                <select value={currentPrj} onChange={(e) => { 
+                                    const newPrj = parseInt(e.target.value);
+                                    setCurrentPrj(newPrj); 
+                                    const proj = projects.find(p => p.id === newPrj);
+                                    if (proj && proj.apartments[0]) setCurrentApt(proj.apartments[0].id); 
+                                }} className="px-4 py-2 border-2 border-purple-500 rounded-lg font-semibold text-purple-700 bg-white focus:ring-2 focus:ring-purple-300">
+                                    {projects.map(proj => (
+                                        <option key={proj.id} value={proj.id}>{proj.name}</option>
+                                    ))}
+                                </select>
+                                <button onClick={() => {
+                                    const newName = prompt('Proje adi:', getProject().name);
+                                    if (newName && newName.trim()) {
+                                        updateProjects(projects.map(p => p.id === currentPrj ? { ...p, name: newName.trim() } : p));
+                                    }
+                                }} className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600" title="Proje adini degistir">✏️</button>
+                                <button onClick={() => {
+                                    const newId = Math.max(...projects.map(p => p.id), 0) + 1;
+                                    const newName = prompt('Yeni proje adi:', 'Proje ' + newId);
+                                    if (newName && newName.trim()) {
+                                        updateProjects([...projects, { id: newId, name: newName.trim(), apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {}, hiddenRooms: [] }] }]);
+                                        setCurrentPrj(newId);
+                                        setCurrentApt(1);
+                                    }
+                                }} className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-semibold hover:bg-purple-600">+ Yeni Proje</button>
+                                {projects.length > 1 && (
+                                    <button onClick={() => { 
+                                        if (confirm('Bu projeyi silmek istediginize emin misiniz?')) {
+                                            const remaining = projects.filter(p => p.id !== currentPrj);
+                                            updateProjects(remaining);
+                                            setCurrentPrj(remaining[0].id);
+                                            if (remaining[0].apartments[0]) setCurrentApt(remaining[0].apartments[0].id);
+                                        }
+                                    }} className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600" title="Projeyi sil">🗑️</button>
+                                )}
+                            </div>
+                            
+                            <div className="flex gap-2 items-center flex-wrap">
+                                <span className="font-semibold text-blue-600">Daire:</span>
+                                <select value={currentApt} onChange={(e) => setCurrentApt(parseInt(e.target.value))} className="px-4 py-2 border-2 border-blue-500 rounded-lg font-semibold text-blue-700 bg-white focus:ring-2 focus:ring-blue-300 min-w-[200px]">
+                                    {apartments.map(apt => (
+                                        <option key={apt.id} value={apt.id}>{apt.name}</option>
+                                    ))}
+                                </select>
+                                <button onClick={() => {
+                                    const newName = prompt('Daire adi:', getApt().name);
+                                    if (newName && newName.trim()) {
+                                        updateApartments(apartments.map(a => a.id === currentApt ? { ...a, name: newName.trim() } : a));
+                                    }
+                                }} className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600" title="Daire adini degistir">✏️</button>
+                                <button onClick={() => {
+                                    const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
+                                    const newName = prompt('Yeni daire adi:', 'Daire ' + newId);
+                                    if (newName && newName.trim()) {
+                                        updateApartments([...apartments, { id: newId, name: newName.trim(), data: {}, wallCount: {}, hiddenRooms: [] }]);
+                                        setCurrentApt(newId);
+                                    }
+                                }} className="px-3 py-2 bg-green-500 text-white rounded-lg text-sm font-semibold hover:bg-green-600">+ Yeni Daire</button>
+                                {apartments.length > 1 && (
+                                    <button onClick={() => {
+                                        if (confirm('Bu daireyi silmek istediginize emin misiniz?')) {
+                                            const remaining = apartments.filter(a => a.id !== currentApt);
+                                            updateApartments(remaining);
+                                            if (remaining[0]) setCurrentApt(remaining[0].id);
+                                        }
+                                    }} className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600" title="Daireyi sil">🗑️</button>
+                                )}
+                            </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <h3 className="font-semibold">Mahaller</h3>
+                                    <div className="flex gap-1">
+                                        <button onClick={resetRoomOrder} className="px-2 py-1 bg-gray-400 text-white rounded text-xs hover:bg-gray-500" title="Sıralamayı sıfırla">🔄</button>
+                                        <button onClick={addCustomRoom} className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600" title="Yeni mekan ekle">+</button>
+                                    </div>
+                                </div>
+                                {visibleRooms.map(r => (
+                                    <div 
+                                        key={r.id} 
+                                        className="flex items-center gap-1 mb-1 cursor-move"
+                                        draggable="true"
+                                        onDragStart={(e) => handleDragStart(e, r.id)}
+                                        onDragEnd={handleDragEnd}
+                                        onDragOver={handleDragOver}
+                                        onDrop={(e) => handleDrop(e, r.id)}
+                                        style={{ transition: 'opacity 0.2s' }}
+                                    >
+                                        <span className="text-gray-400 hover:text-gray-600 px-1" title="Sürükleyip taşıyın">⋮⋮</span>
+                                        <button onClick={() => setCurrentRoom(r.id)} className={'flex-1 text-left px-3 py-2 rounded text-sm ' + (currentRoom === r.id ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200')}>
+                                            {r.name}
+                                        </button>
+                                        {/* Alan Düzenleme - Tüm mahaller için */}
+                                        {(r.custom || r.editable) && (
+                                            <button onClick={() => editRoomFields(r.id)} className="px-2 py-1 bg-blue-400 text-white rounded text-xs hover:bg-blue-500" title="Alanlari duzenle">⚙️</button>
+                                        )}
+                                        {/* İsim Düzenleme - Tüm mahaller için */}
+                                        <button onClick={() => editRoomName(r.id)} className="px-2 py-1 bg-yellow-400 text-white rounded text-xs hover:bg-yellow-500" title="Isim duzenle">✏️</button>
+                                        {/* Kopyalama - Tüm mahaller için */}
+                                        <button onClick={() => copyRoom(r.id)} className="px-2 py-1 bg-green-500 text-white rounded text-xs hover:bg-green-600" title="Kopyala">📋</button>
+                                        {/* Silme - Silinebilir mahaller için */}
+                                        {(r.custom || r.deletable) && (
+                                            <button onClick={() => deleteRoom(r.id)} className="px-2 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600" title="Sil">🗑️</button>
+                                        )}
+                                    </div>
+                                ))}
+                                <button onClick={save} className="w-full mt-4 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center gap-2">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                                    </svg>
+                                    Kaydet
+                                </button>
+                                
+                                <div className="mt-4 border-t pt-4">
+                                    <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Yedekleme</h4>
+                                    
+                                    <button 
+                                        onClick={() => createBackup(false)} 
+                                        className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-blue-700 hover:to-blue-800 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"></path>
+                                        </svg>
+                                        Şimdi Yedekle
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={toggleAutoBackup}
+                                        className={'w-full mb-2 px-4 py-3 rounded-lg font-semibold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 ' + (autoBackupEnabled ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-700 hover:to-emerald-700' : 'bg-gray-300 text-gray-700 hover:bg-gray-400')}
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        </svg>
+                                        {autoBackupEnabled ? 'Otomatik Açık' : 'Otomatik Kapalı'}
+                                    </button>
+                                    
+                                    {autoBackupEnabled && (
+                                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-lg p-3 mb-2">
+                                            <p className="text-xs text-blue-900 font-semibold mb-2 flex items-center gap-1">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                                Sıklık: Her {backupInterval} günde bir
+                                            </p>
+                                            <select 
+                                                value={backupInterval}
+                                                onChange={(e) => updateBackupInterval(parseInt(e.target.value))}
+                                                className="w-full text-xs border-2 border-blue-300 rounded-lg px-3 py-2 focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                            >
+                                                <option value="1">Her gün</option>
+                                                <option value="3">3 günde bir</option>
+                                                <option value="7">Haftada bir</option>
+                                                <option value="14">2 haftada bir</option>
+                                                <option value="30">Ayda bir</option>
+                                            </select>
+                                            {lastBackupDate && (
+                                                <p className="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                    </svg>
+                                                    Son: {lastBackupDate.toLocaleDateString('tr-TR')}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="border-t pt-3 mt-3">
+                                    <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Bulut Senkronizasyon</h4>
+                                    
+                                    {firebaseEnabled ? (
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-lg border border-blue-200">
+                                                <div className="flex items-center gap-2">
+                                                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path>
+                                                    </svg>
+                                                    <div>
+                                                        <div className="text-sm font-semibold text-blue-900">Firebase Senkronizasyon</div>
+                                                        <div className="text-xs text-blue-700">Çoklu cihaz desteği</div>
+                                                    </div>
+                                                </div>
+                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={firebaseSync} 
+                                                        onChange={(e) => {
+                                                            setFirebaseSync(e.target.checked);
+                                                            localStorage.setItem('firebase_sync', e.target.checked);
+                                                        }}
+                                                        className="sr-only peer" 
+                                                    />
+                                                    <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                                </label>
+                                            </div>
+                                            {lastSyncTime && (
+                                                <p className="text-xs text-gray-600 flex items-center gap-1 px-2">
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                    </svg>
+                                                    Son senkronizasyon: {lastSyncTime.toLocaleString('tr-TR')}
+                                                </p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                            <div className="flex items-start gap-2">
+                                                <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                                </svg>
+                                                <div className="text-xs text-yellow-800">
+                                                    <p className="font-semibold mb-1">Firebase yapılandırması eksik</p>
+                                                    <p>Çoklu cihaz senkronizasyonu için Firebase yapılandırması gerekiyor.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                <div className="border-t pt-3 mt-3">
+                                    <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Veri Yönetimi</h4>
+                                    <button onClick={exportData} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                        </svg>
+                                        Dışa Aktar
+                                    </button>
+                                    <button onClick={importData} className="w-full px-4 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-orange-600 hover:to-red-700 transition-all flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                        </svg>
+                                        İçe Aktar
+                                    </button>
+                                </div>
+                                
+                                <div className="border-t pt-3 mt-3">
+                                    <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Raporlar</h4>
+                                    <button onClick={generatePrintForm} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-red-600 hover:to-rose-700 transition-all flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        Onay Formu
+                                    </button>
+                                    <button onClick={downloadExcel} className="w-full px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-700 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-green-700 hover:to-emerald-800 transition-all flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        Excel Raporu
+                                    </button>
+                                </div>
+                                
+                                <div className="border-t pt-3 mt-3">
+                                    <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Ayarlar</h4>
+                                    <button onClick={() => setShowFieldManager(true)} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-teal-600 hover:to-cyan-700 transition-all flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                                        </svg>
+                                        Alan Yönetimi
+                                    </button>
+                                    <button onClick={() => setShowDB(true)} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-purple-600 hover:to-pink-700 transition-all flex items-center justify-center gap-2">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
+                                        </svg>
+                                        Malzeme DB
+                                    </button>
+                                    <button onClick={convertAllText} className="w-full px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-amber-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2" title="Tüm metinleri 'İlk Harf Büyük diğerleri küçük' formatına çevirir">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path>
+                                        </svg>
+                                        Metin Formatı
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="col-span-2">
+                                {/* Modern Header */}
+                                <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg shadow-lg p-6 mb-6">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            {/* Logo */}
+                                            <div className="bg-white rounded-full p-3 shadow-md">
+                                                <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                                                </svg>
+                                            </div>
+                                            {/* Başlık Bilgileri */}
+                                            <div>
+                                                <h1 className="text-2xl font-bold text-white">{room ? room.name : ''}</h1>
+                                                <p className="text-blue-100 text-sm flex items-center gap-2">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+                                                    </svg>
+                                                    {getProject().name}
+                                                    <span className="mx-2">•</span>
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                                                    </svg>
+                                                    {getApt().name}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {/* Tarih Badge */}
+                                        <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-lg px-4 py-2">
+                                            <p className="text-white text-xs font-medium">
+                                                {new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Veri Giriş Alanları - Card Tasarım */}
+                                <div className="space-y-4">
+                                    {room && room.fields.map(f => renderField(f))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
