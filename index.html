@@ -115,13 +115,6 @@
                 return { success: false, error: errorMsg };
             }
         };
-            }
-        } catch (error) {
-            console.error('❌ Firebase başlatma hatası:', error);
-            console.log('⚠️ Sadece localStorage kullanılacak');
-            firebaseEnabled = false;
-            db = null;
-        }
 
         // ==========================================
         // FIREBASE SYNC FONKSİYONLARI
