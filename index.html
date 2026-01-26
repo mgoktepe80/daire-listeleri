@@ -693,7 +693,12 @@
             }, [firebaseSync]);
 
             const getProject = () => projects.find(p => p.id === currentPrj) || projects[0];
-            const apartments = getProject().apartments;
+            
+            // Daireleri doğal sıralama ile sırala (Daire 1, Daire 2, Daire 25, Daire 26...)
+            const apartments = [...(getProject().apartments || [])].sort((a, b) => {
+                return a.name.localeCompare(b.name, 'tr', { numeric: true, sensitivity: 'base' });
+            });
+            
             const getApt = () => apartments.find(a => a.id === currentApt) || apartments[0];
             const getRoomData = () => (getApt().data[currentRoom] || {});
 
