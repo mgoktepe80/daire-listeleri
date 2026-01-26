@@ -464,6 +464,7 @@
             const [draggedTab, setDraggedTab] = useState(null);
             const [searchRoom, setSearchRoom] = useState('');
             const [searchMaterial, setSearchMaterial] = useState('');
+            const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
             const [showFieldManager, setShowFieldManager] = useState(false);
             const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
             const [lastBackupDate, setLastBackupDate] = useState(null);
@@ -1495,6 +1496,97 @@
                 localStorage.setItem('material_database', JSON.stringify(newMat));
             };
 
+            // Mekan ikonları
+            const getRoomIcon = (roomName) => {
+                const name = roomName.toLowerCase();
+                
+                // Salon
+                if (name.includes('salon') || name.includes('oturma')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                        </svg>
+                    );
+                }
+                
+                // Mutfak
+                if (name.includes('mutfak') || name.includes('kitchen')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                        </svg>
+                    );
+                }
+                
+                // Yatak Odası
+                if (name.includes('yatak') || name.includes('oda-') || name.includes('bedroom')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                        </svg>
+                    );
+                }
+                
+                // Banyo
+                if (name.includes('banyo') || name.includes('wc') || name.includes('tuvalet')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path>
+                        </svg>
+                    );
+                }
+                
+                // Hol/Antre
+                if (name.includes('hol') || name.includes('antre') || name.includes('koridor') || name.includes('giriş')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                    );
+                }
+                
+                // Balkon/Teras
+                if (name.includes('balkon') || name.includes('teras')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path>
+                        </svg>
+                    );
+                }
+                
+                // Çamaşır/Kiler
+                if (name.includes('çamaşır') || name.includes('kiler') || name.includes('depo')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                        </svg>
+                    );
+                }
+                
+                // Tavan/Çatı
+                if (name.includes('tavan') || name.includes('çatı')) {
+                    return (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
+                        </svg>
+                    );
+                }
+                
+                // Default - Genel mekan ikonu
+                return (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>
+                    </svg>
+                );
+            };
+
+            // Tema değiştirme
+            const toggleTheme = () => {
+                const newTheme = theme === 'light' ? 'dark' : 'light';
+                setTheme(newTheme);
+                localStorage.setItem('theme', newTheme);
+            };
+
             const exportData = () => {
                 const exportObj = {
                     projects: projects,
@@ -1769,7 +1861,7 @@
                         }
                         
                         const ws = XLSX.utils.aoa_to_sheet(data);
-                        ws['!cols'] = [{ wch: 20 }, { wch: 22 }, { wch: 18 }, { wch: 32 }, { wch: 12 }, { wch: 10 }];
+                        ws['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 15 }, { wch: 12 }];
                         if (!ws['!merges']) ws['!merges'] = [];
                         ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }); // Üst çizgi
                         ws['!merges'].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }); // Başlık
@@ -2316,7 +2408,11 @@
             }
 
             return (
-                <div className="min-h-screen bg-gray-100 p-4">
+                <div className={`min-h-screen p-4 transition-colors duration-300 ${
+                    theme === 'dark' 
+                        ? 'bg-gray-900' 
+                        : 'bg-gray-100'
+                }`}>
                     {showDB && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                             <div className="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
@@ -2708,8 +2804,12 @@
                         </div>
                     )}
                     
-                    <div className="max-w-6xl mx-auto bg-white rounded-lg shadow p-6">
-                        <h1 className="text-2xl font-bold mb-4 text-blue-600">Daire Seçim Listeleri</h1>
+                    <div className={`max-w-6xl mx-auto rounded-lg shadow p-6 transition-colors ${
+                        theme === 'dark'
+                            ? 'bg-gray-800 text-gray-100'
+                            : 'bg-white text-gray-900'
+                    }`}>
+                        <h1 className={`text-2xl font-bold mb-4 ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>Daire Seçim Listeleri</h1>
                         
                         <div className="mb-4 pb-3 border-b space-y-3">
                             <div className="flex gap-2 items-center">
@@ -2785,10 +2885,16 @@
                         </div>
                         
                         <div className="grid grid-cols-3 gap-4">
-                            <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
+                            <div className={`rounded-xl shadow-lg p-5 border transition-colors ${
+                                theme === 'dark'
+                                    ? 'bg-gray-800 border-gray-700'
+                                    : 'bg-white border-gray-200'
+                            }`}>
                                 {/* Header */}
                                 <div className="flex justify-between items-center mb-4 pb-3 border-b-2 border-gray-100">
-                                    <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                                    <h3 className={`font-bold text-lg flex items-center gap-2 ${
+                                        theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                    }`}>
                                         <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
                                         </svg>
@@ -2851,12 +2957,15 @@
                                             {/* Mekan Adı */}
                                             <button 
                                                 onClick={() => setCurrentRoom(r.id)} 
-                                                className={`flex-1 text-left px-3 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                                                className={`flex-1 text-left px-3 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
                                                     currentRoom === r.id 
                                                         ? 'text-blue-700 font-semibold' 
                                                         : 'text-gray-700 hover:text-blue-600'
                                                 }`}
                                             >
+                                                <span className={currentRoom === r.id ? 'text-blue-600' : 'text-gray-400'}>
+                                                    {getRoomIcon(r.name)}
+                                                </span>
                                                 {r.name}
                                             </button>
                                             
@@ -2923,6 +3032,32 @@
                                     </svg>
                                     Kaydet
                                 </button>
+                                
+                                {/* Tema Değiştirme */}
+                                <div className="mt-4 border-t pt-4">
+                                    <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Görünüm</h4>
+                                    
+                                    <button 
+                                        onClick={toggleTheme}
+                                        className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-indigo-600 hover:to-purple-700 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {theme === 'light' ? (
+                                            <>
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                                                </svg>
+                                                Koyu Tema
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                                                </svg>
+                                                Açık Tema
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
                                 
                                 <div className="mt-4 border-t pt-4">
                                     <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Yedekleme</h4>
@@ -3120,6 +3255,29 @@
                                                     {new Date().toLocaleDateString('tr-TR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                                                 </p>
                                             </div>
+                                            {/* Tema Değiştirme Butonu */}
+                                            <button 
+                                                onClick={toggleTheme}
+                                                className={`rounded-lg px-4 py-2 flex items-center gap-2 transition-all shadow-lg hover:shadow-xl transform hover:scale-105 ${
+                                                    theme === 'dark'
+                                                        ? 'bg-yellow-500 hover:bg-yellow-600'
+                                                        : 'bg-indigo-600 hover:bg-indigo-700'
+                                                }`}
+                                                title={theme === 'dark' ? 'Açık Tema' : 'Koyu Tema'}
+                                            >
+                                                {theme === 'dark' ? (
+                                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                                                    </svg>
+                                                ) : (
+                                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                                                    </svg>
+                                                )}
+                                                <span className="text-white text-sm font-bold">
+                                                    {theme === 'dark' ? 'Açık' : 'Koyu'}
+                                                </span>
+                                            </button>
                                             {/* Çıkış Butonu */}
                                             <button 
                                                 onClick={async () => {
