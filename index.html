@@ -528,6 +528,7 @@
                 amounts: true,
                 photos: false
             });
+            const [copyCount, setCopyCount] = useState(1); // Kaç adet kopyalanacak
             const [showCopyAmountsModal, setShowCopyAmountsModal] = useState(false);
             const [sourceAptForAmounts, setSourceAptForAmounts] = useState(null);
             const [selectedFieldsForCopy, setSelectedFieldsForCopy] = useState({});
@@ -538,6 +539,7 @@
             const [lightbox, setLightbox] = useState(null);
             const [firebaseSync, setFirebaseSync] = useState(firebaseEnabled);
             const [lastSyncTime, setLastSyncTime] = useState(null);
+            const [firebaseStatus, setFirebaseStatus] = useState({ connected: firebaseEnabled, message: '', type: 'connected' });
 
             // Authentication durumunu dinle
             useEffect(() => {
@@ -581,71 +583,63 @@
                 }
             }, [theme]);
 
-            // İlk yükleme - localStorage ve Firebase'den veri yükle
+            // İlk yükleme - Firebase varsa sadece oradan, yoksa localStorage'dan yükle
             useEffect(() => {
                 const loadData = async () => {
-                    // Önce localStorage'dan yükle
-                    const saved = localStorage.getItem('projects_data');
-                    if (saved) {
-                        const loaded = JSON.parse(saved);
-                        setProjects(loaded);
-                        if (loaded[0] && loaded[0].apartments[0]) setCurrentApt(loaded[0].apartments[0].id);
-                    }
-                    const savedRooms = localStorage.getItem('custom_rooms');
-                    if (savedRooms) setCustomRooms(JSON.parse(savedRooms));
-                    
-                    const savedBaseRooms = localStorage.getItem('base_rooms');
-                    if (savedBaseRooms) setBaseRooms(JSON.parse(savedBaseRooms));
-                    
-                    const savedFieldLabels = localStorage.getItem('field_labels');
-                    if (savedFieldLabels) setFieldLabels(JSON.parse(savedFieldLabels));
-                    
-                    const savedRoomOrder = localStorage.getItem('room_order');
-                    if (savedRoomOrder) setRoomOrder(JSON.parse(savedRoomOrder));
-                    
-                    const savedMat = localStorage.getItem('material_database');
-                    if (savedMat) setMaterials(JSON.parse(savedMat));
-                    
-                    // Otomatik yedekleme ayarlarını yükle
-                    const savedAutoBackup = localStorage.getItem('auto_backup_enabled');
-                    if (savedAutoBackup === 'true') setAutoBackupEnabled(true);
-                    
-                    const savedLastBackup = localStorage.getItem('last_backup_date');
-                    if (savedLastBackup) setLastBackupDate(new Date(savedLastBackup));
-                    
-                    const savedBackupInterval = localStorage.getItem('backup_interval');
-                    if (savedBackupInterval) setBackupInterval(parseInt(savedBackupInterval));
-                    
-                    // Firebase'den yükle (varsa ve daha güncel ise)
-                    if (firebaseEnabled) {
-                        const firebaseData = await loadFromFirebase();
-                        if (firebaseData) {
-                            const localTimestamp = localStorage.getItem('last_sync_time');
-                            const firebaseTimestamp = firebaseData.lastUpdate?.toMillis() || 0;
-                            
-                            // Firebase daha güncel ise, ondan yükle
-                            if (!localTimestamp || firebaseTimestamp > parseInt(localTimestamp)) {
-                                console.log('🔄 Firebase\'den güncel veriler yükleniyor...');
+                    // Firebase aktif ve kullanıcı giriş yapmışsa, önce Firebase'den yükle
+                    if (firebaseEnabled && user) {
+                        console.log('🔥 Firebase aktif - veriler Firebase\'den yükleniyor...');
+                        setFirebaseStatus({ connected: true, message: 'Firebase\'den veriler yükleniyor...', type: 'loading' });
+                        
+                        try {
+                            const firebaseData = await loadFromFirebase();
+                            if (firebaseData) {
                                 if (firebaseData.projects) setProjects(firebaseData.projects);
                                 if (firebaseData.customRooms) setCustomRooms(firebaseData.customRooms);
                                 if (firebaseData.baseRooms) setBaseRooms(firebaseData.baseRooms);
                                 if (firebaseData.fieldLabels) setFieldLabels(firebaseData.fieldLabels);
                                 if (firebaseData.roomOrder) setRoomOrder(firebaseData.roomOrder);
                                 if (firebaseData.materials) setMaterials(firebaseData.materials);
+                                const firebaseTimestamp = firebaseData.lastUpdate?.toMillis() || Date.now();
                                 setLastSyncTime(new Date(firebaseTimestamp));
-                                localStorage.setItem('last_sync_time', firebaseTimestamp.toString());
+                                console.log('✅ Firebase\'den veri yükleme tamamlandı');
+                                setFirebaseStatus({ connected: true, message: '', type: 'connected' });
+                            } else {
+                                console.log('⚠️ Firebase\'de veri bulunamadı, varsayılan veriler kullanılıyor');
+                                setFirebaseStatus({ connected: true, message: 'Firebase\'de veri bulunamadı', type: 'warning' });
+                                setTimeout(() => setFirebaseStatus({ connected: true, message: '', type: '' }), 3000);
                             }
+                        } catch (error) {
+                            console.error('❌ Firebase veri yükleme hatası:', error);
+                            setFirebaseStatus({ connected: false, message: 'Firebase bağlantı hatası! Yerel veriler kullanılıyor.', type: 'error' });
+                            
+                            // Hata durumunda localStorage'dan yükle
+                            const saved = localStorage.getItem('projects_data');
+                            if (saved) {
+                                const loaded = JSON.parse(saved);
+                                setProjects(loaded);
+                                if (loaded[0] && loaded[0].apartments[0]) setCurrentApt(loaded[0].apartments[0].id);
+                            }
+                            const savedRooms = localStorage.getItem('custom_rooms');
+                            if (savedRooms) setCustomRooms(JSON.parse(savedRooms));
+                            const savedBaseRooms = localStorage.getItem('base_rooms');
+                            if (savedBaseRooms) setBaseRooms(JSON.parse(savedBaseRooms));
+                            const savedFieldLabels = localStorage.getItem('field_labels');
+                            if (savedFieldLabels) setFieldLabels(JSON.parse(savedFieldLabels));
+                            const savedRoomOrder = localStorage.getItem('room_order');
+                            if (savedRoomOrder) setRoomOrder(JSON.parse(savedRoomOrder));
+                            const savedMat = localStorage.getItem('material_database');
+                            if (savedMat) setMaterials(JSON.parse(savedMat));
                         }
                         
                         // Kullanıcı ayarlarını yükle (tema tercihi)
-                        if (user && db) {
+                        if (db) {
                             try {
                                 const userSettingsDoc = await db.collection('userSettings').doc(user.uid).get();
                                 if (userSettingsDoc.exists) {
                                     const settings = userSettingsDoc.data();
                                     if (settings.theme) {
                                         setTheme(settings.theme);
-                                        localStorage.setItem('theme', settings.theme);
                                         console.log('✅ Tema tercihi Firebase\'den yüklendi:', settings.theme);
                                     }
                                 }
@@ -653,6 +647,42 @@
                                 console.error('❌ Tema Firebase\'den yüklenemedi:', error);
                             }
                         }
+                    } else {
+                        // Firebase yoksa localStorage'dan yükle
+                        console.log('💾 Firebase devre dışı - veriler localStorage\'dan yükleniyor...');
+                        setFirebaseStatus({ connected: false, message: 'Çevrimdışı mod - Yerel veriler kullanılıyor', type: 'warning' });
+                        setTimeout(() => setFirebaseStatus({ connected: false, message: '', type: '' }), 3000);
+                        
+                        const saved = localStorage.getItem('projects_data');
+                        if (saved) {
+                            const loaded = JSON.parse(saved);
+                            setProjects(loaded);
+                            if (loaded[0] && loaded[0].apartments[0]) setCurrentApt(loaded[0].apartments[0].id);
+                        }
+                        const savedRooms = localStorage.getItem('custom_rooms');
+                        if (savedRooms) setCustomRooms(JSON.parse(savedRooms));
+                        
+                        const savedBaseRooms = localStorage.getItem('base_rooms');
+                        if (savedBaseRooms) setBaseRooms(JSON.parse(savedBaseRooms));
+                        
+                        const savedFieldLabels = localStorage.getItem('field_labels');
+                        if (savedFieldLabels) setFieldLabels(JSON.parse(savedFieldLabels));
+                        
+                        const savedRoomOrder = localStorage.getItem('room_order');
+                        if (savedRoomOrder) setRoomOrder(JSON.parse(savedRoomOrder));
+                        
+                        const savedMat = localStorage.getItem('material_database');
+                        if (savedMat) setMaterials(JSON.parse(savedMat));
+                        
+                        // Otomatik yedekleme ayarlarını yükle
+                        const savedAutoBackup = localStorage.getItem('auto_backup_enabled');
+                        if (savedAutoBackup === 'true') setAutoBackupEnabled(true);
+                        
+                        const savedLastBackup = localStorage.getItem('last_backup_date');
+                        if (savedLastBackup) setLastBackupDate(new Date(savedLastBackup));
+                        
+                        const savedBackupInterval = localStorage.getItem('backup_interval');
+                        if (savedBackupInterval) setBackupInterval(parseInt(savedBackupInterval));
                     }
                 };
                 
@@ -677,30 +707,67 @@
 
             // Firebase gerçek zamanlı senkronizasyon
             useEffect(() => {
-                if (!firebaseSync || !firebaseEnabled) return;
+                if (!firebaseSync || !firebaseEnabled || !user) return;
                 
+                console.log('👂 Firebase gerçek zamanlı dinleyici başlatıldı');
                 const unsubscribe = setupFirebaseListener((data) => {
-                    const localTimestamp = localStorage.getItem('last_sync_time');
-                    const firebaseTimestamp = data.lastUpdate?.toMillis() || 0;
-                    
-                    // Sadece Firebase daha yeni ise güncelle (kendi değişikliklerimizi geri alma)
-                    if (!localTimestamp || firebaseTimestamp > parseInt(localTimestamp)) {
-                        console.log('🔄 Başka cihazdan güncelleme alındı');
-                        if (data.projects) setProjects(data.projects);
-                        if (data.customRooms) setCustomRooms(data.customRooms);
-                        if (data.baseRooms) setBaseRooms(data.baseRooms);
-                        if (data.fieldLabels) setFieldLabels(data.fieldLabels);
-                        if (data.roomOrder) setRoomOrder(data.roomOrder);
-                        if (data.materials) setMaterials(data.materials);
-                        setLastSyncTime(new Date(firebaseTimestamp));
-                        localStorage.setItem('last_sync_time', firebaseTimestamp.toString());
-                    }
+                    console.log('🔄 Başka cihazdan güncelleme alındı');
+                    if (data.projects) setProjects(data.projects);
+                    if (data.customRooms) setCustomRooms(data.customRooms);
+                    if (data.baseRooms) setBaseRooms(data.baseRooms);
+                    if (data.fieldLabels) setFieldLabels(data.fieldLabels);
+                    if (data.roomOrder) setRoomOrder(data.roomOrder);
+                    if (data.materials) setMaterials(data.materials);
+                    const firebaseTimestamp = data.lastUpdate?.toMillis() || Date.now();
+                    setLastSyncTime(new Date(firebaseTimestamp));
                 });
                 
                 return () => {
                     if (unsubscribe) unsubscribe();
                 };
-            }, [firebaseSync]);
+            }, [firebaseSync, user]);
+            
+            // Veriler değiştiğinde otomatik Firebase'e kaydet (debounce ile)
+            useEffect(() => {
+                if (!firebaseSync || !firebaseEnabled || !user) return;
+                
+                // İlk yükleme sırasında kaydetme (sonsuz döngü önleme)
+                if (projects.length === 0) return;
+                
+                const timer = setTimeout(async () => {
+                    console.log('🔄 Otomatik senkronizasyon başlatıldı...');
+                    try {
+                        const success = await saveToFirebase({
+                            projects,
+                            customRooms,
+                            baseRooms,
+                            roomOrder,
+                            fieldLabels,
+                            materials
+                        });
+                        
+                        if (success) {
+                            setLastSyncTime(new Date());
+                            setFirebaseStatus({ connected: true, message: '', type: 'connected' });
+                            
+                            // Yedek olarak localStorage'a da kaydet
+                            localStorage.setItem('projects_data', JSON.stringify(projects));
+                            localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
+                            localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
+                            localStorage.setItem('room_order', JSON.stringify(roomOrder));
+                            localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
+                            localStorage.setItem('material_database', JSON.stringify(materials));
+                        } else {
+                            setFirebaseStatus({ connected: false, message: 'Bağlantı hatası', type: 'error' });
+                        }
+                    } catch (error) {
+                        console.error('❌ Otomatik senkronizasyon hatası:', error);
+                        setFirebaseStatus({ connected: false, message: 'Firebase bağlantı hatası', type: 'error' });
+                    }
+                }, 2000); // 2 saniye bekle (çok sık kaydetmeyi önle)
+                
+                return () => clearTimeout(timer);
+            }, [projects, customRooms, baseRooms, roomOrder, fieldLabels, materials, firebaseSync, user]);
 
             const getProject = () => projects.find(p => p.id === currentPrj) || projects[0];
             
@@ -730,16 +797,9 @@
             };
 
             const save = async () => {
-                // localStorage'a kaydet
-                localStorage.setItem('projects_data', JSON.stringify(projects));
-                localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                localStorage.setItem('material_database', JSON.stringify(materials));
-                
-                // Firebase'e kaydet (aktifse)
-                if (firebaseSync && firebaseEnabled) {
+                // Firebase aktifse önce oraya kaydet
+                if (firebaseSync && firebaseEnabled && user) {
+                    console.log('🔥 Veriler Firebase\'e kaydediliyor...');
                     const success = await saveToFirebase({
                         projects,
                         customRooms,
@@ -752,12 +812,33 @@
                     if (success) {
                         const now = Date.now();
                         setLastSyncTime(new Date(now));
-                        localStorage.setItem('last_sync_time', now.toString());
-                        alert('✅ Kaydedildi!\n\n💾 Yerel: Başarılı\n☁️ Firebase: Başarılı\n🔄 Tüm cihazlar senkron');
+                        // Yedek olarak localStorage'a da kaydet
+                        localStorage.setItem('projects_data', JSON.stringify(projects));
+                        localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
+                        localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
+                        localStorage.setItem('room_order', JSON.stringify(roomOrder));
+                        localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
+                        localStorage.setItem('material_database', JSON.stringify(materials));
+                        alert('✅ Kaydedildi!\n\n☁️ Firebase: Başarılı\n💾 Yerel yedek: Oluşturuldu');
                     } else {
-                        alert('⚠️ Kaydedildi!\n\n💾 Yerel: Başarılı\n☁️ Firebase: Bağlantı hatası');
+                        // Firebase başarısız, localStorage'a kaydet
+                        localStorage.setItem('projects_data', JSON.stringify(projects));
+                        localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
+                        localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
+                        localStorage.setItem('room_order', JSON.stringify(roomOrder));
+                        localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
+                        localStorage.setItem('material_database', JSON.stringify(materials));
+                        alert('⚠️ Kaydedildi!\n\n☁️ Firebase: Bağlantı hatası\n💾 Yerel: Başarılı (yedek)');
                     }
                 } else {
+                    // Firebase yoksa localStorage'a kaydet
+                    console.log('💾 Veriler localStorage\'a kaydediliyor...');
+                    localStorage.setItem('projects_data', JSON.stringify(projects));
+                    localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
+                    localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
+                    localStorage.setItem('room_order', JSON.stringify(roomOrder));
+                    localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
+                    localStorage.setItem('material_database', JSON.stringify(materials));
                     alert('✅ Kaydedildi!\n\n💾 Yerel: Başarılı');
                 }
                 
@@ -1733,52 +1814,55 @@
             // Daire kopyalama fonksiyonu
             const copyApartment = () => {
                 const sourceApt = getApt();
-                const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
-                const newName = prompt('Yeni daire adı:', sourceApt.name + ' Kopya');
+                const count = parseInt(copyCount) || 1;
                 
-                if (!newName || !newName.trim()) return;
+                if (count < 1 || count > 50) {
+                    alert('Lütfen 1-50 arası bir sayı girin!');
+                    return;
+                }
                 
-                const newData = {};
-                const newWallCount = {};
-                const newHiddenRooms = [...(sourceApt.hiddenRooms || [])];
+                // Kaynak daire isminden sayıyı çıkar
+                const baseName = sourceApt.name.replace(/\s*\d+\s*$/, '').trim() || 'Daire';
                 
-                // Seçili mekanları kopyala
-                if (copyOptions.rooms) {
-                    Object.keys(sourceApt.data).forEach(roomId => {
-                        const roomData = sourceApt.data[roomId];
-                        newData[roomId] = {};
-                        
-                        Object.keys(roomData).forEach(field => {
-                            if (field === 'foto') {
-                                // Fotoğrafları sadece seçiliyse kopyala
-                                if (copyOptions.photos) {
-                                    newData[roomId][field] = { ...roomData[field] };
-                                }
-                            } else if (field === 'duvar_kaplama') {
-                                // Duvar kaplama - hem array hem obje olabilir
-                                if (Array.isArray(roomData[field])) {
-                                    // Array formatı (yeni)
-                                    const copiedWalls = roomData[field].map(wall => {
-                                        const newWall = {};
-                                        if (copyOptions.materials) {
-                                            newWall.subgroup = wall.subgroup || '';
-                                            newWall.malzeme = wall.malzeme || '';
-                                        }
-                                        if (copyOptions.amounts) {
-                                            newWall.miktar = wall.miktar || '';
-                                        }
-                                        return newWall;
-                                    });
-                                    // Sadece dolu duvarları kopyala
-                                    if (copiedWalls.some(w => w.subgroup || w.malzeme || w.miktar)) {
-                                        newData[roomId][field] = copiedWalls;
+                // Mevcut en büyük numarayı bul
+                const existingNumbers = apartments
+                    .map(a => {
+                        const match = a.name.match(new RegExp(baseName + '\\s*(\\d+)'));
+                        return match ? parseInt(match[1]) : 0;
+                    })
+                    .filter(n => n > 0);
+                
+                const maxNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
+                
+                const newApartments = [];
+                let nextId = Math.max(...apartments.map(a => a.id), 0) + 1;
+                
+                // Belirlenen sayıda daire oluştur
+                for (let i = 0; i < count; i++) {
+                    const newNumber = maxNumber + i + 1;
+                    const newName = `${baseName} ${newNumber}`;
+                    
+                    const newData = {};
+                    const newWallCount = {};
+                    const newHiddenRooms = [...(sourceApt.hiddenRooms || [])];
+                    
+                    // Seçili mekanları kopyala
+                    if (copyOptions.rooms) {
+                        Object.keys(sourceApt.data).forEach(roomId => {
+                            const roomData = sourceApt.data[roomId];
+                            newData[roomId] = {};
+                            
+                            Object.keys(roomData).forEach(field => {
+                                if (field === 'foto') {
+                                    // Fotoğrafları sadece seçiliyse kopyala
+                                    if (copyOptions.photos) {
+                                        newData[roomId][field] = { ...roomData[field] };
                                     }
-                                } else if (typeof roomData[field] === 'object') {
-                                    // Obje formatı (eski) - her key bir duvar indexi
-                                    const copiedWalls = {};
-                                    Object.keys(roomData[field]).forEach(wallIdx => {
-                                        const wall = roomData[field][wallIdx];
-                                        if (wall && typeof wall === 'object') {
+                                } else if (field === 'duvar_kaplama') {
+                                    // Duvar kaplama - hem array hem obje olabilir
+                                    if (Array.isArray(roomData[field])) {
+                                        // Array formatı (yeni)
+                                        const copiedWalls = roomData[field].map(wall => {
                                             const newWall = {};
                                             if (copyOptions.materials) {
                                                 newWall.subgroup = wall.subgroup || '';
@@ -1787,50 +1871,73 @@
                                             if (copyOptions.amounts) {
                                                 newWall.miktar = wall.miktar || '';
                                             }
-                                            // Sadece dolu duvarları ekle
-                                            if (newWall.subgroup || newWall.malzeme || newWall.miktar) {
-                                                copiedWalls[wallIdx] = newWall;
-                                            }
+                                            return newWall;
+                                        });
+                                        // Sadece dolu duvarları kopyala
+                                        if (copiedWalls.some(w => w.subgroup || w.malzeme || w.miktar)) {
+                                            newData[roomId][field] = copiedWalls;
                                         }
-                                    });
-                                    if (Object.keys(copiedWalls).length > 0) {
-                                        newData[roomId][field] = copiedWalls;
+                                    } else if (typeof roomData[field] === 'object') {
+                                        // Obje formatı (eski) - her key bir duvar indexi
+                                        const copiedWalls = {};
+                                        Object.keys(roomData[field]).forEach(wallIdx => {
+                                            const wall = roomData[field][wallIdx];
+                                            if (wall && typeof wall === 'object') {
+                                                const newWall = {};
+                                                if (copyOptions.materials) {
+                                                    newWall.subgroup = wall.subgroup || '';
+                                                    newWall.malzeme = wall.malzeme || '';
+                                                }
+                                                if (copyOptions.amounts) {
+                                                    newWall.miktar = wall.miktar || '';
+                                                }
+                                                // Sadece dolu duvarları ekle
+                                                if (newWall.subgroup || newWall.malzeme || newWall.miktar) {
+                                                    copiedWalls[wallIdx] = newWall;
+                                                }
+                                            }
+                                        });
+                                        if (Object.keys(copiedWalls).length > 0) {
+                                            newData[roomId][field] = copiedWalls;
+                                        }
+                                    }
+                                } else if (roomData[field] && typeof roomData[field] === 'object') {
+                                    // Diğer malzeme alanları
+                                    const newField = {};
+                                    if (copyOptions.materials) {
+                                        newField.subgroup = roomData[field].subgroup || '';
+                                        newField.malzeme = roomData[field].malzeme || '';
+                                    }
+                                    if (copyOptions.amounts) {
+                                        newField.miktar = roomData[field].miktar || '';
+                                    }
+                                    // Sadece dolu alanları ekle
+                                    if (newField.subgroup || newField.malzeme || newField.miktar) {
+                                        newData[roomId][field] = newField;
                                     }
                                 }
-                            } else if (roomData[field] && typeof roomData[field] === 'object') {
-                                // Diğer malzeme alanları
-                                const newField = {};
-                                if (copyOptions.materials) {
-                                    newField.subgroup = roomData[field].subgroup || '';
-                                    newField.malzeme = roomData[field].malzeme || '';
-                                }
-                                if (copyOptions.amounts) {
-                                    newField.miktar = roomData[field].miktar || '';
-                                }
-                                // Sadece dolu alanları ekle
-                                if (newField.subgroup || newField.malzeme || newField.miktar) {
-                                    newData[roomId][field] = newField;
-                                }
-                            }
+                            });
                         });
-                    });
-                    
-                    // Duvar sayılarını her zaman kopyala (mekanlar seçiliyse)
-                    if (sourceApt.wallCount) {
-                        Object.assign(newWallCount, sourceApt.wallCount);
+                        
+                        // Duvar sayılarını her zaman kopyala (mekanlar seçiliyse)
+                        if (sourceApt.wallCount) {
+                            Object.assign(newWallCount, sourceApt.wallCount);
+                        }
                     }
+                    
+                    const newApartment = {
+                        id: nextId++,
+                        name: newName,
+                        data: newData,
+                        wallCount: newWallCount,
+                        hiddenRooms: newHiddenRooms
+                    };
+                    
+                    newApartments.push(newApartment);
                 }
                 
-                const newApartment = {
-                    id: newId,
-                    name: newName.trim(),
-                    data: newData,
-                    wallCount: newWallCount,
-                    hiddenRooms: newHiddenRooms
-                };
-                
-                updateApartments([...apartments, newApartment]);
-                setCurrentApt(newId);
+                updateApartments([...apartments, ...newApartments]);
+                setCurrentApt(newApartments[0].id); // İlk oluşturulan daireye geç
                 setShowCopyModal(false);
                 
                 // Kopyalama seçeneklerini sıfırla
@@ -1840,6 +1947,9 @@
                     amounts: true,
                     photos: false
                 });
+                setCopyCount(1);
+                
+                alert(`✅ ${count} adet daire başarıyla kopyalandı!\n\n${newApartments.map(a => a.name).join('\n')}`);
             };
 
             // Başka daireden miktar kopyalama
@@ -3318,6 +3428,36 @@
                                     </label>
                                 </div>
                                 
+                                {/* Kopyalama Sayısı */}
+                                <div className={`mb-6 p-4 rounded-lg border-2 ${
+                                    theme === 'dark'
+                                        ? 'border-amber-700 bg-amber-900 bg-opacity-20'
+                                        : 'border-amber-300 bg-amber-50'
+                                }`}>
+                                    <label className={`block text-sm font-semibold mb-2 ${
+                                        theme === 'dark' ? 'text-amber-200' : 'text-amber-800'
+                                    }`}>
+                                        🔢 Kaç Adet Kopyalamak İstiyorsunuz?
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="50"
+                                        value={copyCount}
+                                        onChange={(e) => setCopyCount(e.target.value)}
+                                        className={`w-full px-4 py-3 border-2 rounded-lg text-center text-xl font-bold focus:ring-2 transition-colors ${
+                                            theme === 'dark'
+                                                ? 'border-amber-600 bg-gray-700 text-amber-200 focus:border-amber-400 focus:ring-amber-500'
+                                                : 'border-amber-400 bg-white text-amber-900 focus:border-amber-500 focus:ring-amber-200'
+                                        }`}
+                                    />
+                                    <p className={`text-xs mt-2 ${
+                                        theme === 'dark' ? 'text-amber-300' : 'text-amber-700'
+                                    }`}>
+                                        💡 Otomatik sıra numarası verilecek (örn: Daire 3, Daire 4, Daire 5...)
+                                    </p>
+                                </div>
+                                
                                 <div className="flex gap-3">
                                     <button
                                         onClick={() => setShowCopyModal(false)}
@@ -3771,28 +3911,86 @@
                         <div className="flex items-center justify-between mb-4">
                             <h1 className={`text-2xl font-bold ${theme === 'dark' ? 'text-blue-400' : 'text-blue-600'}`}>Daire Seçim Listeleri</h1>
                             
-                            {/* Çıkış Butonu */}
-                            <button 
-                                onClick={async () => {
-                                    if (confirm('Çıkış yapmak istediğinize emin misiniz?')) {
-                                        if (user && firebaseEnabled) {
-                                            await signOut();
-                                        } else {
-                                            // Firebase yoksa manuel çıkış
-                                            window.location.reload();
+                            {/* Firebase Durum Göstergesi */}
+                            <div className="flex items-center gap-3">
+                                {/* Geçici Bildirimler (başarı/hata) */}
+                                {firebaseStatus.message && firebaseStatus.type !== 'connected' && (
+                                    <div className={`flex items-center gap-2 px-4 py-2 rounded-lg shadow-md animate-pulse ${
+                                        firebaseStatus.type === 'success' 
+                                            ? 'bg-green-100 text-green-800 border border-green-300' 
+                                            : firebaseStatus.type === 'error'
+                                            ? 'bg-red-100 text-red-800 border border-red-300'
+                                            : firebaseStatus.type === 'loading'
+                                            ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                            : 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                                    }`}>
+                                        {firebaseStatus.type === 'success' && (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                            </svg>
+                                        )}
+                                        {firebaseStatus.type === 'error' && (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                            </svg>
+                                        )}
+                                        {firebaseStatus.type === 'loading' && (
+                                            <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                            </svg>
+                                        )}
+                                        {firebaseStatus.type === 'warning' && (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                            </svg>
+                                        )}
+                                        <span className="text-sm font-semibold">{firebaseStatus.message}</span>
+                                    </div>
+                                )}
+                                
+                                {/* Sabit Online/Offline Göstergesi */}
+                                {firebaseEnabled && user && (
+                                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full shadow-sm border ${
+                                        firebaseStatus.connected
+                                            ? 'bg-green-50 text-green-700 border-green-200'
+                                            : 'bg-red-50 text-red-700 border-red-200'
+                                    }`}>
+                                        <div className={`w-2 h-2 rounded-full ${
+                                            firebaseStatus.connected ? 'bg-green-500' : 'bg-red-500'
+                                        }`}></div>
+                                        <span className="text-xs font-medium">
+                                            {firebaseStatus.connected ? 'Çevrimiçi' : 'Çevrimdışı'}
+                                        </span>
+                                        {lastSyncTime && firebaseStatus.connected && (
+                                            <span className="text-xs opacity-60">
+                                                • {lastSyncTime.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                                
+                                {/* Çıkış Butonu */}
+                                <button 
+                                    onClick={async () => {
+                                        if (confirm('Çıkış yapmak istediğinize emin misiniz?')) {
+                                            if (user && firebaseEnabled) {
+                                                await signOut();
+                                            } else {
+                                                // Firebase yoksa manuel çıkış
+                                                window.location.reload();
+                                            }
                                         }
-                                    }
-                                }}
-                                className="bg-red-500 hover:bg-red-600 rounded-lg px-4 py-2 flex items-center gap-2 transition-all shadow-md hover:shadow-lg"
-                                title={user?.email || 'Çıkış'}
-                            >
-                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
-                                </svg>
-                                <span className="text-white text-sm font-bold">Çıkış</span>
-                            </button>
+                                    }}
+                                    className="bg-red-500 hover:bg-red-600 rounded-lg px-4 py-2 flex items-center gap-2 transition-all shadow-md hover:shadow-lg"
+                                    title={user?.email || 'Çıkış'}
+                                >
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                                    </svg>
+                                    <span className="text-white text-sm font-bold">Çıkış</span>
+                                </button>
+                            </div>
                         </div>
-                        
                         <div className="mb-4 pb-3 border-b space-y-3">
                             <div className="flex gap-2 items-center">
                                 <span className={`font-semibold ${theme === 'dark' ? 'text-purple-400' : 'text-purple-600'}`}>Proje:</span>
