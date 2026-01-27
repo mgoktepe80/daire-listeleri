@@ -575,6 +575,9 @@
                 photos: false
             });
             const [copyCount, setCopyCount] = useState(1); // Kaç adet kopyalanacak
+            const [numberingMode, setNumberingMode] = useState('sequential'); // sequential, odd, even, custom
+            const [customNumbers, setCustomNumbers] = useState(''); // Özel numaralar (virgülle ayrılmış)
+            const [startNumber, setStartNumber] = useState(''); // Başlangıç numarası
             const [showCopyAmountsModal, setShowCopyAmountsModal] = useState(false);
             const [sourceAptForAmounts, setSourceAptForAmounts] = useState(null);
             const [selectedFieldsForCopy, setSelectedFieldsForCopy] = useState({});
@@ -1718,20 +1721,30 @@
             };
 
             const addWallCover = () => {
+                const apt = getApt();
                 const rd = getRoomData();
                 const currentWalls = rd.duvar_kaplama || {};
-                const currentCount = getApt().wallCount && getApt().wallCount[currentRoom] ? getApt().wallCount[currentRoom] : 1;
+                const currentCount = apt.wallCount && apt.wallCount[currentRoom] ? apt.wallCount[currentRoom] : 1;
                 
                 // Yeni duvar için boş object ekle
                 const newWalls = { ...currentWalls };
                 newWalls[currentCount] = {}; // Yeni index için boş object
                 
-                updateField('duvar_kaplama', newWalls);
-                
-                // wallCount'u artır
+                // Hem data hem wallCount'u aynı anda güncelle
                 updateApartments(apartments.map(a => {
                     if (a.id === currentApt) {
-                        return { ...a, wallCount: { ...a.wallCount, [currentRoom]: currentCount + 1 } };
+                        const currentRoomData = a.data[currentRoom] || {};
+                        return { 
+                            ...a, 
+                            wallCount: { ...(a.wallCount || {}), [currentRoom]: currentCount + 1 },
+                            data: { 
+                                ...a.data, 
+                                [currentRoom]: { 
+                                    ...currentRoomData, 
+                                    duvar_kaplama: newWalls 
+                                } 
+                            }
+                        };
                     }
                     return a;
                 }));
@@ -1942,12 +1955,65 @@
                 
                 const maxNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
                 
+                // Numaraları oluştur
+                let numbers = [];
+                
+                // Başlangıç numarasını belirle
+                let baseNumber = maxNumber;
+                if (startNumber && startNumber.trim() !== '') {
+                    const parsedStart = parseInt(startNumber);
+                    if (!isNaN(parsedStart) && parsedStart > 0) {
+                        baseNumber = parsedStart - 1; // Döngü +1 ile başlayacağı için -1
+                    }
+                }
+                
+                if (numberingMode === 'sequential') {
+                    // Ardışık: 1, 2, 3, 4, 5...
+                    for (let i = 0; i < count; i++) {
+                        numbers.push(baseNumber + i + 1);
+                    }
+                } else if (numberingMode === 'odd') {
+                    // Tek sayılar: 1, 3, 5, 7, 9...
+                    let currentNumber = baseNumber % 2 === 0 ? baseNumber + 1 : baseNumber + 2;
+                    for (let i = 0; i < count; i++) {
+                        numbers.push(currentNumber);
+                        currentNumber += 2;
+                    }
+                } else if (numberingMode === 'even') {
+                    // Çift sayılar: 2, 4, 6, 8, 10...
+                    let currentNumber = baseNumber % 2 === 1 ? baseNumber + 1 : baseNumber + 2;
+                    for (let i = 0; i < count; i++) {
+                        numbers.push(currentNumber);
+                        currentNumber += 2;
+                    }
+                } else if (numberingMode === 'custom') {
+                    // Özel numaralar
+                    const customNumArray = customNumbers.split(',')
+                        .map(n => parseInt(n.trim()))
+                        .filter(n => !isNaN(n) && n > 0);
+                    
+                    if (customNumArray.length === 0) {
+                        alert('Lütfen geçerli numaralar girin! (Örnek: 101, 102, 201, 202)');
+                        return;
+                    }
+                    
+                    numbers = customNumArray;
+                }
+                
+                // Mevcut numaralarla çakışma kontrolü
+                const conflicts = numbers.filter(num => existingNumbers.includes(num));
+                if (conflicts.length > 0) {
+                    if (!confirm(`⚠️ Aşağıdaki numaralar zaten mevcut:\n${conflicts.join(', ')}\n\nYine de devam edilsin mi? (Var olan daireler üzerine yazılacak!)`)) {
+                        return;
+                    }
+                }
+                
                 const newApartments = [];
                 let nextId = Math.max(...apartments.map(a => a.id), 0) + 1;
                 
                 // Belirlenen sayıda daire oluştur
-                for (let i = 0; i < count; i++) {
-                    const newNumber = maxNumber + i + 1;
+                for (let i = 0; i < numbers.length; i++) {
+                    const newNumber = numbers[i];
                     const newName = `${baseName} ${newNumber}`;
                     
                     const newData = {};
@@ -2056,8 +2122,11 @@
                     photos: false
                 });
                 setCopyCount(1);
+                setNumberingMode('sequential');
+                setCustomNumbers('');
+                setStartNumber('');
                 
-                alert(`✅ ${count} adet daire başarıyla kopyalandı!\n\n${newApartments.map(a => a.name).join('\n')}`);
+                alert(`✅ ${newApartments.length} adet daire başarıyla kopyalandı!\n\n${newApartments.map(a => a.name).join('\n')}`);
             };
             
             // Toplu daire silme
@@ -2220,7 +2289,7 @@
                                                 project: project.name,
                                                 apartment: apt.name,
                                                 room: room.name,
-                                                field: fc.label,
+                                                field: v.name || `Duvar ${wallIdx + 1}`, // Özel duvar ismi veya varsayılan
                                                 amount: parseFloat(v.miktar || 0)
                                             });
                                         }
@@ -2492,7 +2561,9 @@
                                     if (v && v.malzeme) {
                                         const miktar = v.miktar ? (isNaN(v.miktar) ? v.miktar : parseFloat(v.miktar)) : '-';
                                         const subgroup = v.subgroup || '-';
-                                        roomData.push([room.name, fc.label + ' ' + (wallIdx + 1), subgroup, v.malzeme, miktar, fc.unit || '']);
+                                        // Özel duvar ismi varsa kullan, yoksa varsayılan
+                                        const wallName = v.name || `Duvar ${wallIdx + 1}`;
+                                        roomData.push([room.name, wallName, subgroup, v.malzeme, miktar, fc.unit || '']);
                                         roomHasData = true;
                                     }
                                 }
@@ -2647,7 +2718,9 @@
                                 const v = rd[f][wallIdx];
                                 if (v && v.malzeme) {
                                     const subgroup = v.subgroup || '-';
-                                    html += '<tr><td>' + fc.label + ' ' + (wallIdx + 1) + '</td><td>' + subgroup + '</td><td>' + v.malzeme + '</td><td>' + (v.miktar || '-') + '</td><td>' + (fc.unit || '-') + '</td></tr>';
+                                    // Özel duvar ismi varsa kullan, yoksa varsayılan
+                                    const wallName = v.name || ('Duvar ' + (wallIdx + 1));
+                                    html += '<tr><td>' + wallName + '</td><td>' + subgroup + '</td><td>' + v.malzeme + '</td><td>' + (v.miktar || '-') + '</td><td>' + (fc.unit || '-') + '</td></tr>';
                                 }
                             }
                         } else if (rd[f] && rd[f].malzeme) {
@@ -2712,7 +2785,8 @@
                 }
 
                 if (f === 'duvar_kaplama') {
-                    const count = getApt().wallCount[currentRoom] || 1;
+                    const apt = getApt();
+                    const count = apt.wallCount && apt.wallCount[currentRoom] ? apt.wallCount[currentRoom] : 1;
                     const categoryData = materials[fc.category] || {};
                     const isHierarchical = typeof categoryData === 'object' && !Array.isArray(categoryData);
                     
@@ -2737,12 +2811,34 @@
                                 {[...Array(count)].map((_, i) => {
                                     const wallData = data.duvar_kaplama && data.duvar_kaplama[i] ? data.duvar_kaplama[i] : {};
                                     return (
-                                        <div key={i} className="bg-white rounded-lg p-4 border-2 border-orange-200 hover:border-orange-300 transition-all">
+                                        <div key={i} className={`rounded-lg p-4 border-2 transition-all ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 border-orange-600 hover:border-orange-500'
+                                                : 'bg-white border-orange-200 hover:border-orange-300'
+                                        }`}>
                                             <div className="flex justify-between items-center mb-3">
-                                                <span className="text-sm font-semibold text-orange-800 flex items-center gap-2">
-                                                    <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs">{i + 1}</span>
-                                                    Duvar {i + 1}
-                                                </span>
+                                                <div className="flex items-center gap-2 flex-1">
+                                                    <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs flex-shrink-0">{i + 1}</span>
+                                                    <input
+                                                        type="text"
+                                                        placeholder={`Duvar ${i + 1}`}
+                                                        value={wallData.name || ''}
+                                                        onChange={(e) => {
+                                                            const newData = { ...(data.duvar_kaplama || {}) };
+                                                            newData[i] = { ...(newData[i] || {}), name: e.target.value };
+                                                            updateApartments(apartments.map(a => 
+                                                                a.id === currentApt 
+                                                                    ? { ...a, data: { ...a.data, [currentRoom]: { ...a.data[currentRoom], duvar_kaplama: newData } } }
+                                                                    : a
+                                                            ));
+                                                        }}
+                                                        className={`flex-1 px-3 py-1.5 border rounded-lg text-sm font-semibold focus:ring-2 focus:border-orange-400 transition-colors ${
+                                                            theme === 'dark'
+                                                                ? 'bg-gray-800 text-orange-200 border-gray-600 focus:ring-orange-500 placeholder-gray-500'
+                                                                : 'bg-gray-50 text-orange-800 border-gray-300 focus:ring-orange-200 placeholder-gray-400'
+                                                        }`}
+                                                    />
+                                                </div>
                                                 {count > 1 && (
                                                     <button 
                                                         onClick={() => {
@@ -3448,11 +3544,13 @@
                     
                     {/* DAİRE KOPYALAMA MODAL */}
                     {showCopyModal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className={`rounded-lg p-6 max-w-md w-full transition-colors ${
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                            <div className={`rounded-lg p-6 max-w-2xl w-full my-8 max-h-[90vh] overflow-y-auto transition-colors ${
                                 theme === 'dark' ? 'bg-gray-800' : 'bg-white'
                             }`}>
-                                <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                                <div className="flex justify-between items-center mb-6 pb-4 border-b sticky top-0 ${
+                                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                                } z-10">
                                     <h2 className={`text-2xl font-bold flex items-center gap-2 ${
                                         theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
                                     }`}>
@@ -3584,35 +3682,201 @@
                                     </label>
                                 </div>
                                 
-                                {/* Kopyalama Sayısı */}
-                                <div className={`mb-6 p-4 rounded-lg border-2 ${
+                                {/* Numaralandırma Modu */}
+                                <div className={`mb-4 p-4 rounded-lg border-2 ${
                                     theme === 'dark'
-                                        ? 'border-amber-700 bg-amber-900 bg-opacity-20'
-                                        : 'border-amber-300 bg-amber-50'
+                                        ? 'border-indigo-700 bg-indigo-900 bg-opacity-20'
+                                        : 'border-indigo-300 bg-indigo-50'
                                 }`}>
                                     <label className={`block text-sm font-semibold mb-2 ${
-                                        theme === 'dark' ? 'text-amber-200' : 'text-amber-800'
+                                        theme === 'dark' ? 'text-indigo-200' : 'text-indigo-800'
                                     }`}>
-                                        🔢 Kaç Adet Kopyalamak İstiyorsunuz?
+                                        🎯 Numaralandırma Modu
                                     </label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        max="50"
-                                        value={copyCount}
-                                        onChange={(e) => setCopyCount(e.target.value)}
-                                        className={`w-full px-4 py-3 border-2 rounded-lg text-center text-xl font-bold focus:ring-2 transition-colors ${
-                                            theme === 'dark'
-                                                ? 'border-amber-600 bg-gray-700 text-amber-200 focus:border-amber-400 focus:ring-amber-500'
-                                                : 'border-amber-400 bg-white text-amber-900 focus:border-amber-500 focus:ring-amber-200'
-                                        }`}
-                                    />
-                                    <p className={`text-xs mt-2 ${
-                                        theme === 'dark' ? 'text-amber-300' : 'text-amber-700'
-                                    }`}>
-                                        💡 Otomatik sıra numarası verilecek (örn: Daire 3, Daire 4, Daire 5...)
-                                    </p>
+                                    
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {/* Ardışık */}
+                                        <label className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                            numberingMode === 'sequential'
+                                                ? theme === 'dark'
+                                                    ? 'border-indigo-500 bg-indigo-900 bg-opacity-40'
+                                                    : 'border-indigo-500 bg-indigo-100'
+                                                : theme === 'dark'
+                                                    ? 'border-gray-700 hover:border-gray-600'
+                                                    : 'border-gray-300 hover:border-gray-400'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="numberingMode"
+                                                checked={numberingMode === 'sequential'}
+                                                onChange={() => setNumberingMode('sequential')}
+                                                className="w-4 h-4 text-indigo-600"
+                                            />
+                                            <div className="flex-1">
+                                                <div className={`text-sm font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                    ➡️ Ardışık
+                                                </div>
+                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    1, 2, 3...
+                                                </div>
+                                            </div>
+                                        </label>
+                                        
+                                        {/* Tek Sayılar */}
+                                        <label className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                            numberingMode === 'odd'
+                                                ? theme === 'dark'
+                                                    ? 'border-indigo-500 bg-indigo-900 bg-opacity-40'
+                                                    : 'border-indigo-500 bg-indigo-100'
+                                                : theme === 'dark'
+                                                    ? 'border-gray-700 hover:border-gray-600'
+                                                    : 'border-gray-300 hover:border-gray-400'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="numberingMode"
+                                                checked={numberingMode === 'odd'}
+                                                onChange={() => setNumberingMode('odd')}
+                                                className="w-4 h-4 text-indigo-600"
+                                            />
+                                            <div className="flex-1">
+                                                <div className={`text-sm font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                    🔵 Tek
+                                                </div>
+                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    1, 3, 5...
+                                                </div>
+                                            </div>
+                                        </label>
+                                        
+                                        {/* Çift Sayılar */}
+                                        <label className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                            numberingMode === 'even'
+                                                ? theme === 'dark'
+                                                    ? 'border-indigo-500 bg-indigo-900 bg-opacity-40'
+                                                    : 'border-indigo-500 bg-indigo-100'
+                                                : theme === 'dark'
+                                                    ? 'border-gray-700 hover:border-gray-600'
+                                                    : 'border-gray-300 hover:border-gray-400'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="numberingMode"
+                                                checked={numberingMode === 'even'}
+                                                onChange={() => setNumberingMode('even')}
+                                                className="w-4 h-4 text-indigo-600"
+                                            />
+                                            <div className="flex-1">
+                                                <div className={`text-sm font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                    🔴 Çift
+                                                </div>
+                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    2, 4, 6...
+                                                </div>
+                                            </div>
+                                        </label>
+                                        
+                                        {/* Özel Numaralar */}
+                                        <label className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                            numberingMode === 'custom'
+                                                ? theme === 'dark'
+                                                    ? 'border-indigo-500 bg-indigo-900 bg-opacity-40'
+                                                    : 'border-indigo-500 bg-indigo-100'
+                                                : theme === 'dark'
+                                                    ? 'border-gray-700 hover:border-gray-600'
+                                                    : 'border-gray-300 hover:border-gray-400'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="numberingMode"
+                                                checked={numberingMode === 'custom'}
+                                                onChange={() => setNumberingMode('custom')}
+                                                className="w-4 h-4 text-indigo-600"
+                                            />
+                                            <div className="flex-1">
+                                                <div className={`text-sm font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                    ⭐ Özel
+                                                </div>
+                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                    Elle gir
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                    
+                                    {/* Özel Numara Girişi */}
+                                    {numberingMode === 'custom' && (
+                                        <div className="mt-3">
+                                            <input
+                                                type="text"
+                                                placeholder="Örnek: 101, 102, 201, 202"
+                                                value={customNumbers}
+                                                onChange={(e) => setCustomNumbers(e.target.value)}
+                                                className={`w-full px-3 py-2 border-2 rounded-lg text-sm focus:ring-2 transition-colors ${
+                                                    theme === 'dark'
+                                                        ? 'border-indigo-600 bg-gray-700 text-indigo-200 focus:border-indigo-400 focus:ring-indigo-500 placeholder-gray-500'
+                                                        : 'border-indigo-400 bg-white text-indigo-900 focus:border-indigo-500 focus:ring-indigo-200 placeholder-gray-400'
+                                                }`}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
+                                
+                                {/* Kopyalama Sayısı */}
+                                {numberingMode !== 'custom' && (
+                                    <>
+                                        <div className={`mb-4 p-4 rounded-lg border-2 ${
+                                            theme === 'dark'
+                                                ? 'border-blue-700 bg-blue-900 bg-opacity-20'
+                                                : 'border-blue-300 bg-blue-50'
+                                        }`}>
+                                            <label className={`block text-sm font-semibold mb-2 ${
+                                                theme === 'dark' ? 'text-blue-200' : 'text-blue-800'
+                                            }`}>
+                                                🎯 Başlangıç Numarası (İsteğe Bağlı)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                placeholder="Boş bırakırsanız otomatik devam eder"
+                                                value={startNumber}
+                                                onChange={(e) => setStartNumber(e.target.value)}
+                                                className={`w-full px-4 py-3 border-2 rounded-lg text-center text-lg font-semibold focus:ring-2 transition-colors ${
+                                                    theme === 'dark'
+                                                        ? 'border-blue-600 bg-gray-700 text-blue-200 focus:border-blue-400 focus:ring-blue-500 placeholder-gray-500'
+                                                        : 'border-blue-400 bg-white text-blue-900 focus:border-blue-500 focus:ring-blue-200 placeholder-gray-400'
+                                                }`}
+                                            />
+                                            <p className={`text-xs mt-2 ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'}`}>
+                                                💡 Örnek: 5 girip 3 adet kopyalarsanız → Daire 5, 6, 7
+                                            </p>
+                                        </div>
+                                        
+                                        <div className={`mb-6 p-4 rounded-lg border-2 ${
+                                            theme === 'dark'
+                                                ? 'border-amber-700 bg-amber-900 bg-opacity-20'
+                                                : 'border-amber-300 bg-amber-50'
+                                        }`}>
+                                            <label className={`block text-sm font-semibold mb-2 ${
+                                                theme === 'dark' ? 'text-amber-200' : 'text-amber-800'
+                                            }`}>
+                                                🔢 Kaç Adet Kopyalamak İstiyorsunuz?
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="50"
+                                                value={copyCount}
+                                                onChange={(e) => setCopyCount(e.target.value)}
+                                                className={`w-full px-4 py-3 border-2 rounded-lg text-center text-xl font-bold focus:ring-2 transition-colors ${
+                                                    theme === 'dark'
+                                                        ? 'border-amber-600 bg-gray-700 text-amber-200 focus:border-amber-400 focus:ring-amber-500'
+                                                        : 'border-amber-400 bg-white text-amber-900 focus:border-amber-500 focus:ring-amber-200'
+                                                }`}
+                                            />
+                                        </div>
+                                    </>
+                                )}
                                 
                                 <div className="flex gap-3">
                                     <button
