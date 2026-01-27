@@ -710,16 +710,38 @@
                 if (!firebaseSync || !firebaseEnabled || !user) return;
                 
                 console.log('👂 Firebase gerçek zamanlı dinleyici başlatıldı');
+                let isFirstLoad = true;
+                let lastLocalUpdateTime = Date.now();
+                
                 const unsubscribe = setupFirebaseListener((data) => {
-                    console.log('🔄 Başka cihazdan güncelleme alındı');
-                    if (data.projects) setProjects(data.projects);
-                    if (data.customRooms) setCustomRooms(data.customRooms);
-                    if (data.baseRooms) setBaseRooms(data.baseRooms);
-                    if (data.fieldLabels) setFieldLabels(data.fieldLabels);
-                    if (data.roomOrder) setRoomOrder(data.roomOrder);
-                    if (data.materials) setMaterials(data.materials);
+                    // İlk yüklemeyi atla (sayfa yüklenirken tetiklenir)
+                    if (isFirstLoad) {
+                        isFirstLoad = false;
+                        lastLocalUpdateTime = data.lastUpdate?.toMillis() || Date.now();
+                        console.log('📝 İlk Firebase dinleyici tetiklemesi (atlandı)');
+                        return;
+                    }
+                    
                     const firebaseTimestamp = data.lastUpdate?.toMillis() || Date.now();
-                    setLastSyncTime(new Date(firebaseTimestamp));
+                    
+                    // Sadece Firebase daha yeni ise güncelle (kendi değişikliklerimizi atla)
+                    if (firebaseTimestamp > lastLocalUpdateTime + 1000) { // 1 saniye tolerans
+                        console.log('🔄 Başka cihazdan güncelleme alındı');
+                        if (data.projects) setProjects(data.projects);
+                        if (data.customRooms) setCustomRooms(data.customRooms);
+                        if (data.baseRooms) setBaseRooms(data.baseRooms);
+                        if (data.fieldLabels) setFieldLabels(data.fieldLabels);
+                        if (data.roomOrder) setRoomOrder(data.roomOrder);
+                        if (data.materials) setMaterials(data.materials);
+                        lastLocalUpdateTime = firebaseTimestamp;
+                        setLastSyncTime(new Date(firebaseTimestamp));
+                        
+                        // Geçici bildirim göster
+                        setFirebaseStatus({ connected: true, message: 'Başka cihazdan güncelleme alındı', type: 'success' });
+                        setTimeout(() => setFirebaseStatus({ connected: true, message: '', type: 'connected' }), 3000);
+                    } else {
+                        console.log('📝 Kendi değişikliğimiz veya eski veri (atlandı)');
+                    }
                 });
                 
                 return () => {
@@ -727,47 +749,8 @@
                 };
             }, [firebaseSync, user]);
             
-            // Veriler değiştiğinde otomatik Firebase'e kaydet (debounce ile)
-            useEffect(() => {
-                if (!firebaseSync || !firebaseEnabled || !user) return;
-                
-                // İlk yükleme sırasında kaydetme (sonsuz döngü önleme)
-                if (projects.length === 0) return;
-                
-                const timer = setTimeout(async () => {
-                    console.log('🔄 Otomatik senkronizasyon başlatıldı...');
-                    try {
-                        const success = await saveToFirebase({
-                            projects,
-                            customRooms,
-                            baseRooms,
-                            roomOrder,
-                            fieldLabels,
-                            materials
-                        });
-                        
-                        if (success) {
-                            setLastSyncTime(new Date());
-                            setFirebaseStatus({ connected: true, message: '', type: 'connected' });
-                            
-                            // Yedek olarak localStorage'a da kaydet
-                            localStorage.setItem('projects_data', JSON.stringify(projects));
-                            localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                            localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                            localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                            localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                            localStorage.setItem('material_database', JSON.stringify(materials));
-                        } else {
-                            setFirebaseStatus({ connected: false, message: 'Bağlantı hatası', type: 'error' });
-                        }
-                    } catch (error) {
-                        console.error('❌ Otomatik senkronizasyon hatası:', error);
-                        setFirebaseStatus({ connected: false, message: 'Firebase bağlantı hatası', type: 'error' });
-                    }
-                }, 2000); // 2 saniye bekle (çok sık kaydetmeyi önle)
-                
-                return () => clearTimeout(timer);
-            }, [projects, customRooms, baseRooms, roomOrder, fieldLabels, materials, firebaseSync, user]);
+            // NOT: Otomatik kaydetme devre dışı - sonsuz döngü engellendi
+            // Kullanıcı "Kaydet" butonuna basmalı veya manuel kaydetme yapılmalı
 
             const getProject = () => projects.find(p => p.id === currentPrj) || projects[0];
             
