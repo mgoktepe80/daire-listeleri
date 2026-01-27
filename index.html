@@ -521,6 +521,13 @@
             const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
             const [showMaterialAnalysis, setShowMaterialAnalysis] = useState(false);
             const [activeAnalysisTab, setActiveAnalysisTab] = useState('Tümü');
+            const [showCopyModal, setShowCopyModal] = useState(false);
+            const [copyOptions, setCopyOptions] = useState({
+                rooms: true,
+                materials: true,
+                amounts: true,
+                photos: false
+            });
             const [showFieldManager, setShowFieldManager] = useState(false);
             const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
             const [lastBackupDate, setLastBackupDate] = useState(null);
@@ -1718,6 +1725,79 @@
                         `;
                     }
                 }
+            };
+
+            // Daire kopyalama fonksiyonu
+            const copyApartment = () => {
+                const sourceApt = getApt();
+                const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
+                const newName = prompt('Yeni daire adı:', sourceApt.name + ' Kopya');
+                
+                if (!newName || !newName.trim()) return;
+                
+                const newData = {};
+                const newWallCount = {};
+                const newHiddenRooms = [...(sourceApt.hiddenRooms || [])];
+                
+                // Seçili mekanları kopyala
+                if (copyOptions.rooms) {
+                    Object.keys(sourceApt.data).forEach(roomId => {
+                        const roomData = sourceApt.data[roomId];
+                        newData[roomId] = {};
+                        
+                        Object.keys(roomData).forEach(field => {
+                            if (field === 'foto') {
+                                // Fotoğrafları sadece seçiliyse kopyala
+                                if (copyOptions.photos) {
+                                    newData[roomId][field] = { ...roomData[field] };
+                                }
+                            } else if (field === 'duvar_kaplama') {
+                                // Duvar kaplama array'i
+                                if (copyOptions.materials) {
+                                    newData[roomId][field] = roomData[field].map(wall => ({
+                                        subgroup: wall.subgroup,
+                                        malzeme: wall.malzeme,
+                                        miktar: copyOptions.amounts ? wall.miktar : ''
+                                    }));
+                                }
+                            } else if (roomData[field] && typeof roomData[field] === 'object') {
+                                // Diğer malzeme alanları
+                                if (copyOptions.materials) {
+                                    newData[roomId][field] = {
+                                        subgroup: roomData[field].subgroup,
+                                        malzeme: roomData[field].malzeme,
+                                        miktar: copyOptions.amounts ? roomData[field].miktar : ''
+                                    };
+                                }
+                            }
+                        });
+                    });
+                    
+                    // Duvar sayılarını kopyala
+                    if (copyOptions.materials && sourceApt.wallCount) {
+                        Object.assign(newWallCount, sourceApt.wallCount);
+                    }
+                }
+                
+                const newApartment = {
+                    id: newId,
+                    name: newName.trim(),
+                    data: newData,
+                    wallCount: newWallCount,
+                    hiddenRooms: newHiddenRooms
+                };
+                
+                updateApartments([...apartments, newApartment]);
+                setCurrentApt(newId);
+                setShowCopyModal(false);
+                
+                // Kopyalama seçeneklerini sıfırla
+                setCopyOptions({
+                    rooms: true,
+                    materials: true,
+                    amounts: true,
+                    photos: false
+                });
             };
 
             // Malzeme kullanım analizi
@@ -2982,6 +3062,169 @@
                         </div>
                     )}
                     
+                    {/* DAİRE KOPYALAMA MODAL */}
+                    {showCopyModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className={`rounded-lg p-6 max-w-md w-full transition-colors ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                                    <h2 className={`text-2xl font-bold flex items-center gap-2 ${
+                                        theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                    }`}>
+                                        <svg className="w-7 h-7 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Daire Kopyala
+                                    </h2>
+                                    <button 
+                                        onClick={() => setShowCopyModal(false)} 
+                                        className="text-3xl hover:text-gray-600 transition-colors"
+                                    >×</button>
+                                </div>
+                                
+                                <div className={`mb-4 p-4 rounded-lg ${
+                                    theme === 'dark' ? 'bg-purple-900 border-purple-700' : 'bg-purple-50 border-purple-200'
+                                } border-l-4`}>
+                                    <p className={`text-sm ${theme === 'dark' ? 'text-purple-100' : 'text-purple-800'}`}>
+                                        <strong>{getApt().name}</strong> dairesinden hangi verileri kopyalamak istiyorsunuz?
+                                    </p>
+                                </div>
+                                
+                                <div className="space-y-4 mb-6">
+                                    {/* Mekanlar */}
+                                    <label className={`flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                        copyOptions.rooms
+                                            ? theme === 'dark'
+                                                ? 'border-purple-600 bg-purple-900 bg-opacity-20'
+                                                : 'border-purple-500 bg-purple-50'
+                                            : theme === 'dark'
+                                                ? 'border-gray-700 bg-gray-750'
+                                                : 'border-gray-200 bg-gray-50'
+                                    }`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={copyOptions.rooms}
+                                            onChange={(e) => setCopyOptions({ ...copyOptions, rooms: e.target.checked })}
+                                            className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                        />
+                                        <div className="flex-1">
+                                            <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                🏠 Mekanlar ve Yapı
+                                            </div>
+                                            <div className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Gizli/görünür mekanlar, duvar sayıları
+                                            </div>
+                                        </div>
+                                    </label>
+                                    
+                                    {/* Malzemeler */}
+                                    <label className={`flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                        copyOptions.materials
+                                            ? theme === 'dark'
+                                                ? 'border-purple-600 bg-purple-900 bg-opacity-20'
+                                                : 'border-purple-500 bg-purple-50'
+                                            : theme === 'dark'
+                                                ? 'border-gray-700 bg-gray-750'
+                                                : 'border-gray-200 bg-gray-50'
+                                    }`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={copyOptions.materials}
+                                            onChange={(e) => setCopyOptions({ ...copyOptions, materials: e.target.checked })}
+                                            className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                            disabled={!copyOptions.rooms}
+                                        />
+                                        <div className="flex-1">
+                                            <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                🎨 Malzemeler
+                                            </div>
+                                            <div className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Seçili malzemeler ve alt gruplar
+                                            </div>
+                                        </div>
+                                    </label>
+                                    
+                                    {/* Miktarlar */}
+                                    <label className={`flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                        copyOptions.amounts
+                                            ? theme === 'dark'
+                                                ? 'border-purple-600 bg-purple-900 bg-opacity-20'
+                                                : 'border-purple-500 bg-purple-50'
+                                            : theme === 'dark'
+                                                ? 'border-gray-700 bg-gray-750'
+                                                : 'border-gray-200 bg-gray-50'
+                                    }`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={copyOptions.amounts}
+                                            onChange={(e) => setCopyOptions({ ...copyOptions, amounts: e.target.checked })}
+                                            className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                            disabled={!copyOptions.materials}
+                                        />
+                                        <div className="flex-1">
+                                            <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                📏 Miktarlar
+                                            </div>
+                                            <div className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                m², adet gibi miktar bilgileri
+                                            </div>
+                                        </div>
+                                    </label>
+                                    
+                                    {/* Fotoğraflar */}
+                                    <label className={`flex items-center gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                        copyOptions.photos
+                                            ? theme === 'dark'
+                                                ? 'border-purple-600 bg-purple-900 bg-opacity-20'
+                                                : 'border-purple-500 bg-purple-50'
+                                            : theme === 'dark'
+                                                ? 'border-gray-700 bg-gray-750'
+                                                : 'border-gray-200 bg-gray-50'
+                                    }`}>
+                                        <input
+                                            type="checkbox"
+                                            checked={copyOptions.photos}
+                                            onChange={(e) => setCopyOptions({ ...copyOptions, photos: e.target.checked })}
+                                            className="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                            disabled={!copyOptions.rooms}
+                                        />
+                                        <div className="flex-1">
+                                            <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                📸 Fotoğraflar
+                                            </div>
+                                            <div className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Tüm yüklü fotoğraflar
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+                                
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowCopyModal(false)}
+                                        className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 text-gray-100 hover:bg-gray-600'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={copyApartment}
+                                        className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Kopyala
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {/* MALZEME ANALİZİ MODAL */}
                     {showMaterialAnalysis && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -3306,6 +3549,16 @@
                                         updateApartments(apartments.map(a => a.id === currentApt ? { ...a, name: newName.trim() } : a));
                                     }
                                 }} className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600" title="Daire adini degistir">✏️</button>
+                                <button 
+                                    onClick={() => setShowCopyModal(true)} 
+                                    className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-semibold hover:bg-purple-600 flex items-center gap-1" 
+                                    title="Daireyi kopyala"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                    </svg>
+                                    Kopyala
+                                </button>
                                 <button onClick={() => {
                                     const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
                                     const newName = prompt('Yeni daire adi:', 'Daire ' + newId);
