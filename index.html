@@ -986,15 +986,7 @@
             const save = async () => {
                 // İnternet kontrolü
                 if (!navigator.onLine) {
-                    // İnternet yoksa sadece localStorage'a kaydet
-                    console.log('⚠️ İnternet bağlantısı yok - sadece yerel kayıt yapılıyor');
-                    localStorage.setItem('projects_data', JSON.stringify(projects));
-                    localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                    localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                    localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                    localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                    localStorage.setItem('material_database', JSON.stringify(materials));
-                    alert('⚠️ İnternet bağlantısı yok!\n\n💾 Veriler yerel olarak kaydedildi.\nİnternet bağlantınız geldiğinde tekrar kaydedin.');
+                    alert('⚠️ İnternet bağlantısı yok!\n\nKayıt yapılamadı. İnternet bağlantınızı kontrol edin.');
                     return;
                 }
                 
@@ -1014,34 +1006,12 @@
                         const now = Date.now();
                         setLastSyncTime(new Date(now));
                         setFirebaseStatus({ connected: true, message: '', type: 'connected' });
-                        // Yedek olarak localStorage'a da kaydet
-                        localStorage.setItem('projects_data', JSON.stringify(projects));
-                        localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                        localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                        localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                        localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                        localStorage.setItem('material_database', JSON.stringify(materials));
-                        alert('✅ Kaydedildi!\n\n☁️ Firebase: Başarılı\n💾 Yerel yedek: Oluşturuldu');
+                        alert('✅ Kaydedildi!\n\n☁️ Firebase: Başarılı');
                     } else {
-                        // Firebase başarısız, localStorage'a kaydet
-                        localStorage.setItem('projects_data', JSON.stringify(projects));
-                        localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                        localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                        localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                        localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                        localStorage.setItem('material_database', JSON.stringify(materials));
-                        alert('⚠️ Kaydedildi!\n\n☁️ Firebase: Bağlantı hatası\n💾 Yerel: Başarılı (yedek)');
+                        alert('⚠️ Kayıt başarısız!\n\n☁️ Firebase bağlantı hatası');
                     }
                 } else {
-                    // Firebase yoksa localStorage'a kaydet
-                    console.log('💾 Veriler localStorage\'a kaydediliyor...');
-                    localStorage.setItem('projects_data', JSON.stringify(projects));
-                    localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                    localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                    localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                    localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                    localStorage.setItem('material_database', JSON.stringify(materials));
-                    alert('✅ Kaydedildi!\n\n💾 Yerel: Başarılı');
+                    alert('⚠️ Firebase yapılandırılmamış!\n\nLütfen Firebase ayarlarını kontrol edin.');
                 }
                 
                 // Otomatik yedekleme kontrolü
