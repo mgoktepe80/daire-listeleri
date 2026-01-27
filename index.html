@@ -91,6 +91,7 @@
         // Firebase'i başlat
         let db = null;
         let auth = null;
+        let storage = null;
         let firebaseEnabled = false;
         
         try {
@@ -102,8 +103,9 @@
                 firebase.initializeApp(firebaseConfig);
                 db = firebase.firestore();
                 auth = firebase.auth();
+                storage = firebase.storage();
                 firebaseEnabled = true;
-                console.log('✅ Firebase bağlantısı başarılı!');
+                console.log('✅ Firebase bağlantısı başarılı! (Firestore + Storage + Auth)');
             } else {
                 console.log('⚠️ Firebase yapılandırması eksik - sadece localStorage kullanılıyor');
             }
@@ -111,6 +113,86 @@
             console.error('❌ Firebase başlatma hatası:', error);
             console.log('⚠️ Sadece localStorage kullanılacak');
         }
+
+        // ==========================================
+        // FIREBASE STORAGE FONKSİYONLARI (FOTOĞRAFLAR İÇİN)
+        // ==========================================
+        
+        // Fotoğrafı Firebase Storage'a yükle
+        const uploadPhotoToStorage = async (base64Data, userId, projectId, apartmentId, roomId, photoIndex) => {
+            if (!storage || !auth || !auth.currentUser) {
+                console.log('⚠️ Storage kullanılamıyor, base64 olarak kaydediliyor');
+                return base64Data; // Fallback: base64 olarak döndür
+            }
+            
+            try {
+                // Base64'ten blob'a çevir
+                const response = await fetch(base64Data);
+                const blob = await response.blob();
+                
+                // Dosya yolu: users/{userId}/photos/{projectId}/{apartmentId}/{roomId}/{photoIndex}.jpg
+                const path = `users/${userId}/photos/${projectId}/${apartmentId}/${roomId}/${photoIndex}.jpg`;
+                const storageRef = storage.ref(path);
+                
+                // Yükle
+                await storageRef.put(blob, {
+                    contentType: 'image/jpeg',
+                    cacheControl: 'public, max-age=31536000'
+                });
+                
+                // URL'yi al
+                const downloadURL = await storageRef.getDownloadURL();
+                console.log('✅ Fotoğraf Storage\'a yüklendi:', path);
+                return downloadURL;
+            } catch (error) {
+                console.error('❌ Storage yükleme hatası:', error);
+                return base64Data; // Hata durumunda base64 kullan
+            }
+        };
+        
+        // Storage'dan fotoğrafı sil
+        const deletePhotoFromStorage = async (photoURL) => {
+            if (!storage || !photoURL || !photoURL.includes('firebasestorage')) {
+                return; // Storage URL'i değilse silme
+            }
+            
+            try {
+                const storageRef = storage.refFromURL(photoURL);
+                await storageRef.delete();
+                console.log('✅ Fotoğraf Storage\'dan silindi');
+            } catch (error) {
+                console.error('❌ Storage silme hatası:', error);
+            }
+        };
+        
+        // Fotoğrafı sıkıştır (kalite azaltma)
+        const compressImage = async (base64Data, maxWidth = 1200, quality = 0.7) => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    // Boyutu küçült
+                    if (width > maxWidth) {
+                        height = (height * maxWidth) / width;
+                        width = maxWidth;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Sıkıştırılmış base64
+                    const compressed = canvas.toDataURL('image/jpeg', quality);
+                    resolve(compressed);
+                };
+                img.src = base64Data;
+            });
+        };
 
         // ==========================================
         // AUTHENTICATION FONKSİYONLARI
@@ -1750,22 +1832,56 @@
                 }));
             };
 
-            const uploadPhoto = (e) => {
+            const uploadPhoto = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 if (file.size > 5000000) { alert('Max 5MB!'); return; }
+                
                 const reader = new FileReader();
-                reader.onload = (ev) => {
-                    const rd = getRoomData();
-                    const photos = rd.foto || {};
-                    updateField('foto', { ...photos, [Object.keys(photos).length]: ev.target.result });
+                reader.onload = async (ev) => {
+                    try {
+                        // 1. Fotoğrafı sıkıştır
+                        const compressed = await compressImage(ev.target.result, 1200, 0.7);
+                        
+                        // 2. Storage'a yükle (kullanıcı giriş yapmışsa)
+                        let photoURL = compressed;
+                        if (user && storage) {
+                            const rd = getRoomData();
+                            const photoIndex = Object.keys(rd.foto || {}).length;
+                            photoURL = await uploadPhotoToStorage(
+                                compressed,
+                                user.uid,
+                                currentPrj,
+                                currentApt,
+                                currentRoom,
+                                photoIndex
+                            );
+                        }
+                        
+                        // 3. URL'yi Firestore'a kaydet
+                        const rd = getRoomData();
+                        const photos = rd.foto || {};
+                        updateField('foto', { ...photos, [Object.keys(photos).length]: photoURL });
+                        
+                        console.log('✅ Fotoğraf yüklendi:', photoURL.substring(0, 50) + '...');
+                    } catch (error) {
+                        console.error('❌ Fotoğraf yükleme hatası:', error);
+                        alert('Fotoğraf yüklenemedi!');
+                    }
                 };
                 reader.readAsDataURL(file);
                 e.target.value = '';
             };
 
-            const delPhoto = (idx) => {
+            const delPhoto = async (idx) => {
                 const photos = { ...getRoomData().foto };
+                const photoURL = photos[idx];
+                
+                // Storage'dan sil (eğer Storage URL'i ise)
+                if (photoURL && photoURL.includes('firebasestorage')) {
+                    await deletePhotoFromStorage(photoURL);
+                }
+                
                 delete photos[idx];
                 updateField('foto', Object.keys(photos).length > 0 ? photos : undefined);
             };
