@@ -403,6 +403,46 @@
             { id: 'ebeveyn_oda', name: 'Ebeveyn Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
         ];
 
+        // Daire şablonları - Yeni proje oluşturulurken kullanılacak
+        const APARTMENT_TEMPLATES = {
+            '1+1': [
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
+                { id: 'yatak_odasi', name: 'Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+            ],
+            '2+1': [
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
+                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'cocuk_oda', name: 'Çocuk Odası', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+            ],
+            '3+1': [
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
+                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'cocuk_oda_1', name: 'Çocuk Odası 1', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'cocuk_oda_2', name: 'Çocuk Odası 2', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
+                { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+            ],
+            '4+1': [
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
+                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'cocuk_oda_1', name: 'Çocuk Odası 1', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'cocuk_oda_2', name: 'Çocuk Odası 2', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'cocuk_oda_3', name: 'Çocuk Odası 3', fields: ['zemin', 'boya', 'foto'] },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
+                { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+            ]
+        };
+
         const DEFAULT_FIELD_LABELS = {
             zemin: { label: 'Zemin Kaplama', unit: 'm²', category: 'Zemin' },
             boya: { label: 'Duvar Boya', unit: 'm²', category: 'Boya' },
@@ -714,7 +754,6 @@
             const [showCopyAmountsModal, setShowCopyAmountsModal] = useState(false);
             const [sourceAptForAmounts, setSourceAptForAmounts] = useState(null);
             const [selectedFieldsForCopy, setSelectedFieldsForCopy] = useState({});
-            const [showFieldManager, setShowFieldManager] = useState(false);
             const [autoBackupEnabled, setAutoBackupEnabled] = useState(false);
             const [lastBackupDate, setLastBackupDate] = useState(null);
             const [backupInterval, setBackupInterval] = useState(7);
@@ -727,6 +766,12 @@
             const [sessionConflict, setSessionConflict] = useState(null);
             const [showSessionConflictModal, setShowSessionConflictModal] = useState(false);
             const [refreshKey, setRefreshKey] = useState(0); // Form yenileme için - ayarlar değiştiğinde formu günceller
+            const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+            const [newProjectName, setNewProjectName] = useState('');
+            const [selectedTemplate, setSelectedTemplate] = useState('2+1');
+            const [customRoomSetup, setCustomRoomSetup] = useState([]);
+            const [showNewApartmentModal, setShowNewApartmentModal] = useState(false);
+            const [newApartmentName, setNewApartmentName] = useState('');
 
             // Authentication durumunu dinle
             useEffect(() => {
@@ -814,6 +859,30 @@
             useEffect(() => {
                 setRefreshKey(prev => prev + 1);
             }, [materials, fieldLabels]);
+
+            // Eski dairelere (customRooms olmayan) otomatik şablon ata
+            useEffect(() => {
+                let needsUpdate = false;
+                const updatedProjects = projects.map(project => ({
+                    ...project,
+                    apartments: project.apartments.map(apt => {
+                        // Eğer dairede customRooms yoksa, varsayılan 2+1 şablonunu ata
+                        if (!apt.customRooms || apt.customRooms.length === 0) {
+                            needsUpdate = true;
+                            return {
+                                ...apt,
+                                customRooms: JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1']))
+                            };
+                        }
+                        return apt;
+                    })
+                }));
+                
+                if (needsUpdate) {
+                    console.log('🔄 Eski dairelere otomatik şablon atandı');
+                    setProjects(updatedProjects);
+                }
+            }, []); // Sadece ilk yüklemede çalışır
 
             // İlk yükleme - Firebase varsa sadece oradan, yoksa localStorage'dan yükle
             useEffect(() => {
@@ -1016,6 +1085,37 @@
                 };
             }, [firebaseSync, user]);
             
+            // Eski daireleri yeni sisteme migrate et (sadece ilk yüklemede bir kere)
+            useEffect(() => {
+                if (authLoading) return; // Auth yüklenene kadar bekle
+                
+                let needsMigration = false;
+                const migratedProjects = projects.map(project => {
+                    const migratedApartments = project.apartments.map(apt => {
+                        // Eğer customRooms yoksa (eski sistem), baseRooms'u customRooms olarak ekle
+                        if (!apt.customRooms || apt.customRooms.length === 0) {
+                            needsMigration = true;
+                            console.log(`🔄 "${apt.name}" dairesi yeni sisteme migrate ediliyor...`);
+                            return {
+                                ...apt,
+                                customRooms: baseRooms.map(room => ({
+                                    id: room.id,
+                                    name: room.name,
+                                    fields: [...room.fields]
+                                }))
+                            };
+                        }
+                        return apt;
+                    });
+                    return { ...project, apartments: migratedApartments };
+                });
+                
+                if (needsMigration) {
+                    console.log('✅ Eski daireler yeni sisteme migrate edildi');
+                    updateProjects(migratedProjects);
+                }
+            }, [authLoading]); // Sadece auth yüklendiğinde bir kere çalış
+            
             // NOT: Otomatik kaydetme devre dışı - sonsuz döngü engellendi
             // Kullanıcı "Kaydet" butonuna basmalı veya manuel kaydetme yapılmalı
 
@@ -1030,7 +1130,15 @@
             const getRoomData = () => (getApt().data[currentRoom] || {});
 
             // Her daire için görünür mekanları filtrele ve sırala
-            const allRoomsUnsorted = [...baseRooms, ...customRooms];
+            const apt = getApt();
+            const apartmentCustomRooms = apt.customRooms || [];
+            
+            // Eğer dairenin özel mekanları varsa (yeni sistem), onları kullan
+            // Yoksa (eski veriler), baseRooms kullan (geriye dönük uyumluluk için)
+            const allRoomsUnsorted = apartmentCustomRooms.length > 0 
+                ? [...apartmentCustomRooms, ...customRooms]  // Yeni sistem - sadece daire mekanları + global custom
+                : [...baseRooms, ...customRooms];  // Eski sistem - base mekanlar + global custom
+            
             const allRooms = roomOrder.length > 0 
                 ? roomOrder.map(id => allRoomsUnsorted.find(r => r.id === id)).filter(r => r)
                     .concat(allRoomsUnsorted.filter(r => !roomOrder.includes(r.id)))
@@ -1952,10 +2060,13 @@
                     return;
                 }
                 
-                setMaterials({
+                const newMaterials = {
                     ...materials,
-                    [newCategoryName]: []
-                });
+                    [newCategoryName]: {} // Boş object olarak ekle (hiyerarşik yapı için)
+                };
+                
+                setMaterials(newMaterials);
+                localStorage.setItem('material_database', JSON.stringify(newMaterials));
                 
                 setNewCategoryName('');
                 alert(`✅ "${newCategoryName}" kategorisi eklendi!`);
@@ -1999,6 +2110,8 @@
                 
                 setMaterials(newMaterials);
                 setFieldLabels(newFieldLabels);
+                localStorage.setItem('material_database', JSON.stringify(newMaterials));
+                localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
                 setEditingCategory(null);
                 alert(`✅ "${oldName}" kategorisi "${newName}" olarak değiştirildi!`);
             };
@@ -2026,6 +2139,7 @@
                         }
                     });
                     setFieldLabels(newFieldLabels);
+                    localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
                 }
                 
                 const newMaterials = {};
@@ -2036,6 +2150,7 @@
                 });
                 
                 setMaterials(newMaterials);
+                localStorage.setItem('material_database', JSON.stringify(newMaterials));
                 alert(`✅ "${categoryName}" kategorisi silindi!`);
             };
 
@@ -2090,25 +2205,26 @@
                     );
                 }
                 
-                // Mutfak
+                // Mutfak - Tencere/Chef İkonu
                 if (name.includes('mutfak') || name.includes('kitchen')) {
                     return (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2v2m0 16v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M2 12h2m16 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 6a6 6 0 100 12 6 6 0 000-12z"></path>
                         </svg>
                     );
                 }
                 
-                // Yatak Odası
-                if (name.includes('yatak') || name.includes('oda-') || name.includes('bedroom')) {
+                // Yatak Odası / Oda - Yatak İkonu
+                if (name.includes('yatak') || name.includes('oda') || name.includes('bedroom') || name.includes('ebeveyn') || name.includes('çocuk')) {
                     return (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13v-2a1 1 0 00-1-1h-.757l-.707-.707A1 1 0 0017.828 9H6.172a1 1 0 00-.707.293L4.757 10H4a1 1 0 00-1 1v2m18 0v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6m18 0H3"></path>
+                            <circle cx="8" cy="11" r="1"></circle>
                         </svg>
                     );
                 }
                 
-                // Banyo
+                // Banyo - Küvet İkonu
                 if (name.includes('banyo') || name.includes('wc') || name.includes('tuvalet')) {
                     return (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2117,11 +2233,11 @@
                     );
                 }
                 
-                // Hol/Antre
+                // Hol/Antre - Kapı İkonu
                 if (name.includes('hol') || name.includes('antre') || name.includes('koridor') || name.includes('giriş')) {
                     return (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
                         </svg>
                     );
                 }
@@ -3682,7 +3798,7 @@
                     {/* VARSAYILAN AYARLAR MODAL */}
                     {showDefaultSettings && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className={`rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
+                            <div className={`rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
                                 theme === 'dark' ? 'bg-gray-800' : 'bg-white'
                             }`}>
                                 <div className="flex justify-between items-center mb-6 pb-4 border-b">
@@ -3695,10 +3811,10 @@
                                         </div>
                                         <div>
                                             <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
-                                                Varsayılan Ayarlar
+                                                Sistem Ayarları
                                             </h2>
                                             <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                Alan etiketlerini ve varsayılan değerleri düzenleyin
+                                                Kategoriler, alanlar ve varsayılan değerleri yönetin
                                             </p>
                                         </div>
                                     </div>
@@ -3742,7 +3858,7 @@
                                         
                                         {/* Mevcut Kategoriler */}
                                         <div className="space-y-2">
-                                            {Object.keys(materials).map(cat => (
+                                            {Object.keys(materials).sort((a, b) => a.localeCompare(b, 'tr')).map(cat => (
                                                 <div key={cat} className={`p-3 rounded-lg border flex items-center justify-between ${
                                                     theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'
                                                 }`}>
@@ -3780,6 +3896,43 @@
                                                         ) : (
                                                             <>
                                                                 <button
+                                                                    onClick={() => {
+                                                                        // Alt grupları göster/düzenle
+                                                                        const subgroupsExist = typeof materials[cat] === 'object' && !Array.isArray(materials[cat]) && Object.keys(materials[cat]).length > 0;
+                                                                        
+                                                                        if (!subgroupsExist) {
+                                                                            const addSubgroup = confirm(`"${cat}" kategorisine alt grup eklemek ister misiniz?\n\nAlt gruplar malzemelerinizi daha organize etmenizi sağlar.\n(Örn: Zemin → Seramik, Parke, Granit)`);
+                                                                            if (addSubgroup) {
+                                                                                const newSubgroup = prompt(`${cat} için yeni alt grup adı:`);
+                                                                                if (newSubgroup && newSubgroup.trim()) {
+                                                                                    const newMat = { ...materials };
+                                                                                    if (Array.isArray(newMat[cat])) {
+                                                                                        // Düz listeden hiyerarşik yapıya dönüştür
+                                                                                        newMat[cat] = { [newSubgroup.trim()]: [] };
+                                                                                    } else {
+                                                                                        newMat[cat][newSubgroup.trim()] = [];
+                                                                                    }
+                                                                                    setMaterials(newMat);
+                                                                                    localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                                    alert(`✅ "${newSubgroup.trim()}" alt grubu eklendi!`);
+                                                                                }
+                                                                            }
+                                                                        } else {
+                                                                            alert(`"${cat}" kategorisinde ${Object.keys(materials[cat]).length} alt grup var.\n\nAlt grupları yönetmek için "Malzeme DB" menüsünü kullanın.`);
+                                                                        }
+                                                                    }}
+                                                                    className="px-3 py-1 text-sm bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded hover:from-purple-600 hover:to-pink-700 transition-colors flex items-center gap-1"
+                                                                    title="Alt Grupları Yönet"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+                                                                    </svg>
+                                                                    {typeof materials[cat] === 'object' && !Array.isArray(materials[cat]) && Object.keys(materials[cat]).length > 0
+                                                                        ? `${Object.keys(materials[cat]).length} Alt Grup`
+                                                                        : 'Alt Grup Ekle'
+                                                                    }
+                                                                </button>
+                                                                <button
                                                                     onClick={() => setEditingCategory(cat)}
                                                                     className="p-2 text-blue-600 hover:bg-blue-100 rounded transition-colors"
                                                                     title="Yeniden Adlandır"
@@ -3805,10 +3958,24 @@
                                         </div>
                                     </div>
                                     
+                                    {/* Alan Tanımları */}
+                                    <div>
+                                        <h3 className={`text-lg font-bold mb-4 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                                            🏷️ Alan Tanımları
+                                        </h3>
+                                    </div>
+                                    
                                     {/* Field Labels - Kategorilere Göre Gruplandırılmış */}
                                     {(() => {
                                         // Kategorilere göre grupla
                                         const grouped = {};
+                                        
+                                        // Önce tüm kategorileri materials'dan ekle (boş kategoriler dahil)
+                                        Object.keys(materials).forEach(cat => {
+                                            grouped[cat] = [];
+                                        });
+                                        
+                                        // Sonra fieldLabels'daki alanları ilgili kategorilere ekle
                                         Object.entries(fieldLabels).forEach(([key, config]) => {
                                             const category = config.category || 'Diğer';
                                             if (!grouped[category]) grouped[category] = [];
@@ -3838,6 +4005,19 @@
                                                 <div className="space-y-3">
                                                     {grouped[category].map(([key, config]) => (
                                                         <div key={key} className={`p-4 rounded-lg border-2 ${theme === 'dark' ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'}`}>
+                                                            {/* Alan Silme Butonu */}
+                                                            <div className="flex justify-end mb-2">
+                                                                <button
+                                                                    onClick={() => deleteField(key)}
+                                                                    className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600 transition-colors flex items-center gap-1"
+                                                                    title="Alanı Sil"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                                    </svg>
+                                                                    Sil
+                                                                </button>
+                                                            </div>
                                             <div className="grid grid-cols-3 gap-4">
                                                 <div>
                                                     <label className={`block text-sm font-semibold mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -3878,7 +4058,7 @@
                                                         }`}
                                                     >
                                                         <option value="">Kategori Seç</option>
-                                                        {Object.keys(materials).map(cat => (
+                                                        {Object.keys(materials).sort((a, b) => a.localeCompare(b, 'tr')).map(cat => (
                                                             <option key={cat} value={cat}>{cat}</option>
                                                         ))}
                                                     </select>
@@ -3907,6 +4087,53 @@
                                             </div>
                                         </div>
                                                     ))}
+                                                    
+                                                    {/* Bu Kategoriye Yeni Alan Ekle */}
+                                                    <div 
+                                                        onClick={() => {
+                                                            const fieldId = prompt('Yeni alan kodu (örn: yeni_alan, lavabo_tipi):\n\nNot: Küçük harf, rakam ve alt çizgi kullanın. Boşluk kullanmayın.');
+                                                            if (!fieldId || !fieldId.trim()) return;
+                                                            
+                                                            const cleanId = fieldId.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+                                                            
+                                                            if (fieldLabels[cleanId]) {
+                                                                alert('Bu alan kodu zaten mevcut!');
+                                                                return;
+                                                            }
+                                                            
+                                                            const fieldLabel = prompt('Alan adı (görünen isim):');
+                                                            if (!fieldLabel || !fieldLabel.trim()) return;
+                                                            
+                                                            const fieldUnit = prompt('Birim (m², adet, vb.) - İsteğe bağlı:') || '';
+                                                            
+                                                            const newFieldLabels = {
+                                                                ...fieldLabels,
+                                                                [cleanId]: {
+                                                                    label: fieldLabel.trim(),
+                                                                    unit: fieldUnit.trim(),
+                                                                    category: category
+                                                                }
+                                                            };
+                                                            
+                                                            setFieldLabels(newFieldLabels);
+                                                            localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
+                                                            alert(`✅ "${fieldLabel}" alanı "${category}" kategorisine eklendi!`);
+                                                        }}
+                                                        className={`p-3 rounded-lg border-2 border-dashed cursor-pointer transition-all hover:border-green-500 ${
+                                                            theme === 'dark' 
+                                                                ? 'border-green-700 bg-green-900 bg-opacity-10 hover:bg-green-900 hover:bg-opacity-20' 
+                                                                : 'border-green-300 bg-green-50 hover:bg-green-100'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-center gap-2 py-2">
+                                                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                                            </svg>
+                                                            <span className={`text-sm font-semibold ${theme === 'dark' ? 'text-green-400' : 'text-green-700'}`}>
+                                                                Yeni Alan Ekle
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ));
@@ -3955,9 +4182,11 @@
 
                     {showDB && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                            <div className={`rounded-lg p-6 max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
                                 <div className="flex justify-between mb-4">
-                                    <h2 className="text-xl font-bold">Malzeme Veritabani</h2>
+                                    <h2 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>Malzeme Veritabani</h2>
                                     <div className="flex gap-2 items-center">
                                         <button onClick={() => {
                                             if (confirm('Malzeme veritabanini varsayilan degerlere sifirlamak istediginize emin misiniz?\n\nBu islem geri alinamaz!')) {
@@ -3966,7 +4195,7 @@
                                                 alert('Malzeme veritabani sifirandi!');
                                             }
                                         }} className="px-3 py-1 bg-orange-500 text-white rounded text-sm hover:bg-orange-600">🔄 Sıfırla</button>
-                                        <button onClick={() => setShowDB(false)} className="text-2xl">×</button>
+                                        <button onClick={() => setShowDB(false)} className={`text-2xl ${theme === 'dark' ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}>×</button>
                                     </div>
                                 </div>
                                 
@@ -3978,7 +4207,11 @@
                                             placeholder="Malzeme ara..."
                                             value={searchMaterial}
                                             onChange={(e) => setSearchMaterial(e.target.value)}
-                                            className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                                            className={`w-full pl-10 pr-4 py-2.5 border-2 rounded-lg focus:ring-2 transition-all ${
+                                                theme === 'dark'
+                                                    ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:border-blue-400 focus:ring-blue-500'
+                                                    : 'border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:ring-blue-200'
+                                            }`}
                                         />
                                         <svg className="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -3987,7 +4220,9 @@
                                 </div>
                                 
                                 {/* Sekmeler */}
-                                <div className="flex gap-2 mb-4 overflow-x-auto pb-2 border-b-2 flex-shrink-0">
+                                <div className={`flex gap-2 mb-4 overflow-x-auto pb-2 border-b-2 flex-shrink-0 ${
+                                    theme === 'dark' ? 'border-gray-700' : 'border-gray-300'
+                                }`}>
                                     {Object.keys(materials).map((cat, index) => (
                                         <button
                                             key={cat}
@@ -4012,7 +4247,9 @@
                                             className={`px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap transition-all cursor-move ${
                                                 activeDBTab === cat 
                                                     ? 'bg-blue-500 text-white shadow-md' 
-                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                    : theme === 'dark'
+                                                        ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                             }`}
                                             title="Sürükleyerek sıra değiştir"
                                         >
@@ -4024,10 +4261,20 @@
                                 {/* Sekme İçeriği */}
                                 <div className="flex-1 overflow-auto">
                                     {Object.keys(materials).map(cat => activeDBTab === cat && (
-                                        <div key={cat} className="border-2 border-gray-300 rounded-lg p-4 bg-gradient-to-br from-white to-gray-50">
-                                            <div className="flex justify-between items-center mb-3 pb-3 border-b-2 border-gray-200">
-                                                <h3 className="font-bold text-blue-700 text-lg flex items-center gap-2">
-                                                    <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+                                        <div key={cat} className={`border-2 rounded-lg p-4 ${
+                                            theme === 'dark'
+                                                ? 'border-gray-700 bg-gradient-to-br from-gray-800 to-gray-750'
+                                                : 'border-gray-300 bg-gradient-to-br from-white to-gray-50'
+                                        }`}>
+                                            <div className={`flex justify-between items-center mb-3 pb-3 border-b-2 ${
+                                                theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                                            }`}>
+                                                <h3 className={`font-bold text-lg flex items-center gap-2 ${
+                                                    theme === 'dark' ? 'text-blue-400' : 'text-blue-700'
+                                                }`}>
+                                                    <span className={`w-2 h-2 rounded-full ${
+                                                        theme === 'dark' ? 'bg-blue-400' : 'bg-blue-600'
+                                                    }`}></span>
                                                     {cat}
                                                 </h3>
                                                 <div className="flex gap-2">
@@ -4077,11 +4324,33 @@
                                             {/* Hiyerarşik Yapı */}
                                             {typeof materials[cat] === 'object' && !Array.isArray(materials[cat]) ? (
                                                 <div className="space-y-4">
+                                                    {/* Boş kategori uyarısı */}
+                                                    {Object.keys(materials[cat]).length === 0 && (
+                                                        <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-6 text-center">
+                                                            <div className="text-4xl mb-3">📦</div>
+                                                            <p className="text-gray-700 font-semibold mb-2">Bu kategori henüz boş</p>
+                                                            <p className="text-sm text-gray-600 mb-4">
+                                                                Alt grup ekleyerek malzemelerinizi organize edin
+                                                            </p>
+                                                            <div className="text-xs text-gray-500 bg-white rounded p-2 border border-yellow-200">
+                                                                💡 Örnek: "Seramik", "Parke", "Granit" gibi alt gruplar ekleyebilirsiniz
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    
                                                     {Object.keys(materials[cat]).map(subgroup => (
-                                                        <div key={subgroup} className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50 shadow-sm">
+                                                        <div key={subgroup} className={`border-2 rounded-lg p-4 shadow-sm ${
+                                                            theme === 'dark'
+                                                                ? 'border-blue-700 bg-blue-900 bg-opacity-20'
+                                                                : 'border-blue-300 bg-blue-50'
+                                                        }`}>
                                                             {/* Alt Grup Header */}
-                                                            <div className="flex justify-between items-center mb-3 pb-2 border-b-2 border-blue-200">
-                                                                <div className="font-bold text-base text-gray-800">{subgroup}</div>
+                                                            <div className={`flex justify-between items-center mb-3 pb-2 border-b-2 ${
+                                                                theme === 'dark' ? 'border-blue-800' : 'border-blue-200'
+                                                            }`}>
+                                                                <div className={`font-bold text-base ${
+                                                                    theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
+                                                                }`}>{subgroup}</div>
                                                                 <div className="flex gap-2">
                                                                     <button
                                                                         onClick={() => {
@@ -4208,14 +4477,19 @@
                                                     ))}
                                                     {/* Yeni Alt Grup Ekle */}
                                                     <button onClick={() => {
-                                                        const newSubgroup = prompt('Yeni alt grup adi (' + cat + ' icin):');
+                                                        const newSubgroup = prompt('Yeni alt grup adı (' + cat + ' için):');
                                                         if (newSubgroup && newSubgroup.trim()) {
                                                             const newMat = { ...materials };
                                                             newMat[cat][newSubgroup.trim()] = [];
                                                             setMaterials(newMat);
                                                             localStorage.setItem('material_database', JSON.stringify(newMat));
                                                         }
-                                                    }} className="w-full px-2 py-1 bg-blue-500 text-white rounded text-xs hover:bg-blue-600">+ Alt Grup Ekle</button>
+                                                    }} className="w-full px-4 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-bold text-base shadow-lg hover:from-blue-600 hover:to-blue-700 hover:shadow-xl transition-all flex items-center justify-center gap-2">
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                                        </svg>
+                                                        Yeni Alt Grup Ekle
+                                                    </button>
                                                 </div>
                                             ) : (
                                                 /* Eski Düz Liste */
@@ -5651,64 +5925,493 @@
                         </div>
                     )}
                     
-                    {showFieldManager && (
+                    
+                    {/* YENİ PROJE MODAL */}
+                    {showNewProjectModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-lg p-6 max-w-5xl w-full max-h-[85vh] overflow-auto">
-                                <div className="flex justify-between mb-4">
-                                    <h2 className="text-xl font-bold">Alan Yönetimi</h2>
-                                    <button onClick={() => setShowFieldManager(false)} className="text-2xl hover:text-red-500">×</button>
+                            <div className={`rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                {/* Header */}
+                                <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-3 bg-gradient-to-r from-purple-500 to-pink-600 rounded-lg">
+                                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                                                Yeni Proje Oluştur
+                                            </h2>
+                                            <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Proje ve daire şablonunu seçin
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowNewProjectModal(false)}
+                                        className={`text-3xl hover:opacity-70 transition-opacity ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}
+                                    >×</button>
                                 </div>
-                                
-                                <div className="mb-4 p-4 bg-blue-50 rounded border border-blue-200">
-                                    <p className="text-sm text-blue-800">
-                                        Buradan yeni alanlar ekleyebilir, mevcut alanları düzenleyebilir veya silebilirsiniz. 
-                                        Eklediğiniz alanlar mekan oluştururken ve düzenlerken kullanılabilir olacaktır.
-                                    </p>
-                                </div>
-                                
-                                <button onClick={addField} className="mb-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 font-semibold">
-                                    + Yeni Alan Ekle
-                                </button>
-                                
-                                <div className="overflow-x-auto">
-                                    <table className="w-full border-collapse">
-                                        <thead>
-                                            <tr className="bg-gray-100">
-                                                <th className="border px-4 py-2 text-left">ID</th>
-                                                <th className="border px-4 py-2 text-left">Alan Adı</th>
-                                                <th className="border px-4 py-2 text-left">Birim</th>
-                                                <th className="border px-4 py-2 text-left">Kategori</th>
-                                                <th className="border px-4 py-2 text-center">İşlemler</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {Object.entries(fieldLabels).map(([fieldId, field]) => (
-                                                <tr key={fieldId} className="hover:bg-gray-50">
-                                                    <td className="border px-4 py-2 font-mono text-sm">{fieldId}</td>
-                                                    <td className="border px-4 py-2">{field.label}</td>
-                                                    <td className="border px-4 py-2">
-                                                        {field.unit || <span className="text-gray-400 italic">Yok</span>}
-                                                    </td>
-                                                    <td className="border px-4 py-2">
-                                                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
-                                                            {field.category}
-                                                        </span>
-                                                    </td>
-                                                    <td className="border px-4 py-2 text-center">
-                                                        <button onClick={() => editField(fieldId)} className="px-3 py-1 bg-yellow-500 text-white rounded text-sm mr-2 hover:bg-yellow-600" title="Düzenle">✏️</button>
-                                                        <button onClick={() => deleteField(fieldId)} className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600" title="Sil">🗑️</button>
-                                                    </td>
-                                                </tr>
+
+                                {/* İçerik */}
+                                <div className="flex-1 overflow-y-auto space-y-6">
+                                    {/* Proje Adı */}
+                                    <div>
+                                        <label className={`block text-sm font-semibold mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            Proje Adı
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newProjectName}
+                                            onChange={(e) => setNewProjectName(e.target.value)}
+                                            placeholder="Örn: Gül Sitesi A Blok"
+                                            className={`w-full px-4 py-3 border-2 rounded-lg focus:ring-2 transition-all ${
+                                                theme === 'dark'
+                                                    ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:border-purple-400 focus:ring-purple-500'
+                                                    : 'border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-purple-500 focus:ring-purple-200'
+                                            }`}
+                                        />
+                                    </div>
+
+                                    {/* Daire Tipi Seçimi */}
+                                    <div>
+                                        <label className={`block text-sm font-semibold mb-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            Daire Tipi Şablonu
+                                        </label>
+                                        <div className="grid grid-cols-4 gap-3">
+                                            {['1+1', '2+1', '3+1', '4+1'].map(template => (
+                                                <button
+                                                    key={template}
+                                                    onClick={() => {
+                                                        setSelectedTemplate(template);
+                                                        setCustomRoomSetup(JSON.parse(JSON.stringify(APARTMENT_TEMPLATES[template])));
+                                                    }}
+                                                    className={`p-4 rounded-lg border-2 font-semibold transition-all ${
+                                                        selectedTemplate === template
+                                                            ? 'border-purple-600 bg-purple-50 text-purple-700'
+                                                            : theme === 'dark'
+                                                                ? 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+                                                                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                                    }`}
+                                                >
+                                                    <div className="text-2xl mb-2">🏠</div>
+                                                    <div className="text-lg">{template}</div>
+                                                    <div className={`text-xs mt-1 ${selectedTemplate === template ? 'text-purple-600' : 'text-gray-500'}`}>
+                                                        {APARTMENT_TEMPLATES[template].length} Mekan
+                                                    </div>
+                                                </button>
                                             ))}
-                                        </tbody>
-                                    </table>
+                                        </div>
+                                    </div>
+
+                                    {/* Mekan Listesi ve Düzenleme */}
+                                    <div>
+                                        <div className="flex justify-between items-center mb-3">
+                                            <label className={`text-sm font-semibold ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                Dairede Bulunacak Mekanlar
+                                            </label>
+                                            <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                İstediğiniz mekanları seçin/kaldırın
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                                            {customRoomSetup.map((room, idx) => (
+                                                <div key={idx} className={`p-4 rounded-lg border-2 ${
+                                                    theme === 'dark' ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'
+                                                }`}>
+                                                    <div className="flex items-start gap-3">
+                                                        {/* Mekan Adı */}
+                                                        <div className="flex-1">
+                                                            <input
+                                                                type="text"
+                                                                value={room.name}
+                                                                onChange={(e) => {
+                                                                    const updated = [...customRoomSetup];
+                                                                    updated[idx].name = e.target.value;
+                                                                    setCustomRoomSetup(updated);
+                                                                }}
+                                                                className={`w-full px-3 py-2 border rounded-lg font-semibold ${
+                                                                    theme === 'dark'
+                                                                        ? 'border-gray-600 bg-gray-600 text-white'
+                                                                        : 'border-gray-300 bg-white text-gray-900'
+                                                                }`}
+                                                            />
+                                                            
+                                                            {/* Alan Seçimi */}
+                                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                                {Object.entries(fieldLabels).filter(([key]) => key !== 'foto').map(([fieldKey, fieldConfig]) => (
+                                                                    <label key={fieldKey} className="flex items-center gap-2 cursor-pointer">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={room.fields.includes(fieldKey)}
+                                                                            onChange={(e) => {
+                                                                                const updated = [...customRoomSetup];
+                                                                                if (e.target.checked) {
+                                                                                    updated[idx].fields.push(fieldKey);
+                                                                                } else {
+                                                                                    updated[idx].fields = updated[idx].fields.filter(f => f !== fieldKey);
+                                                                                }
+                                                                                setCustomRoomSetup(updated);
+                                                                            }}
+                                                                            className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                                                        />
+                                                                        <span className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                            {fieldConfig.label}
+                                                                        </span>
+                                                                    </label>
+                                                                ))}
+                                                                {/* Fotoğraf her zaman dahil */}
+                                                                <span className={`text-xs px-2 py-1 rounded ${
+                                                                    theme === 'dark' ? 'bg-purple-900 text-purple-200' : 'bg-purple-100 text-purple-700'
+                                                                }`}>
+                                                                    📷 Fotoğraf (Her zaman dahil)
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Sil Butonu */}
+                                                        <button
+                                                            onClick={() => {
+                                                                const updated = customRoomSetup.filter((_, i) => i !== idx);
+                                                                setCustomRoomSetup(updated);
+                                                            }}
+                                                            className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                                                            title="Mekanı kaldır"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            
+                                            {/* Yeni Mekan Ekle */}
+                                            <button
+                                                onClick={() => {
+                                                    setCustomRoomSetup([...customRoomSetup, {
+                                                        id: 'custom_' + Date.now(),
+                                                        name: 'Yeni Mekan',
+                                                        fields: ['zemin', 'boya', 'foto']
+                                                    }]);
+                                                }}
+                                                className={`w-full p-4 rounded-lg border-2 border-dashed font-semibold transition-all ${
+                                                    theme === 'dark'
+                                                        ? 'border-gray-600 bg-gray-750 text-gray-300 hover:border-gray-500 hover:bg-gray-700'
+                                                        : 'border-gray-300 bg-gray-50 text-gray-700 hover:border-gray-400 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                + Yeni Mekan Ekle
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                                
-                                <div className="mt-4 p-4 bg-yellow-50 rounded border border-yellow-200">
-                                    <p className="text-sm text-yellow-800">
-                                        <strong>Not:</strong> Alan silerseniz, o alanı kullanan mekanlardan otomatik olarak kaldırılmaz. 
-                                        Manuel olarak mekan düzenlemeden kaldırmanız gerekir.
-                                    </p>
+
+                                {/* Footer Butonlar */}
+                                <div className="flex gap-3 mt-6 pt-4 border-t">
+                                    <button
+                                        onClick={() => setShowNewProjectModal(false)}
+                                        className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (!newProjectName.trim()) {
+                                                alert('Lütfen proje adı girin!');
+                                                return;
+                                            }
+                                            if (customRoomSetup.length === 0) {
+                                                alert('En az bir mekan eklemelisiniz!');
+                                                return;
+                                            }
+                                            
+                                            // Her mekan için foto alanını ekle (eğer yoksa)
+                                            const roomsWithPhoto = customRoomSetup.map(room => ({
+                                                ...room,
+                                                fields: room.fields.includes('foto') ? room.fields : [...room.fields, 'foto']
+                                            }));
+                                            
+                                            // Yeni projeyi oluştur
+                                            const newId = Math.max(...projects.map(p => p.id), 0) + 1;
+                                            const newProject = {
+                                                id: newId,
+                                                name: newProjectName.trim(),
+                                                apartments: [{
+                                                    id: 1,
+                                                    name: 'Daire 1',
+                                                    data: {},
+                                                    wallCount: {},
+                                                    hiddenRooms: [],
+                                                    customRooms: roomsWithPhoto
+                                                }]
+                                            };
+                                            
+                                            updateProjects([...projects, newProject]);
+                                            setCurrentPrj(newId);
+                                            setCurrentApt(1);
+                                            setShowNewProjectModal(false);
+                                            
+                                            alert(`✅ "${newProjectName.trim()}" projesi oluşturuldu!\n\n${roomsWithPhoto.length} mekan eklendi.`);
+                                        }}
+                                        className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all"
+                                    >
+                                        🎉 Projeyi Oluştur
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* YENİ DAİRE MODAL */}
+                    {showNewApartmentModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className={`rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                {/* Header */}
+                                <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-3 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg">
+                                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                                                Yeni Daire Ekle
+                                            </h2>
+                                            <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Daire şablonunu seçin
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowNewApartmentModal(false)}
+                                        className={`text-3xl hover:opacity-70 transition-opacity ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}
+                                    >×</button>
+                                </div>
+
+                                {/* İçerik */}
+                                <div className="flex-1 overflow-y-auto space-y-6">
+                                    {/* Daire Adı */}
+                                    <div>
+                                        <label className={`block text-sm font-semibold mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            Daire Adı
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={newApartmentName}
+                                            onChange={(e) => setNewApartmentName(e.target.value)}
+                                            placeholder="Örn: A Blok 3. Kat 12"
+                                            className={`w-full px-4 py-3 border-2 rounded-lg focus:ring-2 transition-all ${
+                                                theme === 'dark'
+                                                    ? 'border-gray-600 bg-gray-700 text-white placeholder-gray-400 focus:border-green-400 focus:ring-green-500'
+                                                    : 'border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-green-500 focus:ring-green-200'
+                                            }`}
+                                        />
+                                    </div>
+
+                                    {/* Şablon Seçimi */}
+                                    <div>
+                                        <label className={`block text-sm font-semibold mb-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            Daire Şablonu
+                                        </label>
+                                        <div className="grid grid-cols-5 gap-3">
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedTemplate('copy');
+                                                    if (apartments[0] && apartments[0].customRooms) {
+                                                        setCustomRoomSetup(JSON.parse(JSON.stringify(apartments[0].customRooms)));
+                                                    }
+                                                }}
+                                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${
+                                                    selectedTemplate === 'copy'
+                                                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                                                        : theme === 'dark'
+                                                            ? 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+                                                            : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                                }`}
+                                            >
+                                                <div className="text-2xl mb-2">📋</div>
+                                                <div className="text-sm">İlk Daire</div>
+                                                <div className="text-sm">Gibi</div>
+                                            </button>
+                                            {['1+1', '2+1', '3+1', '4+1'].map(template => (
+                                                <button
+                                                    key={template}
+                                                    onClick={() => {
+                                                        setSelectedTemplate(template);
+                                                        setCustomRoomSetup(JSON.parse(JSON.stringify(APARTMENT_TEMPLATES[template])));
+                                                    }}
+                                                    className={`p-4 rounded-lg border-2 font-semibold transition-all ${
+                                                        selectedTemplate === template
+                                                            ? 'border-green-600 bg-green-50 text-green-700'
+                                                            : theme === 'dark'
+                                                                ? 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'
+                                                                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                                                    }`}
+                                                >
+                                                    <div className="text-2xl mb-2">🏠</div>
+                                                    <div className="text-lg">{template}</div>
+                                                    <div className={`text-xs mt-1 ${selectedTemplate === template ? 'text-green-600' : 'text-gray-500'}`}>
+                                                        {APARTMENT_TEMPLATES[template].length} Mekan
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Mekan Listesi (Yeni Proje ile aynı) */}
+                                    <div>
+                                        <div className="flex justify-between items-center mb-3">
+                                            <label className={`text-sm font-semibold ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                Dairede Bulunacak Mekanlar
+                                            </label>
+                                            <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                İstediğiniz mekanları seçin/kaldırın
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                                            {customRoomSetup.map((room, idx) => (
+                                                <div key={idx} className={`p-4 rounded-lg border-2 ${
+                                                    theme === 'dark' ? 'border-gray-700 bg-gray-700' : 'border-gray-200 bg-gray-50'
+                                                }`}>
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="flex-1">
+                                                            <input
+                                                                type="text"
+                                                                value={room.name}
+                                                                onChange={(e) => {
+                                                                    const updated = [...customRoomSetup];
+                                                                    updated[idx].name = e.target.value;
+                                                                    setCustomRoomSetup(updated);
+                                                                }}
+                                                                className={`w-full px-3 py-2 border rounded-lg font-semibold ${
+                                                                    theme === 'dark'
+                                                                        ? 'border-gray-600 bg-gray-600 text-white'
+                                                                        : 'border-gray-300 bg-white text-gray-900'
+                                                                }`}
+                                                            />
+                                                            
+                                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                                {Object.entries(fieldLabels).filter(([key]) => key !== 'foto').map(([fieldKey, fieldConfig]) => (
+                                                                    <label key={fieldKey} className="flex items-center gap-2 cursor-pointer">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={room.fields.includes(fieldKey)}
+                                                                            onChange={(e) => {
+                                                                                const updated = [...customRoomSetup];
+                                                                                if (e.target.checked) {
+                                                                                    updated[idx].fields.push(fieldKey);
+                                                                                } else {
+                                                                                    updated[idx].fields = updated[idx].fields.filter(f => f !== fieldKey);
+                                                                                }
+                                                                                setCustomRoomSetup(updated);
+                                                                            }}
+                                                                            className="w-4 h-4 text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                                                                        />
+                                                                        <span className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                            {fieldConfig.label}
+                                                                        </span>
+                                                                    </label>
+                                                                ))}
+                                                                <span className={`text-xs px-2 py-1 rounded ${
+                                                                    theme === 'dark' ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-700'
+                                                                }`}>
+                                                                    📷 Fotoğraf (Her zaman dahil)
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <button
+                                                            onClick={() => {
+                                                                const updated = customRoomSetup.filter((_, i) => i !== idx);
+                                                                setCustomRoomSetup(updated);
+                                                            }}
+                                                            className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                                                            title="Mekanı kaldır"
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            
+                                            <button
+                                                onClick={() => {
+                                                    setCustomRoomSetup([...customRoomSetup, {
+                                                        id: 'custom_' + Date.now(),
+                                                        name: 'Yeni Mekan',
+                                                        fields: ['zemin', 'boya', 'foto']
+                                                    }]);
+                                                }}
+                                                className={`w-full p-4 rounded-lg border-2 border-dashed font-semibold transition-all ${
+                                                    theme === 'dark'
+                                                        ? 'border-gray-600 bg-gray-750 text-gray-300 hover:border-gray-500 hover:bg-gray-700'
+                                                        : 'border-gray-300 bg-gray-50 text-gray-700 hover:border-gray-400 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                + Yeni Mekan Ekle
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer Butonlar */}
+                                <div className="flex gap-3 mt-6 pt-4 border-t">
+                                    <button
+                                        onClick={() => setShowNewApartmentModal(false)}
+                                        className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (!newApartmentName.trim()) {
+                                                alert('Lütfen daire adı girin!');
+                                                return;
+                                            }
+                                            if (customRoomSetup.length === 0) {
+                                                alert('En az bir mekan eklemelisiniz!');
+                                                return;
+                                            }
+                                            
+                                            // Her mekan için foto alanını ekle
+                                            const roomsWithPhoto = customRoomSetup.map(room => ({
+                                                ...room,
+                                                fields: room.fields.includes('foto') ? room.fields : [...room.fields, 'foto']
+                                            }));
+                                            
+                                            // Yeni daireyi oluştur
+                                            const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
+                                            updateApartments([...apartments, {
+                                                id: newId,
+                                                name: newApartmentName.trim(),
+                                                data: {},
+                                                wallCount: {},
+                                                hiddenRooms: [],
+                                                customRooms: roomsWithPhoto
+                                            }]);
+                                            setCurrentApt(newId);
+                                            setShowNewApartmentModal(false);
+                                            
+                                            alert(`✅ "${newApartmentName.trim()}" dairesi eklendi!\n\n${roomsWithPhoto.length} mekan eklendi.`);
+                                        }}
+                                        className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition-all"
+                                    >
+                                        🎉 Daireyi Ekle
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -5877,12 +6580,10 @@
                                 }} className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600" title="Proje adini degistir">✏️</button>
                                 <button onClick={() => {
                                     const newId = Math.max(...projects.map(p => p.id), 0) + 1;
-                                    const newName = prompt('Yeni proje adi:', 'Proje ' + newId);
-                                    if (newName && newName.trim()) {
-                                        updateProjects([...projects, { id: newId, name: newName.trim(), apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {}, hiddenRooms: [] }] }]);
-                                        setCurrentPrj(newId);
-                                        setCurrentApt(1);
-                                    }
+                                    setNewProjectName('Proje ' + newId);
+                                    setSelectedTemplate('2+1');
+                                    setCustomRoomSetup(JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1'])));
+                                    setShowNewProjectModal(true);
                                 }} className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-semibold hover:bg-purple-600">+ Yeni Proje</button>
                                 {projects.length > 1 && (
                                     <button onClick={() => { 
@@ -5935,11 +6636,15 @@
                                 </button>
                                 <button onClick={() => {
                                     const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
-                                    const newName = prompt('Yeni daire adi:', 'Daire ' + newId);
-                                    if (newName && newName.trim()) {
-                                        updateApartments([...apartments, { id: newId, name: newName.trim(), data: {}, wallCount: {}, hiddenRooms: [] }]);
-                                        setCurrentApt(newId);
+                                    setNewApartmentName('Daire ' + newId);
+                                    // İlk dairenin şablonunu kopyala
+                                    if (apartments[0] && apartments[0].customRooms) {
+                                        setCustomRoomSetup(JSON.parse(JSON.stringify(apartments[0].customRooms)));
+                                    } else {
+                                        setCustomRoomSetup(JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1'])));
                                     }
+                                    setSelectedTemplate('copy'); // İlk daire gibi
+                                    setShowNewApartmentModal(true);
                                 }} className="px-3 py-2 bg-green-500 text-white rounded-lg text-sm font-semibold hover:bg-green-600">+ Yeni Daire</button>
                                 {apartments.length > 1 && (
                                     <>
@@ -6314,12 +7019,6 @@
                                 
                                 <div className="border-t pt-3 mt-3">
                                     <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Ayarlar</h4>
-                                    <button onClick={() => setShowFieldManager(true)} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-teal-500 to-cyan-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-teal-600 hover:to-cyan-700 transition-all flex items-center justify-center gap-2">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
-                                        </svg>
-                                        Alan Yönetimi
-                                    </button>
                                     <button onClick={() => setShowDB(true)} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-purple-600 hover:to-pink-700 transition-all flex items-center justify-center gap-2">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
@@ -6331,7 +7030,7 @@
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                         </svg>
-                                        Varsayılan Ayarlar
+                                        Sistem Ayarları
                                     </button>
                                     <button onClick={convertAllText} className="w-full px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-amber-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2" title="Tüm metinleri 'İlk Harf Büyük diğerleri küçük' formatına çevirir">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -6383,7 +7082,10 @@
 
                                 {/* Veri Giriş Alanları - Card Tasarım */}
                                 <div className="space-y-4" key={refreshKey}>
-                                    {room && room.fields.map(f => renderField(f))}
+                                    {/* Önce foto olmayan tüm alanları render et */}
+                                    {room && room.fields.filter(f => f !== 'foto').map(f => renderField(f))}
+                                    {/* Foto alanını her zaman en sona ekle */}
+                                    {room && room.fields.includes('foto') && renderField('foto')}
                                 </div>
                             </div>
                         </div>
