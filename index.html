@@ -204,6 +204,187 @@
         };
 
         // ==========================================
+        // ARŞİVLEME FONKSİYONLARI
+        // ==========================================
+        
+        // Projeyi arşivle (Firebase Storage'a kaydet)
+        const archiveProject = async (project) => {
+            if (!storage || !auth || !auth.currentUser) {
+                alert('⚠️ Arşivleme için Firebase\'e giriş yapmanız gerekiyor!');
+                return false;
+            }
+            
+            try {
+                const userId = auth.currentUser.uid;
+                const timestamp = Date.now();
+                const fileName = `${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.json`;
+                const path = `users/${userId}/archives/${fileName}`;
+                
+                // Arşiv verisi
+                const archiveData = {
+                    project: project,
+                    archivedAt: timestamp,
+                    archivedBy: auth.currentUser.email,
+                    version: '1.0'
+                };
+                
+                // JSON'a çevir ve blob oluştur
+                const jsonBlob = new Blob([JSON.stringify(archiveData, null, 2)], { type: 'application/json' });
+                
+                // Storage'a yükle
+                const storageRef = storage.ref(path);
+                await storageRef.put(jsonBlob, {
+                    contentType: 'application/json',
+                    customMetadata: {
+                        projectName: project.name,
+                        projectId: project.id.toString(),
+                        apartmentCount: project.apartments.length.toString(),
+                        archivedAt: new Date(timestamp).toISOString()
+                    }
+                });
+                
+                console.log('✅ Proje arşivlendi:', path);
+                return true;
+            } catch (error) {
+                console.error('❌ Arşivleme hatası:', error);
+                alert('❌ Arşivleme başarısız: ' + error.message);
+                return false;
+            }
+        };
+        
+        // Arşivlenmiş projeleri listele
+        const loadArchivedProjects = async () => {
+            if (!storage || !auth || !auth.currentUser) {
+                return [];
+            }
+            
+            try {
+                setLoadingArchives(true);
+                const userId = auth.currentUser.uid;
+                const archivesRef = storage.ref(`users/${userId}/archives`);
+                
+                // Tüm arşiv dosyalarını listele
+                const result = await archivesRef.listAll();
+                
+                // Her dosya için metadata al
+                const archives = await Promise.all(
+                    result.items.map(async (item) => {
+                        const metadata = await item.getMetadata();
+                        const downloadURL = await item.getDownloadURL();
+                        
+                        return {
+                            name: item.name,
+                            path: item.fullPath,
+                            downloadURL: downloadURL,
+                            projectName: metadata.customMetadata?.projectName || 'Bilinmeyen Proje',
+                            projectId: metadata.customMetadata?.projectId,
+                            apartmentCount: metadata.customMetadata?.apartmentCount || '0',
+                            archivedAt: metadata.customMetadata?.archivedAt || metadata.timeCreated,
+                            size: (metadata.size / 1024).toFixed(2) + ' KB'
+                        };
+                    })
+                );
+                
+                // Tarihe göre sırala (en yeni önce)
+                archives.sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt));
+                
+                setArchivedProjects(archives);
+                setLoadingArchives(false);
+                return archives;
+            } catch (error) {
+                console.error('❌ Arşiv yükleme hatası:', error);
+                setLoadingArchives(false);
+                return [];
+            }
+        };
+        
+        // Arşivden projeyi geri yükle
+        const restoreProject = async (archive) => {
+            try {
+                // JSON dosyasını indir
+                const response = await fetch(archive.downloadURL);
+                const archiveData = await response.json();
+                
+                if (!archiveData.project) {
+                    alert('❌ Geçersiz arşiv dosyası!');
+                    return false;
+                }
+                
+                const restoredProject = archiveData.project;
+                
+                // Yeni ID ata (çakışmayı önlemek için)
+                const newId = Math.max(...projects.map(p => p.id), 0) + 1;
+                restoredProject.id = newId;
+                restoredProject.name = restoredProject.name + ' (Geri Yüklendi)';
+                
+                // Projeyi ekle
+                const updatedProjects = [...projects, restoredProject];
+                updateProjects(updatedProjects);
+                setCurrentPrj(newId);
+                
+                if (restoredProject.apartments[0]) {
+                    setCurrentApt(restoredProject.apartments[0].id);
+                }
+                
+                alert(`✅ "${restoredProject.name}" başarıyla geri yüklendi!`);
+                setShowArchiveModal(false);
+                return true;
+            } catch (error) {
+                console.error('❌ Geri yükleme hatası:', error);
+                alert('❌ Geri yükleme başarısız: ' + error.message);
+                return false;
+            }
+        };
+        
+        // Arşivi local'e indir (JSON dosyası olarak)
+        const downloadArchive = async (archive) => {
+            try {
+                const response = await fetch(archive.downloadURL);
+                const archiveData = await response.json();
+                
+                // JSON dosyası oluştur ve indir
+                const blob = new Blob([JSON.stringify(archiveData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = archive.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                alert('✅ Arşiv indirildi!');
+            } catch (error) {
+                console.error('❌ İndirme hatası:', error);
+                alert('❌ İndirme başarısız: ' + error.message);
+            }
+        };
+        
+        // Arşivi sil
+        const deleteArchive = async (archive) => {
+            if (!storage) return false;
+            
+            if (!confirm(`"${archive.projectName}" arşivini kalıcı olarak silmek istediğinize emin misiniz?`)) {
+                return false;
+            }
+            
+            try {
+                const storageRef = storage.ref(archive.path);
+                await storageRef.delete();
+                
+                // Listeyi güncelle
+                setArchivedProjects(archivedProjects.filter(a => a.path !== archive.path));
+                
+                alert('✅ Arşiv silindi!');
+                return true;
+            } catch (error) {
+                console.error('❌ Arşiv silme hatası:', error);
+                alert('❌ Silme başarısız: ' + error.message);
+                return false;
+            }
+        };
+
+        // ==========================================
         // AUTHENTICATION FONKSİYONLARI
         // ==========================================
         
@@ -760,6 +941,9 @@
             const [selectedFieldForIcon, setSelectedFieldForIcon] = useState(null);
             const [lastBackupDate, setLastBackupDate] = useState(null);
             const [backupInterval, setBackupInterval] = useState(7);
+            const [showArchiveModal, setShowArchiveModal] = useState(false);
+            const [archivedProjects, setArchivedProjects] = useState([]);
+            const [loadingArchives, setLoadingArchives] = useState(false);
             const [lightbox, setLightbox] = useState(null);
             const [firebaseSync, setFirebaseSync] = useState(firebaseEnabled);
             const [lastSyncTime, setLastSyncTime] = useState(null);
@@ -3819,81 +4003,102 @@
 
                 // Kategoriye göre renk ve ikon belirleme
                 const getCategoryStyle = (category) => {
-                    const styles = {
+                    // Önceden tanımlı stiller
+                    const predefinedStyles = {
                         'Zemin': { 
                             from: 'from-emerald-50', to: 'to-green-50', border: 'border-emerald-200', 
                             icon: 'text-emerald-600', badge: 'bg-emerald-600',
+                            headerFrom: 'from-emerald-500', headerTo: 'to-green-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>'
                         },
                         'Boya': { 
                             from: 'from-blue-50', to: 'to-cyan-50', border: 'border-blue-200', 
                             icon: 'text-blue-600', badge: 'bg-blue-600',
+                            headerFrom: 'from-blue-500', headerTo: 'to-cyan-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>'
                         },
                         'Kaplama': { 
                             from: 'from-purple-50', to: 'to-pink-50', border: 'border-purple-200', 
                             icon: 'text-purple-600', badge: 'bg-purple-600',
+                            headerFrom: 'from-purple-500', headerTo: 'to-pink-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>'
                         },
                         'Dolap': { 
                             from: 'from-amber-50', to: 'to-yellow-50', border: 'border-amber-200', 
                             icon: 'text-amber-600', badge: 'bg-amber-600',
+                            headerFrom: 'from-amber-500', headerTo: 'to-yellow-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>'
                         },
                         'Tezgah': { 
                             from: 'from-orange-50', to: 'to-red-50', border: 'border-orange-200', 
                             icon: 'text-orange-600', badge: 'bg-orange-600',
+                            headerFrom: 'from-orange-500', headerTo: 'to-red-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>'
                         },
                         'Panel': { 
                             from: 'from-teal-50', to: 'to-cyan-50', border: 'border-teal-200', 
                             icon: 'text-teal-600', badge: 'bg-teal-600',
+                            headerFrom: 'from-teal-500', headerTo: 'to-cyan-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path>'
                         },
                         'Armatür': { 
                             from: 'from-indigo-50', to: 'to-purple-50', border: 'border-indigo-200', 
                             icon: 'text-indigo-600', badge: 'bg-indigo-600',
+                            headerFrom: 'from-indigo-500', headerTo: 'to-purple-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>'
                         },
                         'Aksesuar': { 
                             from: 'from-pink-50', to: 'to-rose-50', border: 'border-pink-200', 
                             icon: 'text-pink-600', badge: 'bg-pink-600',
+                            headerFrom: 'from-pink-500', headerTo: 'to-rose-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>'
                         },
                         'Elektrik': { 
                             from: 'from-yellow-50', to: 'to-amber-50', border: 'border-yellow-200', 
                             icon: 'text-yellow-600', badge: 'bg-yellow-600',
+                            headerFrom: 'from-yellow-500', headerTo: 'to-amber-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>'
                         },
                         'Doğrama': { 
                             from: 'from-slate-50', to: 'to-gray-50', border: 'border-slate-200', 
                             icon: 'text-slate-600', badge: 'bg-slate-600',
+                            headerFrom: 'from-slate-500', headerTo: 'to-gray-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>'
                         },
                         'Tekstil': { 
                             from: 'from-rose-50', to: 'to-pink-50', border: 'border-rose-200', 
                             icon: 'text-rose-600', badge: 'bg-rose-600',
-                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>'
-                        },
-                        'Elektrik': { 
-                            from: 'from-yellow-50', to: 'to-amber-50', border: 'border-yellow-200', 
-                            icon: 'text-yellow-600', badge: 'bg-yellow-600',
-                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>'
-                        },
-                        'Doğrama': { 
-                            from: 'from-slate-50', to: 'to-gray-50', border: 'border-slate-200', 
-                            icon: 'text-slate-600', badge: 'bg-slate-600',
-                            svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>'
-                        },
-                        'Tekstil': { 
-                            from: 'from-rose-50', to: 'to-pink-50', border: 'border-rose-200', 
-                            icon: 'text-rose-600', badge: 'bg-rose-600',
+                            headerFrom: 'from-rose-500', headerTo: 'to-pink-600',
                             svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>'
                         }
                     };
-                    return styles[category] || { 
-                        from: 'from-gray-50', to: 'to-slate-50', border: 'border-gray-200', 
-                        icon: 'text-gray-600', badge: 'bg-gray-600',
+                    
+                    // Eğer önceden tanımlı varsa onu döndür
+                    if (predefinedStyles[category]) {
+                        return predefinedStyles[category];
+                    }
+                    
+                    // Dinamik renk paleti üret
+                    const colors = [
+                        { from: 'from-red-50', to: 'to-orange-50', border: 'border-red-200', icon: 'text-red-600', badge: 'bg-red-600', headerFrom: 'from-red-500', headerTo: 'to-orange-600' },
+                        { from: 'from-lime-50', to: 'to-green-50', border: 'border-lime-200', icon: 'text-lime-600', badge: 'bg-lime-600', headerFrom: 'from-lime-500', headerTo: 'to-green-600' },
+                        { from: 'from-sky-50', to: 'to-blue-50', border: 'border-sky-200', icon: 'text-sky-600', badge: 'bg-sky-600', headerFrom: 'from-sky-500', headerTo: 'to-blue-600' },
+                        { from: 'from-violet-50', to: 'to-purple-50', border: 'border-violet-200', icon: 'text-violet-600', badge: 'bg-violet-600', headerFrom: 'from-violet-500', headerTo: 'to-purple-600' },
+                        { from: 'from-fuchsia-50', to: 'to-pink-50', border: 'border-fuchsia-200', icon: 'text-fuchsia-600', badge: 'bg-fuchsia-600', headerFrom: 'from-fuchsia-500', headerTo: 'to-pink-600' },
+                        { from: 'from-cyan-50', to: 'to-teal-50', border: 'border-cyan-200', icon: 'text-cyan-600', badge: 'bg-cyan-600', headerFrom: 'from-cyan-500', headerTo: 'to-teal-600' },
+                        { from: 'from-orange-50', to: 'to-amber-50', border: 'border-orange-200', icon: 'text-orange-600', badge: 'bg-orange-600', headerFrom: 'from-orange-500', headerTo: 'to-amber-600' },
+                        { from: 'from-green-50', to: 'to-emerald-50', border: 'border-green-200', icon: 'text-green-600', badge: 'bg-green-600', headerFrom: 'from-green-500', headerTo: 'to-emerald-600' }
+                    ];
+                    
+                    // Kategori ismine göre sabit bir renk seç (hash based)
+                    let hash = 0;
+                    for (let i = 0; i < category.length; i++) {
+                        hash = category.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    const colorIndex = Math.abs(hash) % colors.length;
+                    
+                    return {
+                        ...colors[colorIndex],
                         svg: '<path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>'
                     };
                 };
@@ -4223,15 +4428,10 @@
                                             grouped[category].push([key, config]);
                                         });
                                         
-                                        // Her kategorideki alanları alfabetik sırala
-                                        Object.keys(grouped).forEach(cat => {
-                                            grouped[cat].sort((a, b) => a[1].label.localeCompare(b[1].label, 'tr'));
-                                        });
+                                        // Kategorileri ekleme sırasına göre göster (sıralama yok)
+                                        const categories = Object.keys(grouped);
                                         
-                                        // Kategorileri alfabetik sırala
-                                        const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'tr'));
-                                        
-                                        return sortedCategories.map(category => (
+                                        return categories.map(category => (
                                             <div key={category}>
                                                 {/* Kategori Başlığı */}
                                                 <div className={`mb-3 mt-6 first:mt-0 flex items-center gap-3 ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
@@ -4437,7 +4637,6 @@
                                     </button>
                                     <button
                                         onClick={() => {
-                                            setShowDefaultSettings(false);
                                             alert('✅ Ayarlar kaydedildi!\n\nDeğişiklikler tüm yeni veriler için geçerli olacak.');
                                         }}
                                         className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg font-semibold hover:from-emerald-700 hover:to-teal-700 transition-all"
@@ -6437,6 +6636,166 @@
                         </div>
                     )}
                     
+                    {/* ARŞİV MODAL */}
+                    {showArchiveModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className={`rounded-lg p-6 max-w-5xl w-full max-h-[85vh] overflow-hidden flex flex-col ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                {/* Header */}
+                                <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-3 bg-gradient-to-r from-blue-500 to-cyan-600 rounded-lg">
+                                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-800'}`}>
+                                                📦 Proje Arşivi
+                                            </h2>
+                                            <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                Arşivlenmiş projeleri görüntüleyin ve geri yükleyin
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowArchiveModal(false)}
+                                        className={`text-3xl hover:opacity-70 transition-opacity ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}
+                                    >×</button>
+                                </div>
+
+                                {/* İçerik */}
+                                <div className="flex-1 overflow-y-auto">
+                                    {loadingArchives ? (
+                                        <div className="flex items-center justify-center h-64">
+                                            <div className="text-center">
+                                                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                                                <p className={theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
+                                                    Arşivler yükleniyor...
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : archivedProjects.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center h-64">
+                                            <svg className="w-24 h-24 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                                            </svg>
+                                            <p className={`text-lg font-semibold mb-2 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                Henüz arşivlenmiş proje yok
+                                            </p>
+                                            <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                Tamamlanmış projeleri arşivleyerek düzenli tutun
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {archivedProjects.map((archive, idx) => (
+                                                <div 
+                                                    key={idx} 
+                                                    className={`p-4 rounded-lg border-2 transition-all ${
+                                                        theme === 'dark' 
+                                                            ? 'border-gray-700 bg-gray-700 hover:border-blue-500' 
+                                                            : 'border-gray-200 bg-gray-50 hover:border-blue-500'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start justify-between gap-4">
+                                                        {/* Sol Taraf: Proje Bilgileri */}
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <h3 className={`text-lg font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                                                                    {archive.projectName}
+                                                                </h3>
+                                                                <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-semibold">
+                                                                    {archive.apartmentCount} Daire
+                                                                </span>
+                                                            </div>
+                                                            <div className={`text-sm space-y-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                <p className="flex items-center gap-2">
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                                                    </svg>
+                                                                    {new Date(archive.archivedAt).toLocaleDateString('tr-TR', { 
+                                                                        year: 'numeric', 
+                                                                        month: 'long', 
+                                                                        day: 'numeric',
+                                                                        hour: '2-digit',
+                                                                        minute: '2-digit'
+                                                                    })}
+                                                                </p>
+                                                                <p className="flex items-center gap-2">
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                                                                    </svg>
+                                                                    Dosya Boyutu: {archive.size}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Sağ Taraf: Aksiyon Butonları */}
+                                                        <div className="flex flex-col gap-2">
+                                                            <button
+                                                                onClick={() => restoreProject(archive)}
+                                                                className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transition-all flex items-center gap-2"
+                                                                title="Projeyi geri yükle"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                                                </svg>
+                                                                Geri Yükle
+                                                            </button>
+                                                            <button
+                                                                onClick={() => downloadArchive(archive)}
+                                                                className={`px-4 py-2 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                                                                    theme === 'dark'
+                                                                        ? 'bg-gray-600 text-white hover:bg-gray-500'
+                                                                        : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                                                }`}
+                                                                title="Bilgisayara indir"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                                                </svg>
+                                                                İndir
+                                                            </button>
+                                                            <button
+                                                                onClick={() => deleteArchive(archive)}
+                                                                className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition-all flex items-center gap-2"
+                                                                title="Arşivi sil"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                                </svg>
+                                                                Sil
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Footer */}
+                                <div className="mt-6 pt-4 border-t flex justify-between items-center">
+                                    <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        Toplam {archivedProjects.length} arşivlenmiş proje
+                                    </p>
+                                    <button
+                                        onClick={() => setShowArchiveModal(false)}
+                                        className={`px-6 py-2 rounded-lg font-semibold transition-colors ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        Kapat
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {/* YENİ DAİRE MODAL */}
                     {showNewApartmentModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -7033,15 +7392,165 @@
                                     setCustomRoomSetup(JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1'])));
                                     setShowNewProjectModal(true);
                                 }} className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-semibold hover:bg-purple-600">+ Yeni Proje</button>
-                                {projects.length > 1 && (
-                                    <button onClick={() => { 
-                                        if (confirm('Bu projeyi silmek istediginize emin misiniz?')) {
-                                            const remaining = projects.filter(p => p.id !== currentPrj);
-                                            updateProjects(remaining);
-                                            setCurrentPrj(remaining[0].id);
-                                            if (remaining[0].apartments[0]) setCurrentApt(remaining[0].apartments[0].id);
+                                
+                                {/* Arşiv Butonu */}
+                                <button 
+                                    onClick={() => {
+                                        setShowArchiveModal(true);
+                                        loadArchivedProjects();
+                                    }}
+                                    className="px-3 py-2 bg-blue-500 text-white rounded-lg text-sm font-semibold hover:bg-blue-600 flex items-center gap-1"
+                                    title="Arşiv Yönetimi"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                    </svg>
+                                    Arşiv
+                                </button>
+                                
+                                {/* Dosyadan Yükle Butonu */}
+                                <button 
+                                    onClick={() => {
+                                        const input = document.createElement('input');
+                                        input.type = 'file';
+                                        input.accept = '.json';
+                                        input.onchange = async (e) => {
+                                            const file = e.target.files[0];
+                                            if (!file) return;
+                                            
+                                            try {
+                                                const text = await file.text();
+                                                const data = JSON.parse(text);
+                                                
+                                                if (!data.project) {
+                                                    alert('❌ Geçersiz proje dosyası!');
+                                                    return;
+                                                }
+                                                
+                                                // Yeni ID ata
+                                                const newId = Math.max(...projects.map(p => p.id), 0) + 1;
+                                                data.project.id = newId;
+                                                data.project.name = data.project.name + ' (Yüklendi)';
+                                                
+                                                // Projeyi ekle
+                                                const updatedProjects = [...projects, data.project];
+                                                updateProjects(updatedProjects);
+                                                setCurrentPrj(newId);
+                                                
+                                                if (data.project.apartments[0]) {
+                                                    setCurrentApt(data.project.apartments[0].id);
+                                                }
+                                                
+                                                alert(`✅ "${data.project.name}" başarıyla yüklendi!`);
+                                            } catch (error) {
+                                                console.error('❌ Dosya yükleme hatası:', error);
+                                                alert('❌ Dosya yükleme başarısız: ' + error.message);
+                                            }
+                                        };
+                                        input.click();
+                                    }}
+                                    className="px-3 py-2 bg-teal-500 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 flex items-center gap-1"
+                                    title="Bilgisayardan proje yükle"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                    </svg>
+                                    Yükle
+                                </button>
+                                
+                                {/* Kaydet Butonu - Her zaman görünür */}
+                                <button 
+                                    onClick={() => {
+                                        const project = getProject();
+                                        const exportData = {
+                                            project: project,
+                                            exportedAt: Date.now(),
+                                            exportedBy: auth?.currentUser?.email || 'local',
+                                            version: '1.0'
+                                        };
+                                        
+                                        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.json`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        URL.revokeObjectURL(url);
+                                        
+                                        alert('✅ Proje bilgisayarınıza kaydedildi!');
+                                    }} 
+                                    className="px-3 py-2 bg-cyan-500 text-white rounded-lg text-sm hover:bg-cyan-600 flex items-center gap-1" 
+                                    title="Bilgisayara kaydet"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    Kaydet
+                                </button>
+                                
+                                {/* Arşivle Butonu - Her zaman görünür */}
+                                <button 
+                                    onClick={async () => { 
+                                        const project = getProject();
+                                        
+                                        // Tek proje varsa uyarı göster
+                                        if (projects.length === 1) {
+                                            if (!confirm(`"${project.name}" tek projeniz. Arşivlediğinizde aktif proje kalmayacak.\n\nDevam etmek istiyor musunuz?`)) {
+                                                return;
+                                            }
                                         }
-                                    }} className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600" title="Projeyi sil">🗑️</button>
+                                        
+                                        if (confirm(`"${project.name}" projesini arşivlemek istediğinize emin misiniz?\n\nProje Firebase Storage'a kaydedilecek ve aktif listeden kaldırılacak.`)) {
+                                            const success = await archiveProject(project);
+                                            if (success) {
+                                                // Projeyi aktif listeden kaldır
+                                                const remaining = projects.filter(p => p.id !== currentPrj);
+                                                
+                                                if (remaining.length > 0) {
+                                                    updateProjects(remaining);
+                                                    setCurrentPrj(remaining[0].id);
+                                                    if (remaining[0].apartments[0]) setCurrentApt(remaining[0].apartments[0].id);
+                                                } else {
+                                                    // Tüm projeler arşivlendi, yeni proje oluştur
+                                                    const newProject = {
+                                                        id: 1,
+                                                        name: 'Yeni Proje',
+                                                        apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }]
+                                                    };
+                                                    updateProjects([newProject]);
+                                                    setCurrentPrj(1);
+                                                    setCurrentApt(1);
+                                                }
+                                                
+                                                alert(`✅ "${project.name}" başarıyla arşivlendi!`);
+                                            }
+                                        }
+                                    }} 
+                                    className="px-3 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 flex items-center gap-1" 
+                                    title="Projeyi arşivle"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                    </svg>
+                                    Arşivle
+                                </button>
+                                
+                                {/* Sil Butonu - Sadece birden fazla proje varsa */}
+                                {projects.length > 1 && (
+                                    <button 
+                                        onClick={() => { 
+                                            if (confirm('Bu projeyi silmek istediginize emin misiniz?')) {
+                                                const remaining = projects.filter(p => p.id !== currentPrj);
+                                                updateProjects(remaining);
+                                                setCurrentPrj(remaining[0].id);
+                                                if (remaining[0].apartments[0]) setCurrentApt(remaining[0].apartments[0].id);
+                                            }
+                                        }} 
+                                        className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600" 
+                                        title="Projeyi sil"
+                                    >🗑️</button>
                                 )}
                             </div>
                             
@@ -7539,12 +8048,85 @@
                                     </div>
                                 </div>
 
-                                {/* Veri Giriş Alanları - Card Tasarım */}
-                                <div className="space-y-4" key={refreshKey}>
-                                    {/* Önce foto olmayan tüm alanları render et */}
-                                    {room && room.fields.filter(f => f !== 'foto').map(f => renderField(f))}
-                                    {/* Foto alanını her zaman en sona ekle */}
-                                    {room && room.fields.includes('foto') && renderField('foto')}
+                                {/* Veri Giriş Alanları - Kategorilere Göre Gruplandırılmış */}
+                                <div className="space-y-6" key={refreshKey}>
+                                    {room && (() => {
+                                        // Alanları kategoriye göre grupla
+                                        const grouped = {};
+                                        const fotoField = room.fields.includes('foto') ? 'foto' : null;
+                                        
+                                        room.fields.filter(f => f !== 'foto').forEach(f => {
+                                            const fc = fieldLabels[f];
+                                            if (!fc) return;
+                                            
+                                            const category = fc.category || 'Diğer';
+                                            if (!grouped[category]) grouped[category] = [];
+                                            grouped[category].push(f);
+                                        });
+                                        
+                                        // Kategorileri alfabetik sırala
+                                        const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'tr'));
+                                        
+                                        return (
+                                            <>
+                                                {sortedCategories.map(category => (
+                                                    <div key={category}>
+                                                        {/* Kategori Başlığı */}
+                                                        <div className="mb-4">
+                                                            <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg ${
+                                                                theme === 'dark'
+                                                                    ? 'bg-gradient-to-r from-blue-600 to-purple-700'
+                                                                    : 'bg-gradient-to-r from-blue-500 to-purple-600'
+                                                            }`}>
+                                                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                                                </svg>
+                                                                <h3 className="text-white font-bold text-lg">
+                                                                    {category}
+                                                                </h3>
+                                                                <span className="ml-auto text-white text-sm bg-white bg-opacity-20 px-2.5 py-0.5 rounded-full">
+                                                                    {grouped[category].length} Alan
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Kategorideki Alanlar */}
+                                                        <div className="mb-6">
+                                                            {grouped[category].map((f, idx) => (
+                                                                <div 
+                                                                    key={f}
+                                                                    className={idx > 0 ? 'mt-3' : ''}
+                                                                >
+                                                                    {renderField(f)}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                
+                                                {/* Foto alanını her zaman en sona ekle */}
+                                                {fotoField && (
+                                                    <div>
+                                                        <div className="mb-4">
+                                                            <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg ${
+                                                                theme === 'dark'
+                                                                    ? 'bg-gradient-to-r from-purple-600 to-pink-700'
+                                                                    : 'bg-gradient-to-r from-purple-500 to-pink-600'
+                                                            }`}>
+                                                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                                                </svg>
+                                                                <h3 className="text-white font-bold text-lg">
+                                                                    Fotoğraflar
+                                                                </h3>
+                                                            </div>
+                                                        </div>
+                                                        {renderField(fotoField)}
+                                                    </div>
+                                                )}
+                                            </>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         </div>
