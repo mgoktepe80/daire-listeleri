@@ -154,6 +154,44 @@
             }
         };
         
+        // İcon'u Firebase Storage'a yükle
+        const uploadIconToStorage = async (base64Data, userId, iconType, iconId) => {
+            if (!storage || !auth || !auth.currentUser) {
+                console.log('⚠️ Storage kullanılamıyor, base64 olarak kaydediliyor');
+                return base64Data; // Fallback: base64 olarak döndür
+            }
+            
+            try {
+                // Base64'ten blob'a çevir
+                const response = await fetch(base64Data);
+                const blob = await response.blob();
+                
+                // Dosya uzantısını belirle
+                const mimeType = blob.type;
+                const extension = mimeType.split('/')[1] || 'jpg';
+                
+                // Dosya yolu: users/{userId}/icons/{iconType}/{iconId}.{extension}
+                // iconType: "room" veya "field"
+                const timestamp = Date.now();
+                const path = `users/${userId}/icons/${iconType}/${iconId}_${timestamp}.${extension}`;
+                const storageRef = storage.ref(path);
+                
+                // Yükle
+                await storageRef.put(blob, {
+                    contentType: mimeType,
+                    cacheControl: 'public, max-age=31536000'
+                });
+                
+                // URL'yi al
+                const downloadURL = await storageRef.getDownloadURL();
+                console.log('✅ İcon Storage\'a yüklendi:', path);
+                return downloadURL;
+            } catch (error) {
+                console.error('❌ Icon storage yükleme hatası:', error);
+                return base64Data; // Hata durumunda base64 kullan
+            }
+        };
+        
         // Storage'dan fotoğrafı sil
         const deletePhotoFromStorage = async (photoURL) => {
             if (!storage || !photoURL || !photoURL.includes('firebasestorage')) {
@@ -501,13 +539,110 @@
         // ==========================================
         
         // Verileri Firebase'e kaydet
+        // Icon'ları Storage'a migrate et (base64 → Firebase Storage URL)
+        const migrateIconsToStorage = async (data) => {
+            if (!storage || !auth || !auth.currentUser) {
+                console.log('⚠️ Storage kullanılamıyor, migration atlanıyor');
+                return data;
+            }
+            
+            const userId = auth.currentUser.uid;
+            let hasChanges = false;
+            const migratedData = { ...data };
+            
+            try {
+                // 1. fieldLabels'daki icon'ları migrate et
+                if (migratedData.fieldLabels) {
+                    console.log('📦 Field icon\'ları kontrol ediliyor...');
+                    const newFieldLabels = { ...migratedData.fieldLabels };
+                    
+                    for (const [fieldKey, fieldConfig] of Object.entries(newFieldLabels)) {
+                        if (fieldConfig.icon && fieldConfig.icon.startsWith('data:image')) {
+                            console.log(`📤 ${fieldKey} icon'u Storage'a yükleniyor...`);
+                            const storageURL = await uploadIconToStorage(fieldConfig.icon, userId, 'field', fieldKey);
+                            if (storageURL && !storageURL.startsWith('data:')) {
+                                newFieldLabels[fieldKey] = { ...fieldConfig, icon: storageURL };
+                                hasChanges = true;
+                                console.log(`✅ ${fieldKey} icon'u migrate edildi`);
+                            }
+                        }
+                    }
+                    
+                    if (hasChanges) {
+                        migratedData.fieldLabels = newFieldLabels;
+                    }
+                }
+                
+                // 2. customRooms'daki icon'ları migrate et
+                if (migratedData.customRooms && Array.isArray(migratedData.customRooms)) {
+                    console.log('📦 Custom room icon\'ları kontrol ediliyor...');
+                    const newCustomRooms = [...migratedData.customRooms];
+                    
+                    for (let i = 0; i < newCustomRooms.length; i++) {
+                        const room = newCustomRooms[i];
+                        if (room.customIcon && room.customIcon.startsWith('data:image')) {
+                            console.log(`📤 ${room.name} icon'u Storage'a yükleniyor...`);
+                            const storageURL = await uploadIconToStorage(room.customIcon, userId, 'room', room.id);
+                            if (storageURL && !storageURL.startsWith('data:')) {
+                                newCustomRooms[i] = { ...room, customIcon: storageURL };
+                                hasChanges = true;
+                                console.log(`✅ ${room.name} icon'u migrate edildi`);
+                            }
+                        }
+                    }
+                    
+                    if (hasChanges) {
+                        migratedData.customRooms = newCustomRooms;
+                    }
+                }
+                
+                // 3. baseRooms'daki icon'ları migrate et
+                if (migratedData.baseRooms && Array.isArray(migratedData.baseRooms)) {
+                    console.log('📦 Base room icon\'ları kontrol ediliyor...');
+                    const newBaseRooms = [...migratedData.baseRooms];
+                    
+                    for (let i = 0; i < newBaseRooms.length; i++) {
+                        const room = newBaseRooms[i];
+                        if (room.customIcon && room.customIcon.startsWith('data:image')) {
+                            console.log(`📤 ${room.name} icon'u Storage'a yükleniyor...`);
+                            const storageURL = await uploadIconToStorage(room.customIcon, userId, 'room', room.id);
+                            if (storageURL && !storageURL.startsWith('data:')) {
+                                newBaseRooms[i] = { ...room, customIcon: storageURL };
+                                hasChanges = true;
+                                console.log(`✅ ${room.name} icon'u migrate edildi`);
+                            }
+                        }
+                    }
+                    
+                    if (hasChanges) {
+                        migratedData.baseRooms = newBaseRooms;
+                    }
+                }
+                
+                if (hasChanges) {
+                    console.log('✅ Icon migration tamamlandı!');
+                } else {
+                    console.log('ℹ️ Migration gerektiren icon yok');
+                }
+                
+                return migratedData;
+            } catch (error) {
+                console.error('❌ Icon migration hatası:', error);
+                return data; // Hata olursa orijinal veriyi döndür
+            }
+        };
+
         const saveToFirebase = async (data) => {
             if (!firebaseEnabled || !db || !auth || !auth.currentUser) return false;
             
             try {
                 const userId = auth.currentUser.uid;
+                
+                // Icon'ları Storage'a migrate et
+                const migratedData = await migrateIconsToStorage(data);
+                
                 await db.collection('appData').doc(userId).set({
-                    ...data,
+                    ...migratedData,
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 console.log('✅ Firebase\'e kaydedildi (Kullanıcı:', userId.substring(0, 8) + '...)');
@@ -523,8 +658,11 @@
             if (!firebaseEnabled || !db) return false;
             
             try {
+                // Icon'ları Storage'a migrate et
+                const migratedData = await migrateIconsToStorage(data);
+                
                 await db.collection('appData').doc(targetUserId).set({
-                    ...data,
+                    ...migratedData,
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 console.log('✅ Firebase\'e kaydedildi (Hedef:', targetUserId.substring(0, 8) + '...)');
@@ -1666,13 +1804,20 @@
                 alert('Alan eklendi!\n\nID: ' + fieldId + '\nAd: ' + label.trim() + '\nBirim: ' + (unit ? unit.trim() : '(Yok)') + '\nKategori: ' + category.trim());
             };
 
-            const deleteField = (fieldId) => {
+            const deleteField = async (fieldId) => {
                 if (fieldId === 'foto') {
                     alert('Fotograf alani silinemez!');
                     return;
                 }
                 
                 if (confirm('Bu alani silmek istediginize emin misiniz?\n\nAlan ID: ' + fieldId + '\nAd: ' + fieldLabels[fieldId].label + '\n\nBu alan tüm mekanlardan kaldırılacaktır!')) {
+                    // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                    const oldIcon = fieldLabels[fieldId]?.icon;
+                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                        await deletePhotoFromStorage(oldIcon);
+                        console.log('🗑️ Alan silindi, icon da temizlendi');
+                    }
+                    
                     // fieldLabels'dan sil
                     const newFieldLabels = { ...fieldLabels };
                     delete newFieldLabels[fieldId];
@@ -2004,11 +2149,18 @@
                 }
             };
 
-            const deleteRoom = (roomId) => {
+            const deleteRoom = async (roomId) => {
                 const room = allRooms.find(r => r.id === roomId);
                 if (!room) {
                     alert('Mekan bulunamadi!');
                     return;
+                }
+                
+                // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                const oldIcon = room?.customIcon;
+                if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                    await deletePhotoFromStorage(oldIcon);
+                    console.log('🗑️ Mekan silindi, icon da temizlendi');
                 }
                 
                 const deleteChoice = prompt(
@@ -2381,224 +2533,16 @@
 
             // Icon Kütüphanesi
             const ROOM_ICONS = {
-                // Ev & Mekanlar
-                'home': '🏠',
-                'building': '🏢',
-                'apartment': '🏘️',
-                'office': '🏢',
-                'warehouse': '🏭',
-                'store': '🏪',
-                
-                // Odalar & Mobilya
-                'kitchen': '🍳',
-                'bed': '🛏️',
-                'bath': '🛁',
-                'toilet': '🚽',
-                'shower': '🚿',
-                'door': '🚪',
-                'window': '🪟',
-                'sofa': '🛋️',
-                'chair': '🪑',
-                'table': '🪑',
-                'wardrobe': '🗄️',
-                'cabinet': '🗄️',
-                'drawer': '🗄️',
-                'mirror': '🪞',
-                
-                // İnşaat & Yapı Elemanları
-                'brick': '🧱',
-                'wall': '🧱',
-                'concrete': '🧱',
-                'foundation': '🧱',
-                'column': '🏛️',
-                'pillar': '🏛️',
-                'arch': '🏛️',
-                'roof': '🏠',
-                'ceiling': '⬜',
-                'floor': '⬛',
-                'tile': '⬜',
-                'marble': '💎',
-                'granite': '💎',
-                
-                // Kapı & Pencere Sistemleri
-                'entrance': '🚪',
-                'exit': '🚪',
-                'gate': '🚧',
-                'fence': '🚧',
-                'railing': '🛤️',
-                'balcony': '🏠',
-                'terrace': '🏠',
-                'curtain': '🪟',
-                'blind': '🪟',
-                'shutter': '🪟',
-                
-                // Zemin & Kaplama
-                'parquet': '🪵',
-                'laminate': '🪵',
-                'carpet': '🟫',
-                'vinyl': '⬜',
-                'ceramic': '⬜',
-                'porcelain': '⬜',
-                'stone': '🪨',
-                'wood': '🪵',
-                'timber': '🪵',
-                
-                // Boya & Kaplama
-                'paint': '🎨',
-                'roller': '🎨',
-                'brush': '🖌️',
-                'wallpaper': '📜',
-                'plaster': '⬜',
-                'coating': '⬜',
-                
-                // Mutfak & Banyo Malzemeleri
-                'sink': '🚰',
-                'faucet': '🚰',
-                'tap': '🚰',
-                'bathtub': '🛁',
-                'basin': '🚰',
-                'counter': '⬛',
-                'countertop': '⬛',
-                'backsplash': '⬜',
-                
-                // Mutfak Ekipmanları
-                'oven': '🍳',
-                'stove': '🔥',
-                'cooker': '🔥',
-                'refrigerator': '🧊',
-                'fridge': '🧊',
-                'dishwasher': '💧',
-                'microwave': '📱',
-                'hood': '💨',
-                'extractor': '💨',
-                
-                // Dolap & Mobilya
-                'closet': '🗄️',
-                'cupboard': '🗄️',
-                'shelf': '📚',
-                'rack': '📚',
-                'hanger': '👔',
-                'hook': '🪝',
-                
-                // Aydınlatma & Elektrik
-                'light': '💡',
-                'lamp': '💡',
-                'bulb': '💡',
-                'chandelier': '💡',
-                'spotlight': '💡',
-                'led': '💡',
-                'switch': '🔌',
-                'socket': '🔌',
-                'plug': '🔌',
-                'electric': '⚡',
-                'power': '⚡',
-                'cable': '🔌',
-                'wire': '🔌',
-                
-                // Isıtma & Soğutma
-                'radiator': '🔥',
-                'heater': '🔥',
-                'ac': '❄️',
-                'aircon': '❄️',
-                'ventilation': '💨',
-                'fan': '💨',
-                'thermostat': '🌡️',
-                
-                // Sıhhi Tesisat
-                'pipe': '🚰',
-                'plumbing': '🚰',
-                'drain': '🚰',
-                'valve': '🚰',
-                'water': '💧',
-                'hot_water': '🔥',
-                
-                // Araçlar & Ekipman
-                'tool': '🔧',
-                'wrench': '🔧',
-                'hammer': '🔨',
-                'drill': '🔩',
-                'screw': '🔩',
-                'nail': '📌',
-                'saw': '🪚',
-                'measure': '📏',
-                'ruler': '📏',
-                'level': '📐',
-                'ladder': '🪜',
-                'stairs': '🪜',
-                'toolbox': '🧰',
-                
-                // Güvenlik & Sistem
-                'lock': '🔒',
-                'key': '🔑',
-                'security': '🔒',
-                'alarm': '🚨',
-                'camera': '📷',
-                'fire': '🧯',
-                'extinguisher': '🧯',
-                'smoke_detector': '🚨',
-                
-                // Temizlik & Bakım
-                'clean': '🧹',
-                'broom': '🧹',
-                'mop': '🧹',
-                'vacuum': '🧹',
-                'trash': '🗑️',
-                'bin': '🗑️',
-                'recycle': '♻️',
-                'wash': '🧺',
-                'laundry': '🧺',
-                
-                // Renkler (Malzeme Renkleri)
-                'red': '🔴',
-                'blue': '🔵',
-                'green': '🟢',
-                'yellow': '🟡',
-                'orange': '🟠',
-                'purple': '🟣',
-                'brown': '🟤',
-                'black': '⚫',
-                'white': '⚪',
-                'gray': '⚫',
-                'beige': '🟤',
-                
-                // Dekorasyon (Minimal)
-                'plant': '🪴',
-                'flower': '🌸',
-                'clock': '🕐',
-                'calendar': '📅',
-                
-                // Semboller & İşaretler
-                'check': '✅',
-                'done': '✅',
-                'cross': '❌',
-                'warning': '⚠️',
-                'attention': '⚠️',
-                'info': 'ℹ️',
-                'star': '⭐',
-                'important': '⭐',
-                'flag': '🚩',
-                'pin': '📍',
-                'location': '📍',
-                
-                // Döküman & Planlama
-                'document': '📄',
-                'blueprint': '📐',
-                'plan': '📋',
-                'folder': '📁',
-                'archive': '📦',
-                'box': '📦',
-                'package': '📦',
-                
-                // Diğer Yapı Elemanları
-                'elevator': '🛗',
-                'lift': '🛗',
-                'garage': '🚗',
-                'parking': '🅿️',
-                'basement': '⬇️',
-                'attic': '⬆️',
-                'garden': '🌿',
-                'yard': '🌿',
-                'patio': '🏠',
+                // Temel Ev İkonları (40 adet)
+                'home': '🏠', 'building': '🏢', 'apartment': '🏘️', 'office': '🏢',
+                'kitchen': '🍳', 'bed': '🛏️', 'bath': '🛁', 'toilet': '🚽', 'shower': '🚿',
+                'door': '🚪', 'window': '🪟', 'sofa': '🛋️', 'chair': '🪑', 'wardrobe': '🗄️',
+                'brick': '🧱', 'wall': '🧱', 'roof': '🏠', 'floor': '⬛', 'tile': '⬜',
+                'hammer': '🔨', 'wrench': '🔧', 'screwdriver': '🪛', 'saw': '🪚', 'drill': '⚙️',
+                'paint': '🎨', 'brush': '🖌️', 'roller': '🖌️', 'bucket': '🪣',
+                'light': '💡', 'lamp': '💡', 'chandelier': '💡', 'switch': '💡',
+                'pipe': '🚰', 'faucet': '🚰', 'sink': '🚰', 'radiator': '🔥',
+                'box': '📦', 'ruler': '📏', 'level': '📐', 'measure': '📏'
             };
 
             // Icon seçme fonksiyonu
@@ -2607,7 +2551,23 @@
                 setShowIconPicker(true);
             };
 
-            const applyIconToRoom = (iconKey) => {
+            const applyIconToRoom = async (iconKey) => {
+                // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                if (selectedFieldForIcon) {
+                    const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
+                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                        await deletePhotoFromStorage(oldIcon);
+                        console.log('🗑️ Eski field icon silindi (hazır icon seçimi)');
+                    }
+                } else if (selectedRoomForIcon) {
+                    const room = allRooms.find(r => r.id === selectedRoomForIcon);
+                    const oldIcon = room?.customIcon;
+                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                        await deletePhotoFromStorage(oldIcon);
+                        console.log('🗑️ Eski room icon silindi (hazır icon seçimi)');
+                    }
+                }
+                
                 // Eğer alan için icon seçiyorsak
                 if (selectedFieldForIcon) {
                     const updated = {
@@ -2669,29 +2629,34 @@
                 // Eğer mekan bir nesne değilse (eski kullanım), onu objeye çevir
                 const roomObj = typeof room === 'string' ? { name: room } : room;
                 
-                // 1. Önce kullanıcının kendi eklediği emoji'yi kontrol et
+                // 1. Önce kullanıcının kendi eklediği icon'u kontrol et
                 if (roomObj.customIcon) {
-                    return <span className="text-xl">{roomObj.customIcon}</span>;
+                    // Eğer resim URL'i ise (base64 veya Firebase Storage)
+                    if (roomObj.customIcon.startsWith('data:image') || roomObj.customIcon.startsWith('http')) {
+                        return <img src={roomObj.customIcon} className="w-12 h-12 object-contain" alt="icon" />;
+                    }
+                    // Emoji ise
+                    return <span className="text-4xl">{roomObj.customIcon}</span>;
                 }
                 
                 // 2. Eğer hazır iconlardan seçilmişse onu göster
                 if (roomObj.icon && ROOM_ICONS[roomObj.icon]) {
-                    return <span className="text-xl">{ROOM_ICONS[roomObj.icon]}</span>;
+                    return <span className="text-4xl">{ROOM_ICONS[roomObj.icon]}</span>;
                 }
                 
                 // 3. Otomatik icon seçimi
                 const name = roomObj.name ? roomObj.name.toLowerCase() : '';
                 
-                if (name.includes('salon') || name.includes('oturma')) return <span className="text-xl">🏠</span>;
-                if (name.includes('mutfak') || name.includes('kitchen')) return <span className="text-xl">🍳</span>;
-                if (name.includes('yatak') || name.includes('oda') || name.includes('bedroom') || name.includes('ebeveyn') || name.includes('çocuk')) return <span className="text-xl">🛏️</span>;
-                if (name.includes('banyo') || name.includes('wc') || name.includes('tuvalet')) return <span className="text-xl">🛁</span>;
-                if (name.includes('hol') || name.includes('antre') || name.includes('koridor') || name.includes('giriş')) return <span className="text-xl">🚪</span>;
-                if (name.includes('balkon') || name.includes('teras')) return <span className="text-xl">🏠</span>;
-                if (name.includes('çamaşır') || name.includes('kiler') || name.includes('depo')) return <span className="text-xl">📦</span>;
+                if (name.includes('salon') || name.includes('oturma')) return <span className="text-4xl">🏠</span>;
+                if (name.includes('mutfak') || name.includes('kitchen')) return <span className="text-4xl">🍳</span>;
+                if (name.includes('yatak') || name.includes('oda') || name.includes('bedroom') || name.includes('ebeveyn') || name.includes('çocuk')) return <span className="text-4xl">🛏️</span>;
+                if (name.includes('banyo') || name.includes('wc') || name.includes('tuvalet')) return <span className="text-4xl">🛁</span>;
+                if (name.includes('hol') || name.includes('antre') || name.includes('koridor') || name.includes('giriş')) return <span className="text-4xl">🚪</span>;
+                if (name.includes('balkon') || name.includes('teras')) return <span className="text-4xl">🏠</span>;
+                if (name.includes('çamaşır') || name.includes('kiler') || name.includes('depo')) return <span className="text-4xl">📦</span>;
                 
                 // Default
-                return <span className="text-xl">📐</span>;
+                return <span className="text-4xl">📐</span>;
             };
 
             // Tema değiştirme
@@ -3786,7 +3751,11 @@
                             <div className="flex justify-between items-center mb-4">
                                 <label className="font-semibold text-orange-900 flex items-center gap-2">
                                     {fc.icon ? (
-                                        <span className="text-xl">{fc.icon}</span>
+                                        (fc.icon.startsWith('data:image') || fc.icon.startsWith('http')) ? (
+                                            <img src={fc.icon} className="w-12 h-12 object-contain" alt="icon" />
+                                        ) : (
+                                            <span className="text-4xl">{fc.icon}</span>
+                                        )
                                     ) : (
                                         <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>
@@ -4109,7 +4078,11 @@
                     <div key={f} className={`bg-gradient-to-br ${categoryStyle.from} ${categoryStyle.to} rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 border-2 ${categoryStyle.border}`}>
                         <label className={`block text-sm font-semibold mb-4 flex items-center gap-2 ${categoryStyle.icon}`}>
                             {fc.icon ? (
-                                <span className="text-xl">{fc.icon}</span>
+                                (fc.icon.startsWith('data:image') || fc.icon.startsWith('http')) ? (
+                                    <img src={fc.icon} className="w-12 h-12 object-contain" alt="icon" />
+                                ) : (
+                                    <span className="text-4xl">{fc.icon}</span>
+                                )
                             ) : (
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: categoryStyle.svg }}>
                                 </svg>
@@ -4304,7 +4277,9 @@
                                         
                                         {/* Mevcut Kategoriler */}
                                         <div className="space-y-2">
-                                            {Object.keys(materials).sort((a, b) => a.localeCompare(b, 'tr')).map(cat => (
+                                            {Object.keys(materials).sort((a, b) => 
+                                                a.toLocaleLowerCase('tr-TR').localeCompare(b.toLocaleLowerCase('tr-TR'), 'tr-TR')
+                                            ).map(cat => (
                                                 <div key={cat} className={`p-3 rounded-lg border flex items-center justify-between ${
                                                     theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-white'
                                                 }`}>
@@ -4413,23 +4388,37 @@
                                     
                                     {/* Field Labels - Kategorilere Göre Gruplandırılmış */}
                                     {(() => {
-                                        // Kategorilere göre grupla
+                                        // fieldLabels'ın kendi sırasını kullan
                                         const grouped = {};
+                                        const fieldOrder = Object.keys(fieldLabels);
                                         
-                                        // Önce tüm kategorileri materials'dan ekle (boş kategoriler dahil)
-                                        Object.keys(materials).forEach(cat => {
-                                            grouped[cat] = [];
-                                        });
-                                        
-                                        // Sonra fieldLabels'daki alanları ilgili kategorilere ekle
+                                        // fieldLabels'daki alanları sırasıyla kategorilere ekle
                                         Object.entries(fieldLabels).forEach(([key, config]) => {
                                             const category = config.category || 'Diğer';
                                             if (!grouped[category]) grouped[category] = [];
                                             grouped[category].push([key, config]);
                                         });
                                         
-                                        // Kategorileri ekleme sırasına göre göster (sıralama yok)
-                                        const categories = Object.keys(grouped);
+                                        // Her kategorideki alanları fieldLabels sırasına göre sırala
+                                        Object.keys(grouped).forEach(cat => {
+                                            grouped[cat].sort((a, b) => {
+                                                return fieldOrder.indexOf(a[0]) - fieldOrder.indexOf(b[0]);
+                                            });
+                                        });
+                                        
+                                        // Kategorileri fieldLabels'da ilk görünme sırasına göre sırala
+                                        const categoryFirstAppearance = {};
+                                        fieldOrder.forEach((fieldKey, idx) => {
+                                            const fc = fieldLabels[fieldKey];
+                                            const cat = fc.category || 'Diğer';
+                                            if (categoryFirstAppearance[cat] === undefined) {
+                                                categoryFirstAppearance[cat] = idx;
+                                            }
+                                        });
+                                        
+                                        const categories = Object.keys(grouped).sort((a, b) => {
+                                            return categoryFirstAppearance[a] - categoryFirstAppearance[b];
+                                        });
                                         
                                         return categories.map(category => (
                                             <div key={category}>
@@ -4499,7 +4488,9 @@
                                                         }`}
                                                     >
                                                         <option value="">Kategori Seç</option>
-                                                        {Object.keys(materials).sort((a, b) => a.localeCompare(b, 'tr')).map(cat => (
+                                                        {Object.keys(materials).sort((a, b) => 
+                                                            a.toLocaleLowerCase('tr-TR').localeCompare(b.toLocaleLowerCase('tr-TR'), 'tr-TR')
+                                                        ).map(cat => (
                                                             <option key={cat} value={cat}>{cat}</option>
                                                         ))}
                                                     </select>
@@ -4542,7 +4533,11 @@
                                                         title="İkon seç"
                                                     >
                                                         {config.icon ? (
-                                                            <span className="text-2xl">{config.icon}</span>
+                                                            (config.icon.startsWith('data:image') || config.icon.startsWith('http')) ? (
+                                                                <img src={config.icon} className="w-16 h-16 object-contain" alt="icon" />
+                                                            ) : (
+                                                                <span className="text-5xl">{config.icon}</span>
+                                                            )
                                                         ) : (
                                                             <>
                                                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4637,7 +4632,20 @@
                                     </button>
                                     <button
                                         onClick={() => {
-                                            alert('✅ Ayarlar kaydedildi!\n\nDeğişiklikler tüm yeni veriler için geçerli olacak.');
+                                            // fieldLabels'ı alfabetik sırala
+                                            const sortedEntries = Object.entries(fieldLabels).sort((a, b) => {
+                                                const categoryCompare = (a[1].category || 'Diğer').toLocaleLowerCase('tr-TR')
+                                                    .localeCompare((b[1].category || 'Diğer').toLocaleLowerCase('tr-TR'), 'tr-TR');
+                                                if (categoryCompare !== 0) return categoryCompare;
+                                                return a[1].label.toLocaleLowerCase('tr-TR')
+                                                    .localeCompare(b[1].label.toLocaleLowerCase('tr-TR'), 'tr-TR');
+                                            });
+                                            
+                                            const sortedFieldLabels = Object.fromEntries(sortedEntries);
+                                            setFieldLabels(sortedFieldLabels);
+                                            localStorage.setItem('field_labels', JSON.stringify(sortedFieldLabels));
+                                            
+                                            alert('✅ Ayarlar kaydedildi ve alfabetik sıralandı!\n\nDeğişiklikler tüm yeni veriler için geçerli olacak.');
                                         }}
                                         className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg font-semibold hover:from-emerald-700 hover:to-teal-700 transition-all"
                                     >
@@ -7053,7 +7061,7 @@
                             }`}>
                                 <div className="flex justify-between items-center mb-4 pb-3 border-b">
                                     <h3 className={`text-xl font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                                        🎨 Mekan İkonu Seç <span className="text-sm font-normal opacity-70">({Object.keys(ROOM_ICONS).length} icon)</span>
+                                        🎨 İkon Seç <span className="text-sm font-normal opacity-70">(Emoji veya Resim)</span>
                                     </h3>
                                     <button 
                                         onClick={() => {
@@ -7072,9 +7080,11 @@
                                     <label className={`block text-sm font-semibold mb-2 ${
                                         theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                                     }`}>
-                                        ✨ Özel Emoji Ekle
+                                        ✨ Özel İkon Ekle
                                     </label>
-                                    <div className="flex gap-2">
+                                    
+                                    {/* Emoji Input */}
+                                    <div className="flex gap-2 mb-3">
                                         <input
                                             type="text"
                                             placeholder="Emoji girin (örn: 🏗️, 🎯, 💼)"
@@ -7084,8 +7094,24 @@
                                                     : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
                                             }`}
                                             maxLength="4"
-                                            onKeyDown={(e) => {
+                                            onKeyDown={async (e) => {
                                                 if (e.key === 'Enter' && e.target.value.trim()) {
+                                                    // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                                                    if (selectedFieldForIcon) {
+                                                        const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
+                                                        if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                                                            await deletePhotoFromStorage(oldIcon);
+                                                            console.log('🗑️ Eski field icon silindi (emoji değişimi)');
+                                                        }
+                                                    } else if (selectedRoomForIcon) {
+                                                        const room = allRooms.find(r => r.id === selectedRoomForIcon);
+                                                        const oldIcon = room?.customIcon;
+                                                        if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                                                            await deletePhotoFromStorage(oldIcon);
+                                                            console.log('🗑️ Eski room icon silindi (emoji değişimi)');
+                                                        }
+                                                    }
+                                                    
                                                     // Alan için emoji
                                                     if (selectedFieldForIcon) {
                                                         const updated = {
@@ -7128,9 +7154,25 @@
                                             }}
                                         />
                                         <button
-                                            onClick={(e) => {
+                                            onClick={async (e) => {
                                                 const input = e.target.parentElement.querySelector('input');
                                                 if (!input.value.trim()) return;
+                                                
+                                                // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                                                if (selectedFieldForIcon) {
+                                                    const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
+                                                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                                                        await deletePhotoFromStorage(oldIcon);
+                                                        console.log('🗑️ Eski field icon silindi (Kullan butonu)');
+                                                    }
+                                                } else if (selectedRoomForIcon) {
+                                                    const room = allRooms.find(r => r.id === selectedRoomForIcon);
+                                                    const oldIcon = room?.customIcon;
+                                                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                                                        await deletePhotoFromStorage(oldIcon);
+                                                        console.log('🗑️ Eski room icon silindi (Kullan butonu)');
+                                                    }
+                                                }
                                                 
                                                 // Alan için emoji
                                                 if (selectedFieldForIcon) {
@@ -7180,8 +7222,118 @@
                                             Kullan
                                         </button>
                                     </div>
+                                    
+                                    {/* Resim Yükleme */}
+                                    <div className="flex gap-2 mt-3 items-center">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            id="iconImageUpload"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files[0];
+                                                if (!file) return;
+                                                
+                                                // Dosya boyutu kontrolü (max 500KB)
+                                                if (file.size > 500000) {
+                                                    alert('⚠️ Dosya çok büyük! Lütfen 500KB\'dan küçük bir resim seçin.');
+                                                    e.target.value = '';
+                                                    return;
+                                                }
+                                                
+                                                console.log('📤 Icon yükleniyor...');
+                                                
+                                                // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                                                if (selectedFieldForIcon) {
+                                                    const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
+                                                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                                                        await deletePhotoFromStorage(oldIcon);
+                                                        console.log('🗑️ Eski field icon silindi');
+                                                    }
+                                                } else if (selectedRoomForIcon) {
+                                                    const room = allRooms.find(r => r.id === selectedRoomForIcon);
+                                                    const oldIcon = room?.customIcon;
+                                                    if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
+                                                        await deletePhotoFromStorage(oldIcon);
+                                                        console.log('🗑️ Eski room icon silindi');
+                                                    }
+                                                }
+                                                
+                                                const reader = new FileReader();
+                                                reader.onload = async (event) => {
+                                                    const base64Image = event.target.result;
+                                                    let iconURL = base64Image;
+                                                    
+                                                    // Firebase Storage'a yükle (eğer aktifse)
+                                                    if (user) {
+                                                        try {
+                                                            if (selectedFieldForIcon) {
+                                                                iconURL = await uploadIconToStorage(base64Image, user.uid, 'field', selectedFieldForIcon);
+                                                            } else if (selectedRoomForIcon) {
+                                                                iconURL = await uploadIconToStorage(base64Image, user.uid, 'room', selectedRoomForIcon);
+                                                            }
+                                                        } catch (error) {
+                                                            console.error('Storage yükleme hatası:', error);
+                                                            // Hata olursa base64 kullan
+                                                        }
+                                                    }
+                                                    
+                                                    // Alan için resim
+                                                    if (selectedFieldForIcon) {
+                                                        const updated = {
+                                                            ...fieldLabels,
+                                                            [selectedFieldForIcon]: {
+                                                                ...fieldLabels[selectedFieldForIcon],
+                                                                icon: iconURL
+                                                            }
+                                                        };
+                                                        setFieldLabels(updated);
+                                                        localStorage.setItem('field_labels', JSON.stringify(updated));
+                                                        setShowIconPicker(false);
+                                                        setSelectedFieldForIcon(null);
+                                                        e.target.value = '';
+                                                        return;
+                                                    }
+                                                    
+                                                    // Mekan için resim
+                                                    const room = allRooms.find(r => r.id === selectedRoomForIcon);
+                                                    if (!room) return;
+                                                    
+                                                    if (room.custom) {
+                                                        const updated = customRooms.map(r => 
+                                                            r.id === selectedRoomForIcon ? { ...r, customIcon: iconURL } : r
+                                                        );
+                                                        setCustomRooms(updated);
+                                                        localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                                                    } else {
+                                                        const updated = baseRooms.map(r => 
+                                                            r.id === selectedRoomForIcon ? { ...r, customIcon: iconURL } : r
+                                                        );
+                                                        setBaseRooms(updated);
+                                                        localStorage.setItem('base_rooms', JSON.stringify(updated));
+                                                    }
+                                                    
+                                                    setShowIconPicker(false);
+                                                    setSelectedRoomForIcon(null);
+                                                    e.target.value = '';
+                                                };
+                                                reader.readAsDataURL(file);
+                                            }}
+                                        />
+                                        <label 
+                                            htmlFor="iconImageUpload"
+                                            className={`flex-1 px-4 py-2 rounded-lg font-semibold cursor-pointer text-center transition-colors ${
+                                                theme === 'dark'
+                                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                                            }`}
+                                        >
+                                            📷 Resim Yükle
+                                        </label>
+                                    </div>
+                                    
                                     <p className={`text-xs mt-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                                        💡 İpucu: Windows'ta <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Win + .</kbd> veya Mac'te <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Ctrl + Cmd + Space</kbd> ile emoji panelini açabilirsiniz
+                                        💡 İpucu: Emoji için <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Win + .</kbd> (Windows) veya <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Ctrl + Cmd + Space</kbd> (Mac) • Resimler Firebase Storage'da saklanır (max 500KB)
                                     </p>
                                 </div>
                                 
@@ -7631,7 +7783,7 @@
                             </div>
                         </div>
                         
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-[420px,1fr,1fr] gap-4">
                             <div className={`rounded-xl shadow-lg p-5 border transition-colors ${
                                 theme === 'dark'
                                     ? 'bg-gray-800 border-gray-700'
@@ -7704,16 +7856,16 @@
                                             {/* Mekan Adı */}
                                             <button 
                                                 onClick={() => setCurrentRoom(r.id)} 
-                                                className={`flex-1 text-left px-3 py-2.5 rounded-lg font-medium text-sm transition-all flex items-center gap-2 ${
+                                                className={`flex-1 text-left px-3 py-3 rounded-lg font-medium text-sm transition-all flex items-center gap-3 ${
                                                     currentRoom === r.id 
                                                         ? 'text-blue-700 font-semibold' 
                                                         : 'text-gray-700 hover:text-blue-600'
                                                 }`}
                                             >
-                                                <span className={currentRoom === r.id ? 'text-blue-600' : 'text-gray-400'}>
+                                                <span className={`flex-shrink-0 ${currentRoom === r.id ? 'text-blue-600' : 'text-gray-400'}`}>
                                                     {getRoomIcon(r)}
                                                 </span>
-                                                {r.name}
+                                                <span className="flex-1 break-words">{r.name}</span>
                                             </button>
                                             
                                             {/* Action Buttons - Hover'da görünür */}
@@ -8051,9 +8203,10 @@
                                 {/* Veri Giriş Alanları - Kategorilere Göre Gruplandırılmış */}
                                 <div className="space-y-6" key={refreshKey}>
                                     {room && (() => {
-                                        // Alanları kategoriye göre grupla
+                                        // fieldLabels'ın sırasına göre grupla (Kaydet'teki sırayı koru)
                                         const grouped = {};
                                         const fotoField = room.fields.includes('foto') ? 'foto' : null;
+                                        const fieldOrder = Object.keys(fieldLabels); // fieldLabels'ın sırası
                                         
                                         room.fields.filter(f => f !== 'foto').forEach(f => {
                                             const fc = fieldLabels[f];
@@ -8064,8 +8217,26 @@
                                             grouped[category].push(f);
                                         });
                                         
-                                        // Kategorileri alfabetik sırala
-                                        const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'tr'));
+                                        // Her kategorideki field'ları fieldLabels sırasına göre sırala
+                                        Object.keys(grouped).forEach(cat => {
+                                            grouped[cat].sort((a, b) => {
+                                                return fieldOrder.indexOf(a) - fieldOrder.indexOf(b);
+                                            });
+                                        });
+                                        
+                                        // Kategorileri de fieldLabels'da ilk görünme sırasına göre al
+                                        const categoryFirstAppearance = {};
+                                        fieldOrder.forEach((fieldKey, idx) => {
+                                            const fc = fieldLabels[fieldKey];
+                                            const cat = fc.category || 'Diğer';
+                                            if (categoryFirstAppearance[cat] === undefined) {
+                                                categoryFirstAppearance[cat] = idx;
+                                            }
+                                        });
+                                        
+                                        const sortedCategories = Object.keys(grouped).sort((a, b) => {
+                                            return categoryFirstAppearance[a] - categoryFirstAppearance[b];
+                                        });
                                         
                                         return (
                                             <>
