@@ -4409,7 +4409,7 @@
                                                                         }}
                                                                     >
                                                                         <option value="">🏷️ Tüm Seriler</option>
-                                                                        {ceramicData.series.map(serie => (
+                                                                        {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
                                                                             <option key={serie} value={serie}>{serie}</option>
                                                                         ))}
                                                                     </select>
@@ -4428,7 +4428,7 @@
                                                                         }}
                                                                     >
                                                                         <option value="">📏 Tüm Boyutlar</option>
-                                                                        {ceramicData.sizes.map(size => (
+                                                                        {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
                                                                             <option key={size} value={size}>{size}</option>
                                                                         ))}
                                                                     </select>
@@ -4726,7 +4726,7 @@
                                                         }}
                                                     >
                                                         <option value="">🏷️ Tüm Seriler</option>
-                                                        {ceramicData.series.map(serie => (
+                                                        {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
                                                             <option key={serie} value={serie}>{serie}</option>
                                                         ))}
                                                     </select>
@@ -4745,7 +4745,7 @@
                                                         }}
                                                     >
                                                         <option value="">📏 Tüm Boyutlar</option>
-                                                        {ceramicData.sizes.map(size => (
+                                                        {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
                                                             <option key={size} value={size}>{size}</option>
                                                         ))}
                                                     </select>
@@ -5492,7 +5492,7 @@
                                                     
                                                     {/* Seri Listesi */}
                                                     <div className="space-y-2 max-h-40 overflow-auto">
-                                                        {ceramicData.series.map(serie => (
+                                                        {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
                                                             <div key={serie} className={`flex justify-between items-center px-3 py-2 rounded-lg group transition-all ${
                                                                 theme === 'dark'
                                                                     ? 'bg-gray-800 hover:bg-gray-700 border border-gray-700'
@@ -5562,7 +5562,7 @@
                                                     
                                                     {/* Boyut Listesi */}
                                                     <div className="space-y-2 max-h-40 overflow-auto">
-                                                        {ceramicData.sizes.map(size => (
+                                                        {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
                                                             <div key={size} className={`flex justify-between items-center px-3 py-2 rounded-lg group transition-all ${
                                                                 theme === 'dark'
                                                                     ? 'bg-gray-800 hover:bg-gray-700 border border-gray-700'
@@ -5606,7 +5606,7 @@
                                                         }`}
                                                     >
                                                         <option value="">Seri Seçin</option>
-                                                        {ceramicData.series.map(serie => (
+                                                        {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
                                                             <option key={serie} value={serie}>{serie}</option>
                                                         ))}
                                                     </select>
@@ -5694,7 +5694,7 @@
                                                         }`}
                                                     >
                                                         <option value="">Boyut Seçin</option>
-                                                        {ceramicData.sizes.map(size => (
+                                                        {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
                                                             <option key={size} value={size}>{size}</option>
                                                         ))}
                                                     </select>
@@ -7044,7 +7044,7 @@
                                                                                 }}
                                                                             >
                                                                                 <option value="">🏷️ Tüm Seriler</option>
-                                                                                {ceramicData.series.map(serie => (
+                                                                                {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
                                                                                     <option key={serie} value={serie}>{serie}</option>
                                                                                 ))}
                                                                             </select>
@@ -7068,7 +7068,7 @@
                                                                                 }}
                                                                             >
                                                                                 <option value="">📏 Tüm Boyutlar</option>
-                                                                                {ceramicData.sizes.map(size => (
+                                                                                {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
                                                                                     <option key={size} value={size}>{size}</option>
                                                                                 ))}
                                                                             </select>
