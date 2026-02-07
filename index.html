@@ -2354,9 +2354,18 @@
                 const currentWalls = rd.duvar_kaplama || {};
                 const currentCount = apt.wallCount && apt.wallCount[currentRoom] ? apt.wallCount[currentRoom] : 1;
                 
-                // Yeni duvar için boş object ekle
+                // Yeni duvar için object ekle
                 const newWalls = { ...currentWalls };
-                newWalls[currentCount] = {}; // Yeni index için boş object
+                
+                // Eğer bir önceki duvar varsa, onun verilerini kopyala
+                const previousWall = currentWalls[currentCount - 1];
+                if (previousWall) {
+                    // Önceki duvarın tüm verilerini kopyala (subgroup, malzeme, miktar)
+                    newWalls[currentCount] = { ...previousWall };
+                } else {
+                    // İlk duvar ise boş object
+                    newWalls[currentCount] = {};
+                }
                 
                 // Hem data hem wallCount'u aynı anda güncelle
                 updateApartments(apartments.map(a => {
@@ -4398,14 +4407,40 @@
                                                                     {/* Seri Filtresi */}
                                                                     <select 
                                                                         id={`wall-ceramic-filter-serie-${i}`}
+                                                                        value={wallData.ceramicSerie || ''}
                                                                         className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
                                                                             theme === 'dark'
                                                                                 ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
                                                                                 : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
                                                                         }`}
-                                                                        onChange={() => {
-                                                                            // Filtre değiştiğinde seçimi sıfırla
-                                                                            updateWallCover(i, 'malzeme', '');
+                                                                        onChange={(e) => {
+                                                                            // Filtre değiştiğinde seçimi sıfırla ve seriyi kaydet
+                                                                            const rd = getRoomData();
+                                                                            const currentWalls = rd.duvar_kaplama || {};
+                                                                            const newWalls = { 
+                                                                                ...currentWalls, 
+                                                                                [i]: { 
+                                                                                    ...wallData, 
+                                                                                    malzeme: '', 
+                                                                                    ceramicSerie: e.target.value 
+                                                                                } 
+                                                                            };
+                                                                            
+                                                                            updateApartments(apartments.map(a => {
+                                                                                if (a.id === currentApt) {
+                                                                                    return {
+                                                                                        ...a,
+                                                                                        data: {
+                                                                                            ...a.data,
+                                                                                            [currentRoom]: {
+                                                                                                ...(a.data[currentRoom] || {}),
+                                                                                                duvar_kaplama: newWalls
+                                                                                            }
+                                                                                        }
+                                                                                    };
+                                                                                }
+                                                                                return a;
+                                                                            }));
                                                                         }}
                                                                     >
                                                                         <option value="">🏷️ Tüm Seriler</option>
@@ -4417,27 +4452,107 @@
                                                                     {/* Boyut Filtresi */}
                                                                     <select 
                                                                         id={`wall-ceramic-filter-size-${i}`}
+                                                                        value={wallData.ceramicSize || ''}
                                                                         className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
                                                                             theme === 'dark'
                                                                                 ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
                                                                                 : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
                                                                         }`}
-                                                                        onChange={() => {
-                                                                            // Filtre değiştiğinde seçimi sıfırla
-                                                                            updateWallCover(i, 'malzeme', '');
+                                                                        onChange={(e) => {
+                                                                            // Filtre değiştiğinde seçimi sıfırla ve boyutu kaydet
+                                                                            const rd = getRoomData();
+                                                                            const currentWalls = rd.duvar_kaplama || {};
+                                                                            const newWalls = { 
+                                                                                ...currentWalls, 
+                                                                                [i]: { 
+                                                                                    ...wallData, 
+                                                                                    malzeme: '', 
+                                                                                    ceramicSize: e.target.value 
+                                                                                } 
+                                                                            };
+                                                                            
+                                                                            updateApartments(apartments.map(a => {
+                                                                                if (a.id === currentApt) {
+                                                                                    return {
+                                                                                        ...a,
+                                                                                        data: {
+                                                                                            ...a.data,
+                                                                                            [currentRoom]: {
+                                                                                                ...(a.data[currentRoom] || {}),
+                                                                                                duvar_kaplama: newWalls
+                                                                                            }
+                                                                                        }
+                                                                                    };
+                                                                                }
+                                                                                return a;
+                                                                            }));
                                                                         }}
                                                                     >
                                                                         <option value="">📏 Tüm Boyutlar</option>
-                                                                        {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
-                                                                            <option key={size} value={size}>{size}</option>
-                                                                        ))}
+                                                                        {(() => {
+                                                                            // Eğer seri seçiliyse, sadece o serideki boyutları göster
+                                                                            if (wallData.ceramicSerie) {
+                                                                                const availableSizes = [...new Set(
+                                                                                    ceramicData.items
+                                                                                        .filter(item => item.serie === wallData.ceramicSerie)
+                                                                                        .map(item => item.size)
+                                                                                )].sort((a, b) => a.localeCompare(b, 'tr'));
+                                                                                
+                                                                                return availableSizes.map(size => (
+                                                                                    <option key={size} value={size}>{size}</option>
+                                                                                ));
+                                                                            } else {
+                                                                                // Seri seçili değilse tüm boyutları göster
+                                                                                return [...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
+                                                                                    <option key={size} value={size}>{size}</option>
+                                                                                ));
+                                                                            }
+                                                                        })()}
                                                                     </select>
                                                                 </div>
                                                                 
                                                                 {/* Seramik Seçimi */}
                                                                 <select 
                                                                     value={wallData.malzeme || ''} 
-                                                                    onChange={(e) => updateWallCover(i, 'malzeme', e.target.value)} 
+                                                                    onChange={(e) => {
+                                                                        const selectedCeramic = e.target.value;
+                                                                        // Seçilen seramiği ceramicData'dan bul
+                                                                        const ceramicItem = ceramicData.items.find(item => item.fullName === selectedCeramic);
+                                                                        
+                                                                        if (ceramicItem) {
+                                                                            // Malzeme + seri + boyut bilgilerini kaydet
+                                                                            const updatedWallData = {
+                                                                                ...wallData,
+                                                                                malzeme: selectedCeramic,
+                                                                                ceramicSerie: ceramicItem.serie,
+                                                                                ceramicSize: ceramicItem.size
+                                                                            };
+                                                                            
+                                                                            // Tüm güncellenmiş veriyi kaydet
+                                                                            const rd = getRoomData();
+                                                                            const currentWalls = rd.duvar_kaplama || {};
+                                                                            const newWalls = { ...currentWalls, [i]: updatedWallData };
+                                                                            
+                                                                            updateApartments(apartments.map(a => {
+                                                                                if (a.id === currentApt) {
+                                                                                    return {
+                                                                                        ...a,
+                                                                                        data: {
+                                                                                            ...a.data,
+                                                                                            [currentRoom]: {
+                                                                                                ...(a.data[currentRoom] || {}),
+                                                                                                duvar_kaplama: newWalls
+                                                                                            }
+                                                                                        }
+                                                                                    };
+                                                                                }
+                                                                                return a;
+                                                                            }));
+                                                                        } else {
+                                                                            // Normal malzeme seçimi (seramik değilse)
+                                                                            updateWallCover(i, 'malzeme', selectedCeramic);
+                                                                        }
+                                                                    }} 
                                                                     className={`w-full border-2 rounded-lg px-3 py-2.5 font-medium focus:ring transition-all ${
                                                                         theme === 'dark'
                                                                             ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400 focus:ring-purple-500'
@@ -4715,14 +4830,19 @@
                                                     {/* Seri Filtresi */}
                                                     <select 
                                                         id={`ceramic-filter-serie-${f}`}
+                                                        value={data[f]?.ceramicSerie || ''}
                                                         className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
                                                             theme === 'dark'
                                                                 ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
                                                                 : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
                                                         }`}
-                                                        onChange={() => {
-                                                            // Filtre değiştiğinde seçimi sıfırla
-                                                            updateField(f, { ...(data[f] || {}), malzeme: '' });
+                                                        onChange={(e) => {
+                                                            // Filtre değiştiğinde seçimi sıfırla ve seriyi kaydet
+                                                            updateField(f, { 
+                                                                ...(data[f] || {}), 
+                                                                malzeme: '', 
+                                                                ceramicSerie: e.target.value 
+                                                            });
                                                         }}
                                                     >
                                                         <option value="">🏷️ Tüm Seriler</option>
@@ -4734,27 +4854,66 @@
                                                     {/* Boyut Filtresi */}
                                                     <select 
                                                         id={`ceramic-filter-size-${f}`}
+                                                        value={data[f]?.ceramicSize || ''}
                                                         className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
                                                             theme === 'dark'
                                                                 ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
                                                                 : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
                                                         }`}
-                                                        onChange={() => {
-                                                            // Filtre değiştiğinde seçimi sıfırla
-                                                            updateField(f, { ...(data[f] || {}), malzeme: '' });
+                                                        onChange={(e) => {
+                                                            // Filtre değiştiğinde seçimi sıfırla ve boyutu kaydet
+                                                            updateField(f, { 
+                                                                ...(data[f] || {}), 
+                                                                malzeme: '', 
+                                                                ceramicSize: e.target.value 
+                                                            });
                                                         }}
                                                     >
                                                         <option value="">📏 Tüm Boyutlar</option>
-                                                        {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
-                                                            <option key={size} value={size}>{size}</option>
-                                                        ))}
+                                                        {(() => {
+                                                            // Kaydedilmiş seriyi al (data'dan)
+                                                            const selectedSerie = data[f]?.ceramicSerie || '';
+                                                            
+                                                            // Eğer seri seçiliyse, sadece o serideki boyutları göster
+                                                            if (selectedSerie) {
+                                                                const availableSizes = [...new Set(
+                                                                    ceramicData.items
+                                                                        .filter(item => item.serie === selectedSerie)
+                                                                        .map(item => item.size)
+                                                                )].sort((a, b) => a.localeCompare(b, 'tr'));
+                                                                
+                                                                return availableSizes.map(size => (
+                                                                    <option key={size} value={size}>{size}</option>
+                                                                ));
+                                                            } else {
+                                                                // Seri seçili değilse tüm boyutları göster
+                                                                return [...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
+                                                                    <option key={size} value={size}>{size}</option>
+                                                                ));
+                                                            }
+                                                        })()}
                                                     </select>
                                                 </div>
                                                 
                                                 {/* Seramik Seçimi */}
                                                 <select 
                                                     value={data[f].malzeme || ''} 
-                                                    onChange={(e) => updateField(f, { ...(data[f] || {}), malzeme: e.target.value })} 
+                                                    onChange={(e) => {
+                                                        const selectedCeramic = e.target.value;
+                                                        const ceramicItem = ceramicData.items.find(item => item.fullName === selectedCeramic);
+                                                        
+                                                        if (ceramicItem) {
+                                                            // Malzeme + seri + boyut bilgilerini kaydet
+                                                            updateField(f, {
+                                                                ...(data[f] || {}),
+                                                                malzeme: selectedCeramic,
+                                                                ceramicSerie: ceramicItem.serie,
+                                                                ceramicSize: ceramicItem.size
+                                                            });
+                                                        } else {
+                                                            updateField(f, { ...(data[f] || {}), malzeme: selectedCeramic });
+                                                        }
+                                                    }} 
                                                     className={`w-full border-2 rounded-lg px-3 py-2.5 font-medium focus:ring transition-all ${
                                                         theme === 'dark'
                                                             ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400 focus:ring-purple-500'
@@ -4763,8 +4922,8 @@
                                                 >
                                                     <option value="">🔸 Seramik Seçiniz</option>
                                                     {(() => {
-                                                        const serieFilter = document.getElementById(`ceramic-filter-serie-${f}`)?.value || '';
-                                                        const sizeFilter = document.getElementById(`ceramic-filter-size-${f}`)?.value || '';
+                                                        const serieFilter = data[f]?.ceramicSerie || '';
+                                                        const sizeFilter = data[f]?.ceramicSize || '';
                                                         
                                                         return ceramicData.items
                                                             .filter(item => {
@@ -7068,9 +7227,28 @@
                                                                                 }}
                                                                             >
                                                                                 <option value="">📏 Tüm Boyutlar</option>
-                                                                                {[...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
-                                                                                    <option key={size} value={size}>{size}</option>
-                                                                                ))}
+                                                                                {(() => {
+                                                                                    // Seçili seriyi al
+                                                                                    const selectedSerie = document.getElementById(`bulk-ceramic-filter-serie-${fieldKey}`)?.value || '';
+                                                                                    
+                                                                                    // Eğer seri seçiliyse, sadece o serideki boyutları göster
+                                                                                    if (selectedSerie) {
+                                                                                        const availableSizes = [...new Set(
+                                                                                            ceramicData.items
+                                                                                                .filter(item => item.serie === selectedSerie)
+                                                                                                .map(item => item.size)
+                                                                                        )].sort((a, b) => a.localeCompare(b, 'tr'));
+                                                                                        
+                                                                                        return availableSizes.map(size => (
+                                                                                            <option key={size} value={size}>{size}</option>
+                                                                                        ));
+                                                                                    } else {
+                                                                                        // Seri seçili değilse tüm boyutları göster
+                                                                                        return [...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
+                                                                                            <option key={size} value={size}>{size}</option>
+                                                                                        ));
+                                                                                    }
+                                                                                })()}
                                                                             </select>
                                                                         </div>
                                                                         
