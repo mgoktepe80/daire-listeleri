@@ -1105,6 +1105,16 @@
             const [bulkSelectedApartments, setBulkSelectedApartments] = useState([]);
             const [bulkTargetRoomTypes, setBulkTargetRoomTypes] = useState('all');
             const [bulkSelectedRoomTypes, setBulkSelectedRoomTypes] = useState([]);
+            const [showBulkAmountModal, setShowBulkAmountModal] = useState(false);
+            const [bulkAmountFields, setBulkAmountFields] = useState({});
+            const [bulkAmountValues, setBulkAmountValues] = useState({});
+            const [bulkAmountTargetApartments, setBulkAmountTargetApartments] = useState('all');
+            const [bulkAmountSelectedApartments, setBulkAmountSelectedApartments] = useState([]);
+            const [bulkAmountTargetRoomTypes, setBulkAmountTargetRoomTypes] = useState('all');
+            const [bulkAmountSelectedRoomTypes, setBulkAmountSelectedRoomTypes] = useState([]);
+            const [showBulkActionsDropdown, setShowBulkActionsDropdown] = useState(false);
+            const [showArchiveDropdown, setShowArchiveDropdown] = useState(false);
+            const [showCopyDropdown, setShowCopyDropdown] = useState(false);
 
             // Authentication durumunu dinle
             useEffect(() => {
@@ -1165,6 +1175,28 @@
                     clearInterval(interval);
                 };
             }, [user, firebaseEnabled]);
+
+            // Dropdown menüleri dışına tıklandığında kapat
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    // Tıklanan element dropdown içinde mi kontrol et
+                    const isInsideDropdown = event.target.closest('.dropdown-container');
+                    
+                    if (!isInsideDropdown) {
+                        setShowBulkActionsDropdown(false);
+                        setShowArchiveDropdown(false);
+                        setShowCopyDropdown(false);
+                    }
+                };
+                
+                // Document'a event listener ekle
+                document.addEventListener('mousedown', handleClickOutside);
+                
+                // Cleanup
+                return () => {
+                    document.removeEventListener('mousedown', handleClickOutside);
+                };
+            }, []);
 
             // Tema yüklendiğinde CSS güncelle
             useEffect(() => {
@@ -2809,6 +2841,138 @@
                 setBulkSelectedRoomTypes([]);
                 
                 alert(`✅ Toplu malzeme atama tamamlandı!\n\n${updatedCount} alan güncellendi.`);
+            };
+
+            // Toplu Miktar Atama Fonksiyonu
+            const applyBulkAmounts = () => {
+                // Seçilen alanları kontrol et
+                const selectedFields = Object.keys(bulkAmountFields).filter(f => bulkAmountFields[f]);
+                if (selectedFields.length === 0) {
+                    alert('⚠️ Lütfen en az bir alan seçin!');
+                    return;
+                }
+                
+                // Her alan için miktar girilmiş mi kontrol et
+                const missingAmounts = selectedFields.filter(field => {
+                    const amount = bulkAmountValues[field];
+                    return !amount || amount.trim() === '';
+                });
+                
+                if (missingAmounts.length > 0) {
+                    alert('⚠️ Seçilen tüm alanlar için miktar girmelisiniz!\n\nEksik alanlar:\n' + 
+                        missingAmounts.map(f => fieldLabels[f]?.label || f).join('\n'));
+                    return;
+                }
+                
+                // Hedef daireleri belirle
+                let targetApts = [];
+                if (bulkAmountTargetApartments === 'all') {
+                    targetApts = apartments;
+                } else {
+                    targetApts = apartments.filter(apt => bulkAmountSelectedApartments.includes(apt.id));
+                }
+                
+                if (targetApts.length === 0) {
+                    alert('⚠️ Lütfen en az bir daire seçin!');
+                    return;
+                }
+                
+                // Hedef mekan tiplerini belirle
+                let shouldApplyToRoom = (roomName) => {
+                    if (bulkAmountTargetRoomTypes === 'all') return true;
+                    
+                    const roomLower = roomName.toLowerCase();
+                    return bulkAmountSelectedRoomTypes.some(type => {
+                        const typeLower = type.toLowerCase();
+                        return roomLower.includes(typeLower);
+                    });
+                };
+                
+                // Onay mesajı
+                const fieldNames = selectedFields.map(f => fieldLabels[f]?.label || f).join(', ');
+                const roomTypeText = bulkAmountTargetRoomTypes === 'all' 
+                    ? 'TÜM MEKANLARA' 
+                    : bulkAmountSelectedRoomTypes.join(', ') + ' mekanlarına';
+                
+                if (!confirm(
+                    `📊 Toplu Miktar Atama\n\n` +
+                    `🎨 Alanlar: ${fieldNames}\n` +
+                    `🏠 Daireler: ${targetApts.length} adet\n` +
+                    `📍 Mekanlar: ${roomTypeText}\n\n` +
+                    `Bu işlem mevcut miktarların ÜZERİNE yazacak!\n` +
+                    `Devam etmek istediğinize emin misiniz?`
+                )) {
+                    return;
+                }
+                
+                // Miktarları uygula
+                let updatedCount = 0;
+                const currentProj = getProject();
+                const updatedApartments = currentProj.apartments.map(apt => {
+                    // Bu daire hedef değilse atla
+                    if (!targetApts.find(t => t.id === apt.id)) return apt;
+                    
+                    const updatedData = { ...apt.data };
+                    
+                    // Her mekan için
+                    Object.keys(updatedData).forEach(roomId => {
+                        const room = allRooms.find(r => r.id === roomId);
+                        if (!room) return;
+                        
+                        // Bu mekan hedef tipte mi?
+                        if (!shouldApplyToRoom(room.name)) return;
+                        
+                        // Seçilen alanları güncelle
+                        selectedFields.forEach(field => {
+                            // Bu mekanda bu alan var mı?
+                            const roomFields = room.fields || [];
+                            if (!roomFields.includes(field)) return;
+                            
+                            const amountValue = bulkAmountValues[field];
+                            
+                            if (field === 'duvar_kaplama') {
+                                // Duvar kaplama özel - her duvara aynı miktarı ata
+                                const wallCount = apt.wallCount?.[roomId] || 4;
+                                if (!updatedData[roomId][field]) {
+                                    updatedData[roomId][field] = {};
+                                }
+                                for (let i = 0; i < wallCount; i++) {
+                                    if (!updatedData[roomId][field][i]) {
+                                        updatedData[roomId][field][i] = {};
+                                    }
+                                    updatedData[roomId][field][i].miktar = amountValue;
+                                }
+                            } else {
+                                // Normal alan
+                                if (!updatedData[roomId][field]) {
+                                    updatedData[roomId][field] = {};
+                                }
+                                updatedData[roomId][field].miktar = amountValue;
+                                // Malzeme değiştirilmesin
+                            }
+                            
+                            updatedCount++;
+                        });
+                    });
+                    
+                    return { ...apt, data: updatedData };
+                });
+                
+                // Projeyi güncelle
+                updateProjects(projects.map(p => 
+                    p.id === currentPrj ? { ...p, apartments: updatedApartments } : p
+                ));
+                
+                // Modal'ı kapat ve sıfırla
+                setShowBulkAmountModal(false);
+                setBulkAmountFields({});
+                setBulkAmountValues({});
+                setBulkAmountTargetApartments('all');
+                setBulkAmountSelectedApartments([]);
+                setBulkAmountTargetRoomTypes('all');
+                setBulkAmountSelectedRoomTypes([]);
+                
+                alert(`✅ Toplu miktar atama tamamlandı!\n\n${updatedCount} alan güncellendi.`);
             };
 
 
@@ -6257,6 +6421,305 @@
                         </div>
                     )}
                     
+                    {/* TOPLU MİKTAR ATAMA MODAL */}
+                    {showBulkAmountModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className={`rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-auto transition-colors ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                                    <h2 className={`text-2xl font-bold flex items-center gap-2 ${
+                                        theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                    }`}>
+                                        <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Toplu Miktar Atama
+                                    </h2>
+                                    <button 
+                                        onClick={() => {
+                                            setShowBulkAmountModal(false);
+                                            setBulkAmountFields({});
+                                            setBulkAmountValues({});
+                                            setBulkAmountTargetApartments('all');
+                                            setBulkAmountSelectedApartments([]);
+                                            setBulkAmountTargetRoomTypes('all');
+                                            setBulkAmountSelectedRoomTypes([]);
+                                        }} 
+                                        className="text-3xl hover:text-gray-600 transition-colors"
+                                    >×</button>
+                                </div>
+                                
+                                {/* Adım 1: Alan Seçimi */}
+                                <div className="mb-6">
+                                    <h3 className={`text-lg font-bold mb-3 ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                        1️⃣ Hangi Alanlar?
+                                    </h3>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                        {Object.entries(fieldLabels).filter(([key]) => key !== 'foto').map(([fieldKey, fieldConfig]) => (
+                                            <label 
+                                                key={fieldKey}
+                                                className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                    bulkAmountFields[fieldKey]
+                                                        ? theme === 'dark'
+                                                            ? 'border-green-500 bg-green-900 bg-opacity-30'
+                                                            : 'border-green-500 bg-green-50'
+                                                        : theme === 'dark'
+                                                            ? 'border-gray-700 bg-gray-750 hover:border-gray-600'
+                                                            : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                                                }`}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={bulkAmountFields[fieldKey] || false}
+                                                    onChange={(e) => {
+                                                        setBulkAmountFields({
+                                                            ...bulkAmountFields,
+                                                            [fieldKey]: e.target.checked
+                                                        });
+                                                        if (!e.target.checked) {
+                                                            const newValues = { ...bulkAmountValues };
+                                                            delete newValues[fieldKey];
+                                                            setBulkAmountValues(newValues);
+                                                        }
+                                                    }}
+                                                    className="w-4 h-4 text-green-600 rounded"
+                                                />
+                                                <span className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                    {fieldConfig.label}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                                
+                                {/* Adım 2: Miktar Girişi */}
+                                {Object.keys(bulkAmountFields).filter(f => bulkAmountFields[f]).length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className={`text-lg font-bold mb-3 ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                            2️⃣ Miktar Girin
+                                        </h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                            {Object.keys(bulkAmountFields).filter(f => bulkAmountFields[f]).map(fieldKey => {
+                                                const fieldConfig = fieldLabels[fieldKey];
+                                                
+                                                return (
+                                                    <div 
+                                                        key={fieldKey}
+                                                        className={`p-3 rounded-lg border-2 ${
+                                                            theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+                                                        }`}
+                                                    >
+                                                        <label className={`text-sm font-medium mb-2 block ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                            {fieldConfig.label}
+                                                        </label>
+                                                        <div className="flex items-center gap-2">
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                value={bulkAmountValues[fieldKey] || ''}
+                                                                onChange={(e) => {
+                                                                    setBulkAmountValues({
+                                                                        ...bulkAmountValues,
+                                                                        [fieldKey]: e.target.value
+                                                                    });
+                                                                }}
+                                                                placeholder="0"
+                                                                className={`flex-1 px-3 py-2 border rounded-lg ${
+                                                                    theme === 'dark'
+                                                                        ? 'border-gray-600 bg-gray-700 text-gray-200'
+                                                                        : 'border-gray-300 bg-white text-gray-900'
+                                                                }`}
+                                                            />
+                                                            <span className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                                {fieldConfig.unit}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Adım 3: Hedef Daireler */}
+                                <div className="mb-6">
+                                    <h3 className={`text-lg font-bold mb-3 ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                        3️⃣ Hangi Dairelere?
+                                    </h3>
+                                    <div className="space-y-3">
+                                        <label className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${
+                                            bulkAmountTargetApartments === 'all'
+                                                ? theme === 'dark' ? 'border-green-500 bg-green-900 bg-opacity-30' : 'border-green-500 bg-green-50'
+                                                : theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="bulkAmountTargetApartments"
+                                                checked={bulkAmountTargetApartments === 'all'}
+                                                onChange={() => setBulkAmountTargetApartments('all')}
+                                                className="w-4 h-4 text-green-600"
+                                            />
+                                            <span className={`font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                🏘️ Tüm Daireler ({apartments.length} adet)
+                                            </span>
+                                        </label>
+                                        
+                                        <label className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${
+                                            bulkAmountTargetApartments === 'selected'
+                                                ? theme === 'dark' ? 'border-green-500 bg-green-900 bg-opacity-30' : 'border-green-500 bg-green-50'
+                                                : theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="bulkAmountTargetApartments"
+                                                checked={bulkAmountTargetApartments === 'selected'}
+                                                onChange={() => setBulkAmountTargetApartments('selected')}
+                                                className="w-4 h-4 text-green-600"
+                                            />
+                                            <span className={`font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                ☑️ Seçili Daireler
+                                            </span>
+                                        </label>
+                                        
+                                        {bulkAmountTargetApartments === 'selected' && (
+                                            <div className="ml-6 mt-2 space-y-2 max-h-48 overflow-y-auto">
+                                                {apartments.map(apt => (
+                                                    <label 
+                                                        key={apt.id}
+                                                        className={`flex items-center gap-2 p-2 rounded cursor-pointer ${
+                                                            theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                                                        }`}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={bulkAmountSelectedApartments.includes(apt.id)}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setBulkAmountSelectedApartments([...bulkAmountSelectedApartments, apt.id]);
+                                                                } else {
+                                                                    setBulkAmountSelectedApartments(bulkAmountSelectedApartments.filter(id => id !== apt.id));
+                                                                }
+                                                            }}
+                                                            className="w-4 h-4 text-green-600 rounded"
+                                                        />
+                                                        <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                            {apt.name}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* Adım 4: Hedef Mekanlar */}
+                                <div className="mb-6">
+                                    <h3 className={`text-lg font-bold mb-3 ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                        4️⃣ Hangi Mekanlara?
+                                    </h3>
+                                    <div className="space-y-3">
+                                        <label className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${
+                                            bulkAmountTargetRoomTypes === 'all'
+                                                ? theme === 'dark' ? 'border-green-500 bg-green-900 bg-opacity-30' : 'border-green-500 bg-green-50'
+                                                : theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="bulkAmountTargetRoomTypes"
+                                                checked={bulkAmountTargetRoomTypes === 'all'}
+                                                onChange={() => setBulkAmountTargetRoomTypes('all')}
+                                                className="w-4 h-4 text-green-600"
+                                            />
+                                            <span className={`font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                📍 Tüm Mekanlar
+                                            </span>
+                                        </label>
+                                        
+                                        <label className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer ${
+                                            bulkAmountTargetRoomTypes === 'selected'
+                                                ? theme === 'dark' ? 'border-green-500 bg-green-900 bg-opacity-30' : 'border-green-500 bg-green-50'
+                                                : theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+                                        }`}>
+                                            <input
+                                                type="radio"
+                                                name="bulkAmountTargetRoomTypes"
+                                                checked={bulkAmountTargetRoomTypes === 'selected'}
+                                                onChange={() => setBulkAmountTargetRoomTypes('selected')}
+                                                className="w-4 h-4 text-green-600"
+                                            />
+                                            <span className={`font-medium ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                ☑️ Seçili Mekan Tipleri
+                                            </span>
+                                        </label>
+                                        
+                                        {bulkAmountTargetRoomTypes === 'selected' && (
+                                            <div className="ml-6 mt-2 grid grid-cols-2 gap-2">
+                                                {['Salon', 'Mutfak', 'Banyo', 'Oda', 'Hol', 'Balkon'].map(roomType => (
+                                                    <label 
+                                                        key={roomType}
+                                                        className={`flex items-center gap-2 p-2 rounded cursor-pointer ${
+                                                            theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                                                        }`}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={bulkAmountSelectedRoomTypes.includes(roomType)}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setBulkAmountSelectedRoomTypes([...bulkAmountSelectedRoomTypes, roomType]);
+                                                                } else {
+                                                                    setBulkAmountSelectedRoomTypes(bulkAmountSelectedRoomTypes.filter(t => t !== roomType));
+                                                                }
+                                                            }}
+                                                            className="w-4 h-4 text-green-600 rounded"
+                                                        />
+                                                        <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                            {roomType}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                {/* Butonlar */}
+                                <div className="flex gap-3 pt-4 border-t">
+                                    <button
+                                        onClick={() => {
+                                            setShowBulkAmountModal(false);
+                                            setBulkAmountFields({});
+                                            setBulkAmountValues({});
+                                            setBulkAmountTargetApartments('all');
+                                            setBulkAmountSelectedApartments([]);
+                                            setBulkAmountTargetRoomTypes('all');
+                                            setBulkAmountSelectedRoomTypes([]);
+                                        }}
+                                        className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 text-gray-100 hover:bg-gray-600'
+                                                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                        }`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={applyBulkAmounts}
+                                        className={`flex-1 px-4 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${
+                                            'bg-green-600 text-white hover:bg-green-700'
+                                        }`}
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                        Miktarları Uygula
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {/* MALZEME ANALİZİ MODAL */}
                     {/* ADMİN PANELİ MODAL */}
                     {showAdminPanel && isAdmin && (
@@ -8143,150 +8606,6 @@
                                     setShowNewProjectModal(true);
                                 }} className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-semibold hover:bg-purple-600">+ Yeni Proje</button>
                                 
-                                {/* Arşiv Butonu */}
-                                <button 
-                                    onClick={() => {
-                                        setShowArchiveModal(true);
-                                        loadArchivedProjects();
-                                    }}
-                                    className="px-3 py-2 bg-blue-500 text-white rounded-lg text-sm font-semibold hover:bg-blue-600 flex items-center gap-1"
-                                    title="Arşiv Yönetimi"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
-                                    </svg>
-                                    Arşiv
-                                </button>
-                                
-                                {/* Dosyadan Yükle Butonu */}
-                                <button 
-                                    onClick={() => {
-                                        const input = document.createElement('input');
-                                        input.type = 'file';
-                                        input.accept = '.json';
-                                        input.onchange = async (e) => {
-                                            const file = e.target.files[0];
-                                            if (!file) return;
-                                            
-                                            try {
-                                                const text = await file.text();
-                                                const data = JSON.parse(text);
-                                                
-                                                if (!data.project) {
-                                                    alert('❌ Geçersiz proje dosyası!');
-                                                    return;
-                                                }
-                                                
-                                                // Yeni ID ata
-                                                const newId = Math.max(...projects.map(p => p.id), 0) + 1;
-                                                data.project.id = newId;
-                                                data.project.name = data.project.name + ' (Yüklendi)';
-                                                
-                                                // Projeyi ekle
-                                                const updatedProjects = [...projects, data.project];
-                                                updateProjects(updatedProjects);
-                                                setCurrentPrj(newId);
-                                                
-                                                if (data.project.apartments[0]) {
-                                                    setCurrentApt(data.project.apartments[0].id);
-                                                }
-                                                
-                                                alert(`✅ "${data.project.name}" başarıyla yüklendi!`);
-                                            } catch (error) {
-                                                console.error('❌ Dosya yükleme hatası:', error);
-                                                alert('❌ Dosya yükleme başarısız: ' + error.message);
-                                            }
-                                        };
-                                        input.click();
-                                    }}
-                                    className="px-3 py-2 bg-teal-500 text-white rounded-lg text-sm font-semibold hover:bg-teal-600 flex items-center gap-1"
-                                    title="Bilgisayardan proje yükle"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                                    </svg>
-                                    Yükle
-                                </button>
-                                
-                                {/* Kaydet Butonu - Her zaman görünür */}
-                                <button 
-                                    onClick={() => {
-                                        const project = getProject();
-                                        const exportData = {
-                                            project: project,
-                                            exportedAt: Date.now(),
-                                            exportedBy: auth?.currentUser?.email || 'local',
-                                            version: '1.0'
-                                        };
-                                        
-                                        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = `${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.json`;
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        document.body.removeChild(a);
-                                        URL.revokeObjectURL(url);
-                                        
-                                        alert('✅ Proje bilgisayarınıza kaydedildi!');
-                                    }} 
-                                    className="px-3 py-2 bg-cyan-500 text-white rounded-lg text-sm hover:bg-cyan-600 flex items-center gap-1" 
-                                    title="Bilgisayara kaydet"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                                    </svg>
-                                    Kaydet
-                                </button>
-                                
-                                {/* Arşivle Butonu - Her zaman görünür */}
-                                <button 
-                                    onClick={async () => { 
-                                        const project = getProject();
-                                        
-                                        // Tek proje varsa uyarı göster
-                                        if (projects.length === 1) {
-                                            if (!confirm(`"${project.name}" tek projeniz. Arşivlediğinizde aktif proje kalmayacak.\n\nDevam etmek istiyor musunuz?`)) {
-                                                return;
-                                            }
-                                        }
-                                        
-                                        if (confirm(`"${project.name}" projesini arşivlemek istediğinize emin misiniz?\n\nProje Firebase Storage'a kaydedilecek ve aktif listeden kaldırılacak.`)) {
-                                            const success = await archiveProject(project);
-                                            if (success) {
-                                                // Projeyi aktif listeden kaldır
-                                                const remaining = projects.filter(p => p.id !== currentPrj);
-                                                
-                                                if (remaining.length > 0) {
-                                                    updateProjects(remaining);
-                                                    setCurrentPrj(remaining[0].id);
-                                                    if (remaining[0].apartments[0]) setCurrentApt(remaining[0].apartments[0].id);
-                                                } else {
-                                                    // Tüm projeler arşivlendi, yeni proje oluştur
-                                                    const newProject = {
-                                                        id: 1,
-                                                        name: 'Yeni Proje',
-                                                        apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }]
-                                                    };
-                                                    updateProjects([newProject]);
-                                                    setCurrentPrj(1);
-                                                    setCurrentApt(1);
-                                                }
-                                                
-                                                alert(`✅ "${project.name}" başarıyla arşivlendi!`);
-                                            }
-                                        }
-                                    }} 
-                                    className="px-3 py-2 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 flex items-center gap-1" 
-                                    title="Projeyi arşivle"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
-                                    </svg>
-                                    Arşivle
-                                </button>
-                                
                                 {/* Sil Butonu - Sadece birden fazla proje varsa */}
                                 {projects.length > 1 && (
                                     <button 
@@ -8321,26 +8640,92 @@
                                         updateApartments(apartments.map(a => a.id === currentApt ? { ...a, name: newName.trim() } : a));
                                     }
                                 }} className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm hover:bg-yellow-600" title="Daire adini degistir">✏️</button>
-                                <button 
-                                    onClick={() => setShowCopyModal(true)} 
-                                    className="px-3 py-2 bg-purple-500 text-white rounded-lg text-sm font-semibold hover:bg-purple-600 flex items-center gap-1" 
-                                    title="Daireyi kopyala"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                                    </svg>
-                                    Kopyala
-                                </button>
-                                <button 
-                                    onClick={() => setShowCopyAmountsModal(true)}
-                                    className="px-3 py-2 bg-cyan-500 text-white rounded-lg text-sm font-semibold hover:bg-cyan-600 flex items-center gap-1"
-                                    title="Başka daireden miktarları kopyala"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-                                    </svg>
-                                    📏 Miktar
-                                </button>
+                                
+                                {/* Kopyala Dropdown */}
+                                <div className="relative dropdown-container">
+                                    <button 
+                                        onClick={() => setShowCopyDropdown(!showCopyDropdown)}
+                                        className="px-3 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-sm font-semibold hover:from-purple-700 hover:to-pink-700 flex items-center gap-2 shadow-md transition-all"
+                                        title="Kopyala menüsü"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                        </svg>
+                                        Kopyala
+                                        <svg className={`w-4 h-4 transition-transform ${showCopyDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </button>
+                                    
+                                    {/* Dropdown Menu */}
+                                    {showCopyDropdown && (
+                                        <div className={`absolute right-0 mt-2 w-56 rounded-lg shadow-xl z-50 border-2 ${
+                                            theme === 'dark' 
+                                                ? 'bg-gray-800 border-gray-700' 
+                                                : 'bg-white border-gray-200'
+                                        }`}>
+                                            <div className="py-1">
+                                                {/* Daire Kopyala */}
+                                                <button
+                                                    onClick={() => {
+                                                        setShowCopyDropdown(false);
+                                                        setShowCopyModal(true);
+                                                    }}
+                                                    className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                        theme === 'dark'
+                                                            ? 'hover:bg-gray-700 text-gray-200'
+                                                            : 'hover:bg-gray-50 text-gray-800'
+                                                    }`}
+                                                >
+                                                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                                                        <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                                        </svg>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                            Daire Kopyala
+                                                        </div>
+                                                        <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                            Daireyi çoğalt
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                                
+                                                {/* Ayırıcı çizgi */}
+                                                <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                
+                                                {/* Miktar Kopyala */}
+                                                <button
+                                                    onClick={() => {
+                                                        setShowCopyDropdown(false);
+                                                        setShowCopyAmountsModal(true);
+                                                    }}
+                                                    className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                        theme === 'dark'
+                                                            ? 'hover:bg-gray-700 text-gray-200'
+                                                            : 'hover:bg-gray-50 text-gray-800'
+                                                    }`}
+                                                >
+                                                    <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">
+                                                        <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                                                        </svg>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                            Miktar Kopyala
+                                                        </div>
+                                                        <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                            Başka daireden miktarları al
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                
                                 <button onClick={() => {
                                     const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
                                     setNewApartmentName('Daire ' + newId);
@@ -8363,32 +8748,384 @@
                                             }
                                         }} className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600" title="Daireyi sil">🗑️</button>
                                         
-                                        <button 
-                                            onClick={() => {
-                                                setSelectedApartmentsForDelete([]);
-                                                setShowBulkDeleteModal(true);
-                                            }}
-                                            className="px-3 py-2 bg-red-700 text-white rounded-lg text-sm font-semibold hover:bg-red-800 flex items-center gap-1"
-                                            title="Toplu daire silme"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                            </svg>
-                                            Toplu Sil
-                                        </button>
+                                        {/* Toplu İşlemler Dropdown */}
+                                        <div className="relative dropdown-container">
+                                            <button 
+                                                onClick={() => setShowBulkActionsDropdown(!showBulkActionsDropdown)}
+                                                className="px-3 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg text-sm font-semibold hover:from-purple-700 hover:to-indigo-700 flex items-center gap-2 shadow-md transition-all"
+                                                title="Toplu işlemler menüsü"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                                                </svg>
+                                                Toplu İşlemler
+                                                <svg className={`w-4 h-4 transition-transform ${showBulkActionsDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                                                </svg>
+                                            </button>
+                                            
+                                            {/* Dropdown Menu */}
+                                            {showBulkActionsDropdown && (
+                                                <div className={`absolute right-0 mt-2 w-56 rounded-lg shadow-xl z-50 border-2 ${
+                                                    theme === 'dark' 
+                                                        ? 'bg-gray-800 border-gray-700' 
+                                                        : 'bg-white border-gray-200'
+                                                }`}>
+                                                    <div className="py-1">
+                                                        {/* Toplu Sil */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowBulkActionsDropdown(false);
+                                                                setSelectedApartmentsForDelete([]);
+                                                                setShowBulkDeleteModal(true);
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Toplu Sil
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    Birden fazla daireyi sil
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        {/* Ayırıcı çizgi */}
+                                                        <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                        
+                                                        {/* Toplu Malzeme */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowBulkActionsDropdown(false);
+                                                                setShowBulkMaterialModal(true);
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Toplu Malzeme
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    Malzeme seçimi uygula
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        {/* Ayırıcı çizgi */}
+                                                        <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                        
+                                                        {/* Toplu Miktar */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowBulkActionsDropdown(false);
+                                                                setShowBulkAmountModal(true);
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Toplu Miktar
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    Miktar girişi uygula
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                         
-                                        <button
-                                            onClick={() => {
-                                                setShowBulkMaterialModal(true);
-                                            }}
-                                            className="px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-sm font-semibold hover:from-blue-700 hover:to-indigo-700 flex items-center gap-1 shadow-md"
-                                            title="Toplu malzeme atama - Seçilen malzemeleri birden fazla daireye uygula"
-                                        >
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
-                                            </svg>
-                                            Toplu Malzeme
-                                        </button>
+                                        {/* Arşiv Dropdown */}
+                                        <div className="relative dropdown-container">
+                                            <button 
+                                                onClick={() => setShowArchiveDropdown(!showArchiveDropdown)}
+                                                className="px-3 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg text-sm font-semibold hover:from-orange-700 hover:to-amber-700 flex items-center gap-2 shadow-md transition-all"
+                                                title="Arşiv işlemleri menüsü"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                                </svg>
+                                                Arşiv
+                                                <svg className={`w-4 h-4 transition-transform ${showArchiveDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                                                </svg>
+                                            </button>
+                                            
+                                            {/* Dropdown Menu */}
+                                            {showArchiveDropdown && (
+                                                <div className={`absolute right-0 mt-2 w-56 rounded-lg shadow-xl z-50 border-2 ${
+                                                    theme === 'dark' 
+                                                        ? 'bg-gray-800 border-gray-700' 
+                                                        : 'bg-white border-gray-200'
+                                                }`}>
+                                                    <div className="py-1">
+                                                        {/* Projeyi Kaydet */}
+                                                        <button
+                                                            onClick={async () => {
+                                                                setShowArchiveDropdown(false);
+                                                                await saveProjectToFirebase();
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Firebase'e Kaydet
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    Buluta anında kaydet
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        {/* Ayırıcı çizgi */}
+                                                        <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                        
+                                                        {/* Bilgisayara İndir */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowArchiveDropdown(false);
+                                                                const project = getProject();
+                                                                const exportData = {
+                                                                    project: project,
+                                                                    exportedAt: Date.now(),
+                                                                    exportedBy: auth?.currentUser?.email || 'local',
+                                                                    version: '1.0'
+                                                                };
+                                                                
+                                                                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                                                                const url = URL.createObjectURL(blob);
+                                                                const a = document.createElement('a');
+                                                                a.href = url;
+                                                                a.download = `${project.name.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.json`;
+                                                                document.body.appendChild(a);
+                                                                a.click();
+                                                                document.body.removeChild(a);
+                                                                URL.revokeObjectURL(url);
+                                                                
+                                                                alert('✅ Proje bilgisayarınıza kaydedildi!');
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Bilgisayara İndir
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    JSON dosyası olarak indir
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        {/* Ayırıcı çizgi */}
+                                                        <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                        
+                                                        {/* Bilgisayardan Yükle */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowArchiveDropdown(false);
+                                                                const input = document.createElement('input');
+                                                                input.type = 'file';
+                                                                input.accept = '.json';
+                                                                input.onchange = async (e) => {
+                                                                    const file = e.target.files[0];
+                                                                    if (!file) return;
+                                                                    
+                                                                    try {
+                                                                        const text = await file.text();
+                                                                        const data = JSON.parse(text);
+                                                                        
+                                                                        if (!data.project) {
+                                                                            alert('❌ Geçersiz proje dosyası!');
+                                                                            return;
+                                                                        }
+                                                                        
+                                                                        // Yeni ID ata
+                                                                        const newId = Math.max(...projects.map(p => p.id), 0) + 1;
+                                                                        data.project.id = newId;
+                                                                        data.project.name = data.project.name + ' (Yüklendi)';
+                                                                        
+                                                                        // Projeyi ekle
+                                                                        const updatedProjects = [...projects, data.project];
+                                                                        updateProjects(updatedProjects);
+                                                                        setCurrentPrj(newId);
+                                                                        
+                                                                        if (data.project.apartments[0]) {
+                                                                            setCurrentApt(data.project.apartments[0].id);
+                                                                        }
+                                                                        
+                                                                        alert(`✅ "${data.project.name}" başarıyla yüklendi!`);
+                                                                    } catch (error) {
+                                                                        console.error('❌ Dosya yükleme hatası:', error);
+                                                                        alert('❌ Dosya yükleme başarısız: ' + error.message);
+                                                                    }
+                                                                };
+                                                                input.click();
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Bilgisayardan Yükle
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    JSON dosyasından proje yükle
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        {/* Ayırıcı çizgi */}
+                                                        <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                        
+                                                        {/* Projeyi Arşivle */}
+                                                        <button
+                                                            onClick={async () => {
+                                                                setShowArchiveDropdown(false);
+                                                                const project = getProject();
+                                                                
+                                                                // Tek proje varsa uyarı göster
+                                                                if (projects.length === 1) {
+                                                                    if (!confirm(`"${project.name}" tek projeniz. Arşivlediğinizde aktif proje kalmayacak.\n\nDevam etmek istiyor musunuz?`)) {
+                                                                        return;
+                                                                    }
+                                                                }
+                                                                
+                                                                if (confirm(`"${project.name}" projesini arşivlemek istediğinize emin misiniz?\n\nProje Firebase Storage'a kaydedilecek ve aktif listeden kaldırılacak.`)) {
+                                                                    const success = await archiveProject(project);
+                                                                    if (success) {
+                                                                        // Projeyi aktif listeden kaldır
+                                                                        const remaining = projects.filter(p => p.id !== currentPrj);
+                                                                        
+                                                                        if (remaining.length > 0) {
+                                                                            updateProjects(remaining);
+                                                                            setCurrentPrj(remaining[0].id);
+                                                                            if (remaining[0].apartments[0]) setCurrentApt(remaining[0].apartments[0].id);
+                                                                        } else {
+                                                                            // Tüm projeler arşivlendi, yeni proje oluştur
+                                                                            const newProject = {
+                                                                                id: 1,
+                                                                                name: 'Yeni Proje',
+                                                                                apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }]
+                                                                            };
+                                                                            updateProjects([newProject]);
+                                                                            setCurrentPrj(1);
+                                                                            setCurrentApt(1);
+                                                                        }
+                                                                        
+                                                                        alert(`✅ "${project.name}" başarıyla arşivlendi!`);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Projeyi Arşivle
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    Aktif listeden kaldır
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        {/* Ayırıcı çizgi */}
+                                                        <div className={`border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}></div>
+                                                        
+                                                        {/* Arşiv Yönetimi */}
+                                                        <button
+                                                            onClick={() => {
+                                                                setShowArchiveDropdown(false);
+                                                                setShowArchiveModal(true);
+                                                                loadArchivedProjects();
+                                                            }}
+                                                            className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                                                                theme === 'dark'
+                                                                    ? 'hover:bg-gray-700 text-gray-200'
+                                                                    : 'hover:bg-gray-50 text-gray-800'
+                                                            }`}
+                                                        >
+                                                            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                                                                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z"></path>
+                                                                </svg>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <div className={`font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                                    Arşiv Yönetimi
+                                                                </div>
+                                                                <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    Arşivlenmiş projeleri gör
+                                                                </div>
+                                                            </div>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </>
                                 )}
                             </div>
