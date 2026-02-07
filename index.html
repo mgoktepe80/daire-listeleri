@@ -1251,9 +1251,30 @@
                         ...materials 
                     };
                     setMaterials(newMat);
-                    localStorage.setItem('material_database', JSON.stringify(newMat));
                 }
             }, [materials]);
+
+            // Materials ve CeramicData değiştiğinde Firebase'e otomatik kaydet
+            useEffect(() => {
+                if (authLoading || !user) return; // İlk yükleme tamamlanana kadar bekle
+                
+                if (firebaseSync && firebaseEnabled && user) {
+                    // Debounce: 2 saniye bekle, ardından kaydet (gereksiz kayıtları engelle)
+                    const saveTimeout = setTimeout(async () => {
+                        await saveToFirebase({
+                            projects,
+                            customRooms,
+                            baseRooms,
+                            roomOrder,
+                            fieldLabels,
+                            materials,
+                            ceramicData
+                        });
+                    }, 2000);
+                    
+                    return () => clearTimeout(saveTimeout);
+                }
+            }, [materials, ceramicData, firebaseSync, user]);
 
             // Tema yüklendiğinde CSS güncelle
             useEffect(() => {
@@ -1329,6 +1350,7 @@
                                 if (firebaseData.fieldLabels) setFieldLabels(firebaseData.fieldLabels);
                                 if (firebaseData.roomOrder) setRoomOrder(firebaseData.roomOrder);
                                 if (firebaseData.materials) setMaterials(firebaseData.materials);
+                                if (firebaseData.ceramicData) setCeramicData(firebaseData.ceramicData);
                                 const firebaseTimestamp = firebaseData.lastUpdate?.toMillis() || Date.now();
                                 setLastSyncTime(new Date(firebaseTimestamp));
                                 console.log('✅ Firebase\'den veri yükleme tamamlandı');
@@ -1475,7 +1497,6 @@
             useEffect(() => {
                 if (!firebaseSync || !firebaseEnabled || !user) return;
                 
-                console.log('👂 Firebase gerçek zamanlı dinleyici başlatıldı');
                 let isFirstLoad = true;
                 let lastLocalUpdateTime = Date.now();
                 
@@ -1484,14 +1505,13 @@
                     if (isFirstLoad) {
                         isFirstLoad = false;
                         lastLocalUpdateTime = data.lastUpdate?.toMillis() || Date.now();
-                        console.log('📝 İlk Firebase dinleyici tetiklemesi (atlandı)');
                         return;
                     }
                     
                     const firebaseTimestamp = data.lastUpdate?.toMillis() || Date.now();
                     
                     // Sadece Firebase daha yeni ise güncelle (kendi değişikliklerimizi atla)
-                    if (firebaseTimestamp > lastLocalUpdateTime + 1000) { // 1 saniye tolerans
+                    if (firebaseTimestamp > lastLocalUpdateTime + 3000) { // 3 saniye tolerans
                         console.log('🔄 Başka cihazdan güncelleme alındı');
                         if (data.projects) setProjects(data.projects);
                         if (data.customRooms) setCustomRooms(data.customRooms);
@@ -1499,15 +1519,15 @@
                         if (data.fieldLabels) setFieldLabels(data.fieldLabels);
                         if (data.roomOrder) setRoomOrder(data.roomOrder);
                         if (data.materials) setMaterials(data.materials);
+                        if (data.ceramicData) setCeramicData(data.ceramicData);
                         lastLocalUpdateTime = firebaseTimestamp;
                         setLastSyncTime(new Date(firebaseTimestamp));
                         
                         // Geçici bildirim göster
                         setFirebaseStatus({ connected: true, message: 'Başka cihazdan güncelleme alındı', type: 'success' });
                         setTimeout(() => setFirebaseStatus({ connected: true, message: '', type: 'connected' }), 3000);
-                    } else {
-                        console.log('📝 Kendi değişikliğimiz veya eski veri (atlandı)');
                     }
+                    // Kendi değişikliğimiz - sessizce atla
                 });
                 
                 return () => {
@@ -6707,7 +6727,8 @@
                                                     baseRooms,
                                                     roomOrder,
                                                     fieldLabels,
-                                                    materials
+                                                    materials,
+                                                    ceramicData
                                                 });
                                             }
                                             
