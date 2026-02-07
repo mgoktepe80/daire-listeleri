@@ -785,6 +785,11 @@
         };
 
         const DEFAULT_MATERIALS = {
+            'Seramik': {
+                '⚙️ Özel': ['Seramik Veri Tabanı - Sağdaki panelden yönetin']
+                // Özel seramik kategorisi - ceramicData ile yönetiliyor
+                // UI'da özel panel gösterilecek
+            },
             'Zemin': {
                 'Seramik': ['60x60 Beyaz Seramik', '80x80 Gri Seramik', 'Mozaik Seramik'],
                 'Parke': ['Laminat Parke Meşe', 'Laminat Parke Ceviz', 'Masif Parke'],
@@ -834,6 +839,10 @@
             'Tekstil': {
                 'Perde': ['Blackout', 'Tül', 'Jaluzi'],
                 'Stor': ['Zebra Stor', 'Rulo Stor']
+            },
+            'Seramik': {
+                // Özel seramik kategorisi - ceramicData ile yönetiliyor
+                // UI'da özel panel gösterilecek
             }
         };
 
@@ -1039,11 +1048,19 @@
             const [roomOrder, setRoomOrder] = useState([]);
             const [fieldLabels, setFieldLabels] = useState(DEFAULT_FIELD_LABELS);
             const [materials, setMaterials] = useState(DEFAULT_MATERIALS);
+            const [ceramicData, setCeramicData] = useState(() => {
+                const saved = localStorage.getItem('ceramic_data');
+                return saved ? JSON.parse(saved) : {
+                    series: ["Graniti", "Stone", "Marmi"],
+                    sizes: ["60x120", "80x80", "60x60", "30x60"],
+                    items: []
+                };
+            });
             const [showDB, setShowDB] = useState(false);
             const [showDefaultSettings, setShowDefaultSettings] = useState(false);
             const [newCategoryName, setNewCategoryName] = useState('');
             const [editingCategory, setEditingCategory] = useState(null);
-            const [activeDBTab, setActiveDBTab] = useState('Zemin');
+            const [activeDBTab, setActiveDBTab] = useState('Seramik');
             const [draggedTab, setDraggedTab] = useState(null);
             const [searchRoom, setSearchRoom] = useState('');
             const [searchMaterial, setSearchMaterial] = useState('');
@@ -1198,6 +1215,46 @@
                 };
             }, []);
 
+            // SAYFA İLK YÜKLENDIĞINDE - localStorage'daki Seramik kategorisini garantile
+            useEffect(() => {
+                const savedMat = localStorage.getItem('material_database');
+                if (savedMat) {
+                    try {
+                        const mat = JSON.parse(savedMat);
+                        if (!mat['Seramik']) {
+                            console.log('🔧 localStorage düzeltiliyor - Seramik kategorisi ekleniyor...');
+                            // Seramik'i EN BAŞA ekle
+                            const newMat = {
+                                'Seramik': {
+                                    '⚙️ Özel': ['Seramik Veri Tabanı - Sağdaki panelden yönetin']
+                                },
+                                ...mat
+                            };
+                            localStorage.setItem('material_database', JSON.stringify(newMat));
+                            setMaterials(newMat);
+                            console.log('✅ Seramik kategorisi eklendi!');
+                        }
+                    } catch (err) {
+                        console.error('❌ localStorage okuma hatası:', err);
+                    }
+                }
+            }, []); // Sadece component mount olduğunda bir kere çalışır
+
+            // Seramik kategorisini her zaman garantile
+            useEffect(() => {
+                if (!materials['Seramik']) {
+                    console.log('⚠️ Seramik kategorisi bulunamadı, ekleniyor...');
+                    const newMat = { 
+                        'Seramik': {
+                            '⚙️ Özel': ['Seramik Veri Tabanı - Sağdaki panelden yönetin']
+                        },
+                        ...materials 
+                    };
+                    setMaterials(newMat);
+                    localStorage.setItem('material_database', JSON.stringify(newMat));
+                }
+            }, [materials]);
+
             // Tema yüklendiğinde CSS güncelle
             useEffect(() => {
                 const themeStyle = document.getElementById('theme-style');
@@ -1301,7 +1358,16 @@
                             const savedRoomOrder = localStorage.getItem('room_order');
                             if (savedRoomOrder) setRoomOrder(JSON.parse(savedRoomOrder));
                             const savedMat = localStorage.getItem('material_database');
-                            if (savedMat) setMaterials(JSON.parse(savedMat));
+                            if (savedMat) {
+                                const loadedMat = JSON.parse(savedMat);
+                                // Seramik kategorisini garantile
+                                if (!loadedMat['Seramik']) {
+                                    loadedMat['Seramik'] = {
+                                        '⚙️ Özel': ['Seramik Veri Tabanı - Sağdaki panelden yönetin']
+                                    };
+                                }
+                                setMaterials(loadedMat);
+                            }
                         }
                         
                         // Kullanıcı ayarlarını yükle (tema tercihi)
@@ -1344,7 +1410,16 @@
                         if (savedRoomOrder) setRoomOrder(JSON.parse(savedRoomOrder));
                         
                         const savedMat = localStorage.getItem('material_database');
-                        if (savedMat) setMaterials(JSON.parse(savedMat));
+                        if (savedMat) {
+                            const loadedMat = JSON.parse(savedMat);
+                            // Seramik kategorisini garantile
+                            if (!loadedMat['Seramik']) {
+                                loadedMat['Seramik'] = {
+                                    '⚙️ Özel': ['Seramik Veri Tabanı - Sağdaki panelden yönetin']
+                                };
+                            }
+                            setMaterials(loadedMat);
+                        }
                     }
                 };
                 
@@ -2466,6 +2541,103 @@
                     }
                     setMaterials(newMat);
                     localStorage.setItem('material_database', JSON.stringify(newMat));
+                }
+            };
+
+            // Seramik yönetim fonksiyonları
+            const addCeramicSerie = (serieName) => {
+                if (!serieName.trim()) return;
+                const newData = { ...ceramicData };
+                if (!newData.series.includes(serieName.trim())) {
+                    newData.series.push(serieName.trim());
+                    setCeramicData(newData);
+                    localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                }
+            };
+
+            const deleteCeramicSerie = (serieName) => {
+                if (confirm(`"${serieName}" serisini silmek istediğinize emin misiniz?\n\nBu seriye ait tüm seramikler de silinecek!`)) {
+                    const newData = { ...ceramicData };
+                    newData.series = newData.series.filter(s => s !== serieName);
+                    newData.items = newData.items.filter(item => item.serie !== serieName);
+                    setCeramicData(newData);
+                    localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                }
+            };
+
+            const addCeramicSize = (sizeName) => {
+                if (!sizeName.trim()) return;
+                const newData = { ...ceramicData };
+                if (!newData.sizes.includes(sizeName.trim())) {
+                    newData.sizes.push(sizeName.trim());
+                    setCeramicData(newData);
+                    localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                }
+            };
+
+            const deleteCeramicSize = (sizeName) => {
+                if (confirm(`"${sizeName}" boyutunu silmek istediğinize emin misiniz?\n\nBu boyuttaki tüm seramikler de silinecek!`)) {
+                    const newData = { ...ceramicData };
+                    newData.sizes = newData.sizes.filter(s => s !== sizeName);
+                    newData.items = newData.items.filter(item => item.size !== sizeName);
+                    setCeramicData(newData);
+                    localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                }
+            };
+
+            const addCeramicItem = (serie, name, size) => {
+                if (!serie || !name.trim() || !size) {
+                    alert('⚠️ Lütfen tüm alanları doldurun!');
+                    return;
+                }
+                
+                const newData = { ...ceramicData };
+                const fullName = `${serie} - ${name.trim()} (${size})`;
+                
+                // Aynı seramik var mı kontrol et
+                const exists = newData.items.some(item => 
+                    item.serie === serie && item.name === name.trim() && item.size === size
+                );
+                
+                if (exists) {
+                    alert('⚠️ Bu seramik zaten mevcut!');
+                    return;
+                }
+                
+                newData.items.push({
+                    serie: serie,
+                    name: name.trim(),
+                    size: size,
+                    fullName: fullName
+                });
+                
+                setCeramicData(newData);
+                localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                return true;
+            };
+
+            const deleteCeramicItem = (item) => {
+                if (confirm(`"${item.fullName}" seramiğini silmek istediğinize emin misiniz?`)) {
+                    const newData = { ...ceramicData };
+                    newData.items = newData.items.filter(i => 
+                        !(i.serie === item.serie && i.name === item.name && i.size === item.size)
+                    );
+                    setCeramicData(newData);
+                    localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                }
+            };
+
+            const updateCeramicItem = (oldItem, newName) => {
+                const newData = { ...ceramicData };
+                const itemIndex = newData.items.findIndex(i => 
+                    i.serie === oldItem.serie && i.name === oldItem.name && i.size === oldItem.size
+                );
+                
+                if (itemIndex !== -1) {
+                    newData.items[itemIndex].name = newName.trim();
+                    newData.items[itemIndex].fullName = `${oldItem.serie} - ${newName.trim()} (${oldItem.size})`;
+                    setCeramicData(newData);
+                    localStorage.setItem('ceramic_data', JSON.stringify(newData));
                 }
             };
 
@@ -4198,21 +4370,106 @@
                                                         ))}
                                                     </select>
                                                     {wallData.subgroup ? (
-                                                        <select 
-                                                            value={wallData.malzeme || ''} 
-                                                            onChange={(e) => updateWallCover(i, 'malzeme', e.target.value)} 
-                                                            className={`border-2 rounded-lg px-3 py-2 text-sm w-auto min-w-full focus:ring transition-all ${
+                                                        wallData.subgroup === 'Seramik' ? (
+                                                            /* ÖZEL SERAMİK SEÇİMİ - FİLTRELEME İLE */
+                                                            <div className={`border-2 rounded-lg p-4 ${
                                                                 theme === 'dark'
-                                                                    ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-orange-400 focus:ring-orange-500'
-                                                                    : 'border-gray-200 bg-white text-gray-900 focus:border-orange-500 focus:ring-orange-200'
-                                                            }`}
-                                                            style={{ width: 'fit-content', minWidth: '100%' }}
-                                                        >
-                                                            <option value="">🔸 Malzeme Seçiniz</option>
-                                                            {(categoryData[wallData.subgroup] || []).map(m => (
-                                                                <option key={m} value={m}>{m}</option>
-                                                            ))}
-                                                        </select>
+                                                                    ? 'border-purple-700 bg-purple-900/20'
+                                                                    : 'border-purple-200 bg-purple-50'
+                                                            }`}>
+                                                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                                                    {/* Seri Filtresi */}
+                                                                    <select 
+                                                                        id={`wall-ceramic-filter-serie-${i}`}
+                                                                        className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
+                                                                            theme === 'dark'
+                                                                                ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                                        }`}
+                                                                        onChange={() => {
+                                                                            // Filtre değiştiğinde seçimi sıfırla
+                                                                            updateWallCover(i, 'malzeme', '');
+                                                                        }}
+                                                                    >
+                                                                        <option value="">🏷️ Tüm Seriler</option>
+                                                                        {ceramicData.series.map(serie => (
+                                                                            <option key={serie} value={serie}>{serie}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                    
+                                                                    {/* Boyut Filtresi */}
+                                                                    <select 
+                                                                        id={`wall-ceramic-filter-size-${i}`}
+                                                                        className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
+                                                                            theme === 'dark'
+                                                                                ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                                        }`}
+                                                                        onChange={() => {
+                                                                            // Filtre değiştiğinde seçimi sıfırla
+                                                                            updateWallCover(i, 'malzeme', '');
+                                                                        }}
+                                                                    >
+                                                                        <option value="">📏 Tüm Boyutlar</option>
+                                                                        {ceramicData.sizes.map(size => (
+                                                                            <option key={size} value={size}>{size}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                
+                                                                {/* Seramik Seçimi */}
+                                                                <select 
+                                                                    value={wallData.malzeme || ''} 
+                                                                    onChange={(e) => updateWallCover(i, 'malzeme', e.target.value)} 
+                                                                    className={`w-full border-2 rounded-lg px-3 py-2.5 font-medium focus:ring transition-all ${
+                                                                        theme === 'dark'
+                                                                            ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400 focus:ring-purple-500'
+                                                                            : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500 focus:ring-purple-200'
+                                                                    }`}
+                                                                >
+                                                                    <option value="">🔸 Seramik Seçiniz</option>
+                                                                    {(() => {
+                                                                        const serieFilter = document.getElementById(`wall-ceramic-filter-serie-${i}`)?.value || '';
+                                                                        const sizeFilter = document.getElementById(`wall-ceramic-filter-size-${i}`)?.value || '';
+                                                                        
+                                                                        return ceramicData.items
+                                                                            .filter(item => {
+                                                                                if (serieFilter && item.serie !== serieFilter) return false;
+                                                                                if (sizeFilter && item.size !== sizeFilter) return false;
+                                                                                return true;
+                                                                            })
+                                                                            .map(item => (
+                                                                                <option key={item.fullName} value={item.fullName}>
+                                                                                    {item.fullName}
+                                                                                </option>
+                                                                            ));
+                                                                    })()}
+                                                                </select>
+                                                                
+                                                                <div className={`mt-2 text-xs ${
+                                                                    theme === 'dark' ? 'text-purple-300' : 'text-purple-600'
+                                                                }`}>
+                                                                    💡 Seri ve boyut filtrelerini kullanarak arama yapabilirsiniz
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            /* NORMAL MALZEME SEÇİMİ */
+                                                            <select 
+                                                                value={wallData.malzeme || ''} 
+                                                                onChange={(e) => updateWallCover(i, 'malzeme', e.target.value)} 
+                                                                className={`border-2 rounded-lg px-3 py-2 text-sm w-auto min-w-full focus:ring transition-all ${
+                                                                    theme === 'dark'
+                                                                        ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-orange-400 focus:ring-orange-500'
+                                                                        : 'border-gray-200 bg-white text-gray-900 focus:border-orange-500 focus:ring-orange-200'
+                                                                }`}
+                                                                style={{ width: 'fit-content', minWidth: '100%' }}
+                                                            >
+                                                                <option value="">🔸 Malzeme Seçiniz</option>
+                                                                {(categoryData[wallData.subgroup] || []).map(m => (
+                                                                    <option key={m} value={m}>{m}</option>
+                                                                ))}
+                                                            </select>
+                                                        )
                                                     ) : (
                                                         <div className="border-2 border-dashed border-gray-200 rounded-lg px-3 py-2 bg-gray-50 text-gray-400 flex items-center text-xs">
                                                             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4429,21 +4686,106 @@
                                     </select>
                                     {/* Malzeme Seçimi - Sadece alt grup seçilmişse */}
                                     {data[f] && data[f].subgroup ? (
-                                        <select 
-                                            value={data[f].malzeme || ''} 
-                                            onChange={(e) => updateField(f, { ...(data[f] || {}), malzeme: e.target.value })} 
-                                            className={`border-2 rounded-lg px-4 py-2.5 w-auto min-w-full focus:ring transition-all ${
+                                        data[f].subgroup === 'Seramik' ? (
+                                            /* ÖZEL SERAMİK SEÇİMİ - FİLTRELEME İLE */
+                                            <div className={`border-2 rounded-lg p-4 ${
                                                 theme === 'dark'
-                                                    ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-blue-400 focus:ring-blue-500'
-                                                    : 'border-gray-200 bg-white text-gray-900 focus:border-blue-500 focus:ring-blue-200'
-                                            }`}
-                                            style={{ width: 'fit-content', minWidth: '100%' }}
-                                        >
-                                            <option value="">🔸 Malzeme Seçiniz</option>
-                                            {(materials[fc.category][data[f].subgroup] || []).map(m => (
-                                                <option key={m} value={m}>{m}</option>
-                                            ))}
-                                        </select>
+                                                    ? 'border-purple-700 bg-purple-900/20'
+                                                    : 'border-purple-200 bg-purple-50'
+                                            }`}>
+                                                <div className="grid grid-cols-2 gap-2 mb-3">
+                                                    {/* Seri Filtresi */}
+                                                    <select 
+                                                        id={`ceramic-filter-serie-${f}`}
+                                                        className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
+                                                            theme === 'dark'
+                                                                ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                        }`}
+                                                        onChange={() => {
+                                                            // Filtre değiştiğinde seçimi sıfırla
+                                                            updateField(f, { ...(data[f] || {}), malzeme: '' });
+                                                        }}
+                                                    >
+                                                        <option value="">🏷️ Tüm Seriler</option>
+                                                        {ceramicData.series.map(serie => (
+                                                            <option key={serie} value={serie}>{serie}</option>
+                                                        ))}
+                                                    </select>
+                                                    
+                                                    {/* Boyut Filtresi */}
+                                                    <select 
+                                                        id={`ceramic-filter-size-${f}`}
+                                                        className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
+                                                            theme === 'dark'
+                                                                ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                        }`}
+                                                        onChange={() => {
+                                                            // Filtre değiştiğinde seçimi sıfırla
+                                                            updateField(f, { ...(data[f] || {}), malzeme: '' });
+                                                        }}
+                                                    >
+                                                        <option value="">📏 Tüm Boyutlar</option>
+                                                        {ceramicData.sizes.map(size => (
+                                                            <option key={size} value={size}>{size}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                
+                                                {/* Seramik Seçimi */}
+                                                <select 
+                                                    value={data[f].malzeme || ''} 
+                                                    onChange={(e) => updateField(f, { ...(data[f] || {}), malzeme: e.target.value })} 
+                                                    className={`w-full border-2 rounded-lg px-3 py-2.5 font-medium focus:ring transition-all ${
+                                                        theme === 'dark'
+                                                            ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400 focus:ring-purple-500'
+                                                            : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500 focus:ring-purple-200'
+                                                    }`}
+                                                >
+                                                    <option value="">🔸 Seramik Seçiniz</option>
+                                                    {(() => {
+                                                        const serieFilter = document.getElementById(`ceramic-filter-serie-${f}`)?.value || '';
+                                                        const sizeFilter = document.getElementById(`ceramic-filter-size-${f}`)?.value || '';
+                                                        
+                                                        return ceramicData.items
+                                                            .filter(item => {
+                                                                if (serieFilter && item.serie !== serieFilter) return false;
+                                                                if (sizeFilter && item.size !== sizeFilter) return false;
+                                                                return true;
+                                                            })
+                                                            .map(item => (
+                                                                <option key={item.fullName} value={item.fullName}>
+                                                                    {item.fullName}
+                                                                </option>
+                                                            ));
+                                                    })()}
+                                                </select>
+                                                
+                                                <div className={`mt-2 text-xs ${
+                                                    theme === 'dark' ? 'text-purple-300' : 'text-purple-600'
+                                                }`}>
+                                                    💡 Seri ve boyut filtrelerini kullanarak arama yapabilirsiniz
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            /* NORMAL MALZEME SEÇİMİ */
+                                            <select 
+                                                value={data[f].malzeme || ''} 
+                                                onChange={(e) => updateField(f, { ...(data[f] || {}), malzeme: e.target.value })} 
+                                                className={`border-2 rounded-lg px-4 py-2.5 w-auto min-w-full focus:ring transition-all ${
+                                                    theme === 'dark'
+                                                        ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-blue-400 focus:ring-blue-500'
+                                                        : 'border-gray-200 bg-white text-gray-900 focus:border-blue-500 focus:ring-blue-200'
+                                                }`}
+                                                style={{ width: 'fit-content', minWidth: '100%' }}
+                                            >
+                                                <option value="">🔸 Malzeme Seçiniz</option>
+                                                {(materials[fc.category][data[f].subgroup] || []).map(m => (
+                                                    <option key={m} value={m}>{m}</option>
+                                                ))}
+                                            </select>
+                                        )
                                     ) : (
                                         <div className="border-2 border-dashed border-gray-300 rounded-lg px-4 py-3 bg-white text-gray-400 flex items-center text-sm">
                                             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5039,21 +5381,391 @@
                                             onClick={() => setActiveDBTab(cat)}
                                             className={`px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap transition-all cursor-move ${
                                                 activeDBTab === cat 
-                                                    ? 'bg-blue-500 text-white shadow-md' 
-                                                    : theme === 'dark'
-                                                        ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                                    ? cat === 'Seramik'
+                                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg'
+                                                        : 'bg-blue-500 text-white shadow-md'
+                                                    : cat === 'Seramik'
+                                                        ? theme === 'dark'
+                                                            ? 'bg-purple-900 text-purple-200 hover:bg-purple-800'
+                                                            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                                                        : theme === 'dark'
+                                                            ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                             }`}
-                                            title="Sürükleyerek sıra değiştir"
+                                            title={cat === 'Seramik' ? '🎯 Özel Seramik Veri Tabanı' : 'Sürükleyerek sıra değiştir'}
                                         >
-                                            ⠿ {cat}
+                                            {cat === 'Seramik' ? '🎯 ' : '⠿ '}{cat}
                                         </button>
                                     ))}
                                 </div>
                                 
                                 {/* Sekme İçeriği */}
                                 <div className="flex-1 overflow-auto">
-                                    {Object.keys(materials).map(cat => activeDBTab === cat && (
+                                    {/* ÖZEL SERAMİK UI */}
+                                    {activeDBTab === 'Seramik' && (
+                                        <div className={`border-2 rounded-lg p-4 ${
+                                            theme === 'dark'
+                                                ? 'border-gray-700 bg-gradient-to-br from-gray-800 to-gray-750'
+                                                : 'border-gray-300 bg-gradient-to-br from-white to-gray-50'
+                                        }`}>
+                                            <div className={`flex justify-between items-center mb-4 pb-3 border-b-2 ${
+                                                theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                                            }`}>
+                                                <h3 className={`font-bold text-xl flex items-center gap-2 ${
+                                                    theme === 'dark' ? 'text-blue-400' : 'text-blue-700'
+                                                }`}>
+                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1v-3z"></path>
+                                                    </svg>
+                                                    Seramik Veri Tabanı
+                                                </h3>
+                                            </div>
+
+                                            {/* Seri ve Boyut Yönetimi */}
+                                            <div className="grid grid-cols-2 gap-4 mb-6">
+                                                {/* Seri Yönetimi */}
+                                                <div className={`border-2 rounded-lg p-4 ${
+                                                    theme === 'dark' ? 'border-blue-800 bg-blue-900/20' : 'border-blue-200 bg-blue-50'
+                                                }`}>
+                                                    <h4 className={`font-bold mb-3 flex items-center gap-2 ${
+                                                        theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
+                                                    }`}>
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                                                        </svg>
+                                                        Ürün Serileri
+                                                    </h4>
+                                                    
+                                                    {/* Yeni Seri Ekle */}
+                                                    <div className="flex gap-2 mb-3">
+                                                        <input 
+                                                            type="text" 
+                                                            id="new-serie"
+                                                            placeholder="Yeni seri ekle..."
+                                                            className={`flex-1 border-2 rounded-lg px-3 py-2 text-sm focus:ring-2 transition-all ${
+                                                                theme === 'dark'
+                                                                    ? 'border-blue-700 bg-gray-800 text-gray-100 focus:border-blue-500 focus:ring-blue-500/30'
+                                                                    : 'border-blue-300 bg-white text-gray-900 focus:border-blue-500 focus:ring-blue-200'
+                                                            }`}
+                                                            onKeyPress={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    const inp = document.getElementById('new-serie');
+                                                                    if (inp.value.trim()) {
+                                                                        addCeramicSerie(inp.value.trim());
+                                                                        inp.value = '';
+                                                                    }
+                                                                }
+                                                            }}
+                                                        />
+                                                        <button 
+                                                            onClick={() => {
+                                                                const inp = document.getElementById('new-serie');
+                                                                if (inp.value.trim()) {
+                                                                    addCeramicSerie(inp.value.trim());
+                                                                    inp.value = '';
+                                                                }
+                                                            }}
+                                                            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg text-sm font-bold hover:from-blue-600 hover:to-blue-700 shadow-md hover:shadow-lg transition-all"
+                                                        >
+                                                            + Ekle
+                                                        </button>
+                                                    </div>
+                                                    
+                                                    {/* Seri Listesi */}
+                                                    <div className="space-y-2 max-h-40 overflow-auto">
+                                                        {ceramicData.series.map(serie => (
+                                                            <div key={serie} className={`flex justify-between items-center px-3 py-2 rounded-lg group transition-all ${
+                                                                theme === 'dark'
+                                                                    ? 'bg-gray-800 hover:bg-gray-700 border border-gray-700'
+                                                                    : 'bg-white hover:bg-blue-50 border border-blue-200'
+                                                            }`}>
+                                                                <span className={`font-medium ${
+                                                                    theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
+                                                                }`}>{serie}</span>
+                                                                <button
+                                                                    onClick={() => deleteCeramicSerie(serie)}
+                                                                    className="px-2 py-1 bg-red-500 text-white rounded text-xs font-semibold hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-all"
+                                                                >
+                                                                    Sil
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Boyut Yönetimi */}
+                                                <div className={`border-2 rounded-lg p-4 ${
+                                                    theme === 'dark' ? 'border-green-800 bg-green-900/20' : 'border-green-200 bg-green-50'
+                                                }`}>
+                                                    <h4 className={`font-bold mb-3 flex items-center gap-2 ${
+                                                        theme === 'dark' ? 'text-green-300' : 'text-green-700'
+                                                    }`}>
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path>
+                                                        </svg>
+                                                        Boyutlar
+                                                    </h4>
+                                                    
+                                                    {/* Yeni Boyut Ekle */}
+                                                    <div className="flex gap-2 mb-3">
+                                                        <input 
+                                                            type="text" 
+                                                            id="new-size"
+                                                            placeholder="Örn: 60x120"
+                                                            className={`flex-1 border-2 rounded-lg px-3 py-2 text-sm focus:ring-2 transition-all ${
+                                                                theme === 'dark'
+                                                                    ? 'border-green-700 bg-gray-800 text-gray-100 focus:border-green-500 focus:ring-green-500/30'
+                                                                    : 'border-green-300 bg-white text-gray-900 focus:border-green-500 focus:ring-green-200'
+                                                            }`}
+                                                            onKeyPress={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    const inp = document.getElementById('new-size');
+                                                                    if (inp.value.trim()) {
+                                                                        addCeramicSize(inp.value.trim());
+                                                                        inp.value = '';
+                                                                    }
+                                                                }
+                                                            }}
+                                                        />
+                                                        <button 
+                                                            onClick={() => {
+                                                                const inp = document.getElementById('new-size');
+                                                                if (inp.value.trim()) {
+                                                                    addCeramicSize(inp.value.trim());
+                                                                    inp.value = '';
+                                                                }
+                                                            }}
+                                                            className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg text-sm font-bold hover:from-green-600 hover:to-green-700 shadow-md hover:shadow-lg transition-all"
+                                                        >
+                                                            + Ekle
+                                                        </button>
+                                                    </div>
+                                                    
+                                                    {/* Boyut Listesi */}
+                                                    <div className="space-y-2 max-h-40 overflow-auto">
+                                                        {ceramicData.sizes.map(size => (
+                                                            <div key={size} className={`flex justify-between items-center px-3 py-2 rounded-lg group transition-all ${
+                                                                theme === 'dark'
+                                                                    ? 'bg-gray-800 hover:bg-gray-700 border border-gray-700'
+                                                                    : 'bg-white hover:bg-green-50 border border-green-200'
+                                                            }`}>
+                                                                <span className={`font-medium ${
+                                                                    theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
+                                                                }`}>{size}</span>
+                                                                <button
+                                                                    onClick={() => deleteCeramicSize(size)}
+                                                                    className="px-2 py-1 bg-red-500 text-white rounded text-xs font-semibold hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-all"
+                                                                >
+                                                                    Sil
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Seramik Ekleme Formu */}
+                                            <div className={`border-2 rounded-lg p-4 mb-4 ${
+                                                theme === 'dark' ? 'border-purple-800 bg-purple-900/20' : 'border-purple-200 bg-purple-50'
+                                            }`}>
+                                                <h4 className={`font-bold mb-3 flex items-center gap-2 ${
+                                                    theme === 'dark' ? 'text-purple-300' : 'text-purple-700'
+                                                }`}>
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                                    </svg>
+                                                    Yeni Seramik Ekle
+                                                </h4>
+                                                
+                                                <div className="grid grid-cols-4 gap-3">
+                                                    <select 
+                                                        id="ceramic-serie"
+                                                        className={`border-2 rounded-lg px-3 py-2.5 text-sm font-medium focus:ring-2 transition-all ${
+                                                            theme === 'dark'
+                                                                ? 'border-gray-700 bg-gray-800 text-gray-100 focus:border-purple-500 focus:ring-purple-500/30'
+                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500 focus:ring-purple-200'
+                                                        }`}
+                                                    >
+                                                        <option value="">Seri Seçin</option>
+                                                        {ceramicData.series.map(serie => (
+                                                            <option key={serie} value={serie}>{serie}</option>
+                                                        ))}
+                                                    </select>
+                                                    
+                                                    <input 
+                                                        type="text" 
+                                                        id="ceramic-name"
+                                                        placeholder="Ürün Adı (Excel'den çoklu yapıştır)"
+                                                        className={`col-span-2 border-2 rounded-lg px-3 py-2.5 text-sm font-medium focus:ring-2 transition-all ${
+                                                            theme === 'dark'
+                                                                ? 'border-gray-700 bg-gray-800 text-gray-100 focus:border-purple-500 focus:ring-purple-500/30'
+                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500 focus:ring-purple-200'
+                                                        }`}
+                                                        onPaste={(e) => {
+                                                            // Paste edilen metni al
+                                                            const pastedText = e.clipboardData.getData('text');
+                                                            
+                                                            // Satırlara ayır
+                                                            const lines = pastedText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+                                                            
+                                                            // Eğer birden fazla satır varsa toplu ekleme
+                                                            if (lines.length > 1) {
+                                                                e.preventDefault(); // Varsayılan paste'i engelle
+                                                                
+                                                                // Seri ve boyut seçilmiş mi kontrol et
+                                                                const serie = document.getElementById('ceramic-serie').value;
+                                                                const size = document.getElementById('ceramic-size').value;
+                                                                
+                                                                if (!serie || !size) {
+                                                                    alert('⚠️ Önce Seri ve Boyut seçiniz!\n\nToplu ekleme için:\n1. Seri seçin\n2. Boyut seçin\n3. Excel\'den ürün adlarını yapıştırın');
+                                                                    return;
+                                                                }
+                                                                
+                                                                let addedCount = 0;
+                                                                let skippedCount = 0;
+                                                                const newData = { ...ceramicData };
+                                                                
+                                                                lines.forEach(productName => {
+                                                                    if (!productName) return;
+                                                                    
+                                                                    const fullName = `${serie} - ${productName} (${size})`;
+                                                                    
+                                                                    // Aynı seramik var mı kontrol et
+                                                                    const exists = newData.items.some(item => 
+                                                                        item.serie === serie && item.name === productName && item.size === size
+                                                                    );
+                                                                    
+                                                                    if (!exists) {
+                                                                        newData.items.push({
+                                                                            serie: serie,
+                                                                            name: productName,
+                                                                            size: size,
+                                                                            fullName: fullName
+                                                                        });
+                                                                        addedCount++;
+                                                                    } else {
+                                                                        skippedCount++;
+                                                                    }
+                                                                });
+                                                                
+                                                                setCeramicData(newData);
+                                                                localStorage.setItem('ceramic_data', JSON.stringify(newData));
+                                                                
+                                                                // Input'u temizle
+                                                                const inp = document.getElementById('ceramic-name');
+                                                                if (inp) inp.value = '';
+                                                                
+                                                                // Bildirim göster
+                                                                let message = `✅ ${addedCount} seramik eklendi!`;
+                                                                if (skippedCount > 0) {
+                                                                    message += `\n⚠️ ${skippedCount} seramik zaten mevcut (atlandı)`;
+                                                                }
+                                                                alert(message);
+                                                            }
+                                                            // Tek satırsa normal paste devam etsin
+                                                        }}
+                                                    />
+                                                    
+                                                    <select 
+                                                        id="ceramic-size"
+                                                        className={`border-2 rounded-lg px-3 py-2.5 text-sm font-medium focus:ring-2 transition-all ${
+                                                            theme === 'dark'
+                                                                ? 'border-gray-700 bg-gray-800 text-gray-100 focus:border-purple-500 focus:ring-purple-500/30'
+                                                                : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500 focus:ring-purple-200'
+                                                        }`}
+                                                    >
+                                                        <option value="">Boyut Seçin</option>
+                                                        {ceramicData.sizes.map(size => (
+                                                            <option key={size} value={size}>{size}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                
+                                                <button 
+                                                    onClick={() => {
+                                                        const serie = document.getElementById('ceramic-serie').value;
+                                                        const name = document.getElementById('ceramic-name').value;
+                                                        const size = document.getElementById('ceramic-size').value;
+                                                        
+                                                        if (addCeramicItem(serie, name, size)) {
+                                                            document.getElementById('ceramic-serie').value = '';
+                                                            document.getElementById('ceramic-name').value = '';
+                                                            document.getElementById('ceramic-size').value = '';
+                                                        }
+                                                    }}
+                                                    className="w-full mt-3 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg font-bold hover:from-purple-600 hover:to-purple-700 shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+                                                    </svg>
+                                                    Seramik Ekle
+                                                </button>
+                                            </div>
+
+                                            {/* Seramik Listesi */}
+                                            <div className={`border-2 rounded-lg p-4 ${
+                                                theme === 'dark' ? 'border-gray-700' : 'border-gray-300'
+                                            }`}>
+                                                <h4 className={`font-bold mb-3 ${
+                                                    theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                                }`}>
+                                                    Kayıtlı Seramikler ({ceramicData.items.length})
+                                                </h4>
+                                                
+                                                <div className="space-y-2 max-h-96 overflow-auto">
+                                                    {ceramicData.items.map((item, idx) => (
+                                                        <div key={idx} className={`flex justify-between items-center px-4 py-3 rounded-lg group transition-all ${
+                                                            theme === 'dark'
+                                                                ? 'bg-gray-800 hover:bg-gray-700 border border-gray-700'
+                                                                : 'bg-white hover:bg-gray-50 border-2 border-gray-200'
+                                                        }`}>
+                                                            <div className="flex-1">
+                                                                <div className={`font-medium ${
+                                                                    theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                                                }`}>
+                                                                    {item.fullName}
+                                                                </div>
+                                                                <div className="flex gap-2 mt-1">
+                                                                    <span className={`text-xs px-2 py-0.5 rounded ${
+                                                                        theme === 'dark' ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-700'
+                                                                    }`}>
+                                                                        {item.serie}
+                                                                    </span>
+                                                                    <span className={`text-xs px-2 py-0.5 rounded ${
+                                                                        theme === 'dark' ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-700'
+                                                                    }`}>
+                                                                        {item.size}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const newName = prompt('Yeni ürün adı:', item.name);
+                                                                        if (newName && newName.trim() && newName !== item.name) {
+                                                                            updateCeramicItem(item, newName);
+                                                                        }
+                                                                    }}
+                                                                    className="px-3 py-1.5 bg-blue-500 text-white rounded text-xs font-semibold hover:bg-blue-600 transition-all"
+                                                                >
+                                                                    Düzenle
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => deleteCeramicItem(item)}
+                                                                    className="px-3 py-1.5 bg-red-500 text-white rounded text-xs font-semibold hover:bg-red-600 transition-all"
+                                                                >
+                                                                    Sil
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* NORMAL MALZEME UI */}
+                                    {Object.keys(materials).map(cat => activeDBTab === cat && cat !== 'Seramik' && (
                                         <div key={cat} className={`border-2 rounded-lg p-4 ${
                                             theme === 'dark'
                                                 ? 'border-gray-700 bg-gradient-to-br from-gray-800 to-gray-750'
@@ -5071,39 +5783,41 @@
                                                     {cat}
                                                 </h3>
                                                 <div className="flex gap-2">
-                                                    <button 
-                                                        onClick={() => {
-                                                            const newName = prompt('Yeni kategori adı:', cat);
-                                                            if (newName && newName.trim() && newName !== cat) {
-                                                                if (materials[newName.trim()]) {
-                                                                    alert('Bu kategori adı zaten mevcut!');
-                                                                    return;
-                                                                }
-                                                                const newMat = { ...materials };
-                                                                newMat[newName.trim()] = newMat[cat];
-                                                                delete newMat[cat];
-                                                                setMaterials(newMat);
-                                                                localStorage.setItem('material_database', JSON.stringify(newMat));
-                                                            }
-                                                        }}
-                                                        className="px-3 py-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-lg text-sm font-semibold hover:from-yellow-600 hover:to-amber-600 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
-                                                        title="Kategori adını değiştir"
-                                                    >
-                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                                        </svg>
-                                                        Düzenle
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => {
-                                                            if (confirm(`"${cat}" kategorisini ve tüm içeriğini silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
-                                                                const newMat = { ...materials };
-                                                                delete newMat[cat];
-                                                                setMaterials(newMat);
-                                                                localStorage.setItem('material_database', JSON.stringify(newMat));
-                                                            }
-                                                        }}
-                                                        className="px-3 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg text-sm font-semibold hover:from-red-600 hover:to-rose-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                                    {cat !== 'Seramik' && (
+                                                        <>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const newName = prompt('Yeni kategori adı:', cat);
+                                                                    if (newName && newName.trim() && newName !== cat) {
+                                                                        if (materials[newName.trim()]) {
+                                                                            alert('Bu kategori adı zaten mevcut!');
+                                                                            return;
+                                                                        }
+                                                                        const newMat = { ...materials };
+                                                                        newMat[newName.trim()] = newMat[cat];
+                                                                        delete newMat[cat];
+                                                                        setMaterials(newMat);
+                                                                        localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                    }
+                                                                }}
+                                                                className="px-3 py-2 bg-gradient-to-r from-yellow-500 to-amber-500 text-white rounded-lg text-sm font-semibold hover:from-yellow-600 hover:to-amber-600 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                                                title="Kategori adını değiştir"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                                                </svg>
+                                                                Düzenle
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    if (confirm(`"${cat}" kategorisini ve tüm içeriğini silmek istediğinize emin misiniz?\n\nBu işlem geri alınamaz!`)) {
+                                                                        const newMat = { ...materials };
+                                                                        delete newMat[cat];
+                                                                        setMaterials(newMat);
+                                                                        localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                    }
+                                                                }}
+                                                                className="px-3 py-2 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg text-sm font-semibold hover:from-red-600 hover:to-rose-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
                                                         title="Kategoriyi sil"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -5111,6 +5825,8 @@
                                                         </svg>
                                                         Sil
                                                     </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                             
@@ -5191,8 +5907,47 @@
                                                                 <input 
                                                                     type="text" 
                                                                     id={'new-' + cat + '-' + subgroup} 
-                                                                    placeholder="Yeni malzeme ekle..." 
+                                                                    placeholder="Yeni malzeme ekle... (Excel'den kopyala-yapıştır yapabilirsiniz)" 
                                                                     className="flex-1 border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all" 
+                                                                    onPaste={(e) => {
+                                                                        // Paste edilen metni al
+                                                                        const pastedText = e.clipboardData.getData('text');
+                                                                        
+                                                                        // Satırlara ayır
+                                                                        const lines = pastedText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+                                                                        
+                                                                        // Eğer birden fazla satır varsa
+                                                                        if (lines.length > 1) {
+                                                                            e.preventDefault(); // Varsayılan paste'i engelle
+                                                                            
+                                                                            // Her satırı malzeme olarak ekle
+                                                                            const newMat = { ...materials };
+                                                                            let addedCount = 0;
+                                                                            
+                                                                            lines.forEach(line => {
+                                                                                // Aynı malzeme zaten varsa ekleme
+                                                                                if (!newMat[cat][subgroup].includes(line)) {
+                                                                                    newMat[cat][subgroup].push(line);
+                                                                                    addedCount++;
+                                                                                }
+                                                                            });
+                                                                            
+                                                                            setMaterials(newMat);
+                                                                            localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                            
+                                                                            // Input'u temizle
+                                                                            const inp = document.getElementById('new-' + cat + '-' + subgroup);
+                                                                            if (inp) inp.value = '';
+                                                                            
+                                                                            // Bildirim göster
+                                                                            if (addedCount > 0) {
+                                                                                alert(`✅ ${addedCount} malzeme eklendi!`);
+                                                                            } else {
+                                                                                alert('⚠️ Tüm malzemeler zaten mevcut!');
+                                                                            }
+                                                                        }
+                                                                        // Tek satırsa normal paste devam etsin
+                                                                    }}
                                                                     onKeyPress={(e) => {
                                                                         if (e.key === 'Enter') {
                                                                             const inp = document.getElementById('new-' + cat + '-' + subgroup);
@@ -5288,7 +6043,47 @@
                                                 /* Eski Düz Liste */
                                                 <div>
                                                     <div className="flex gap-2 mb-2">
-                                                        <input type="text" id={'new-' + cat} placeholder="Yeni malzeme ekle..." className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all" />
+                                                        <input 
+                                                            type="text" 
+                                                            id={'new-' + cat} 
+                                                            placeholder="Yeni malzeme ekle... (Excel'den kopyala-yapıştır yapabilirsiniz)" 
+                                                            className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring focus:ring-blue-200 transition-all"
+                                                            onPaste={(e) => {
+                                                                // Paste edilen metni al
+                                                                const pastedText = e.clipboardData.getData('text');
+                                                                
+                                                                // Satırlara ayır
+                                                                const lines = pastedText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+                                                                
+                                                                // Eğer birden fazla satır varsa
+                                                                if (lines.length > 1) {
+                                                                    e.preventDefault(); // Varsayılan paste'i engelle
+                                                                    
+                                                                    // Her satırı malzeme olarak ekle
+                                                                    let addedCount = 0;
+                                                                    
+                                                                    lines.forEach(line => {
+                                                                        // Aynı malzeme zaten varsa ekleme
+                                                                        if (!materials[cat].includes(line)) {
+                                                                            addMaterial(cat, line);
+                                                                            addedCount++;
+                                                                        }
+                                                                    });
+                                                                    
+                                                                    // Input'u temizle
+                                                                    const inp = document.getElementById('new-' + cat);
+                                                                    if (inp) inp.value = '';
+                                                                    
+                                                                    // Bildirim göster
+                                                                    if (addedCount > 0) {
+                                                                        alert(`✅ ${addedCount} malzeme eklendi!`);
+                                                                    } else {
+                                                                        alert('⚠️ Tüm malzemeler zaten mevcut!');
+                                                                    }
+                                                                }
+                                                                // Tek satırsa normal paste devam etsin
+                                                            }}
+                                                        />
                                                         <button onClick={() => {
                                                             const inp = document.getElementById('new-' + cat);
                                                             if (inp.value.trim()) { addMaterial(cat, inp.value.trim()); inp.value = ''; }
@@ -6196,37 +6991,140 @@
                                                             </div>
                                                             
                                                             {/* Malzeme Seçimi */}
-                                                            <div>
+                                                            <div className="col-span-2">
                                                                 <label className={`text-xs font-medium mb-1 block ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
                                                                     Malzeme
                                                                 </label>
-                                                                <select
-                                                                    value={currentSelection.malzeme || ''}
-                                                                    onChange={(e) => {
-                                                                        setBulkMaterialSelections({
-                                                                            ...bulkMaterialSelections,
-                                                                            [fieldKey]: {
-                                                                                ...currentSelection,
-                                                                                malzeme: e.target.value
-                                                                            }
-                                                                        });
-                                                                    }}
-                                                                    disabled={!currentSelection.subgroup}
-                                                                    className={`w-full px-3 py-2 border rounded-lg ${
+                                                                {currentSelection.subgroup === 'Seramik' ? (
+                                                                    /* ÖZEL SERAMİK SEÇİMİ */
+                                                                    <div className={`border-2 rounded-lg p-4 ${
                                                                         theme === 'dark'
-                                                                            ? 'border-gray-600 bg-gray-700 text-gray-200 disabled:opacity-50'
-                                                                            : 'border-gray-300 bg-white text-gray-900 disabled:opacity-50'
-                                                                    }`}
-                                                                >
-                                                                    <option value="">Seçiniz...</option>
-                                                                    {currentSelection.subgroup && 
-                                                                        Object.keys(materials).flatMap(cat => 
-                                                                            materials[cat][currentSelection.subgroup]?.map(mat => (
-                                                                                <option key={mat} value={mat}>{mat}</option>
-                                                                            )) || []
-                                                                        )
-                                                                    }
-                                                                </select>
+                                                                            ? 'border-purple-700 bg-purple-900/20'
+                                                                            : 'border-purple-200 bg-purple-50'
+                                                                    }`}>
+                                                                        <div className="grid grid-cols-2 gap-2 mb-3">
+                                                                            {/* Seri Filtresi */}
+                                                                            <select 
+                                                                                id={`bulk-ceramic-filter-serie-${fieldKey}`}
+                                                                                className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
+                                                                                    theme === 'dark'
+                                                                                        ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                                        : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                                                }`}
+                                                                                onChange={() => {
+                                                                                    setBulkMaterialSelections({
+                                                                                        ...bulkMaterialSelections,
+                                                                                        [fieldKey]: {
+                                                                                            ...currentSelection,
+                                                                                            malzeme: ''
+                                                                                        }
+                                                                                    });
+                                                                                }}
+                                                                            >
+                                                                                <option value="">🏷️ Tüm Seriler</option>
+                                                                                {ceramicData.series.map(serie => (
+                                                                                    <option key={serie} value={serie}>{serie}</option>
+                                                                                ))}
+                                                                            </select>
+                                                                            
+                                                                            {/* Boyut Filtresi */}
+                                                                            <select 
+                                                                                id={`bulk-ceramic-filter-size-${fieldKey}`}
+                                                                                className={`border-2 rounded-lg px-3 py-2 text-sm focus:ring transition-all ${
+                                                                                    theme === 'dark'
+                                                                                        ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                                        : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                                                }`}
+                                                                                onChange={() => {
+                                                                                    setBulkMaterialSelections({
+                                                                                        ...bulkMaterialSelections,
+                                                                                        [fieldKey]: {
+                                                                                            ...currentSelection,
+                                                                                            malzeme: ''
+                                                                                        }
+                                                                                    });
+                                                                                }}
+                                                                            >
+                                                                                <option value="">📏 Tüm Boyutlar</option>
+                                                                                {ceramicData.sizes.map(size => (
+                                                                                    <option key={size} value={size}>{size}</option>
+                                                                                ))}
+                                                                            </select>
+                                                                        </div>
+                                                                        
+                                                                        {/* Seramik Seçimi */}
+                                                                        <select
+                                                                            value={currentSelection.malzeme || ''}
+                                                                            onChange={(e) => {
+                                                                                setBulkMaterialSelections({
+                                                                                    ...bulkMaterialSelections,
+                                                                                    [fieldKey]: {
+                                                                                        ...currentSelection,
+                                                                                        malzeme: e.target.value
+                                                                                    }
+                                                                                });
+                                                                            }}
+                                                                            className={`w-full border-2 rounded-lg px-3 py-2.5 font-medium focus:ring transition-all ${
+                                                                                theme === 'dark'
+                                                                                    ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400 focus:ring-purple-500'
+                                                                                    : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500 focus:ring-purple-200'
+                                                                            }`}
+                                                                        >
+                                                                            <option value="">🔸 Seramik Seçiniz</option>
+                                                                            {(() => {
+                                                                                const serieFilter = document.getElementById(`bulk-ceramic-filter-serie-${fieldKey}`)?.value || '';
+                                                                                const sizeFilter = document.getElementById(`bulk-ceramic-filter-size-${fieldKey}`)?.value || '';
+                                                                                
+                                                                                return ceramicData.items
+                                                                                    .filter(item => {
+                                                                                        if (serieFilter && item.serie !== serieFilter) return false;
+                                                                                        if (sizeFilter && item.size !== sizeFilter) return false;
+                                                                                        return true;
+                                                                                    })
+                                                                                    .map(item => (
+                                                                                        <option key={item.fullName} value={item.fullName}>
+                                                                                            {item.fullName}
+                                                                                        </option>
+                                                                                    ));
+                                                                            })()}
+                                                                        </select>
+                                                                        
+                                                                        <div className={`mt-2 text-xs ${
+                                                                            theme === 'dark' ? 'text-purple-300' : 'text-purple-600'
+                                                                        }`}>
+                                                                            💡 Seri ve boyut filtrelerini kullanarak arama yapabilirsiniz
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    /* NORMAL MALZEME SEÇİMİ */
+                                                                    <select
+                                                                        value={currentSelection.malzeme || ''}
+                                                                        onChange={(e) => {
+                                                                            setBulkMaterialSelections({
+                                                                                ...bulkMaterialSelections,
+                                                                                [fieldKey]: {
+                                                                                    ...currentSelection,
+                                                                                    malzeme: e.target.value
+                                                                                }
+                                                                            });
+                                                                        }}
+                                                                        disabled={!currentSelection.subgroup}
+                                                                        className={`w-full px-3 py-2 border rounded-lg ${
+                                                                            theme === 'dark'
+                                                                                ? 'border-gray-600 bg-gray-700 text-gray-200 disabled:opacity-50'
+                                                                                : 'border-gray-300 bg-white text-gray-900 disabled:opacity-50'
+                                                                        }`}
+                                                                    >
+                                                                        <option value="">Seçiniz...</option>
+                                                                        {currentSelection.subgroup && 
+                                                                            Object.keys(materials).flatMap(cat => 
+                                                                                materials[cat][currentSelection.subgroup]?.map(mat => (
+                                                                                    <option key={mat} value={mat}>{mat}</option>
+                                                                                )) || []
+                                                                            )
+                                                                        }
+                                                                    </select>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         {currentSelection.subgroup && currentSelection.malzeme && (
