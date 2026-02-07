@@ -1646,9 +1646,6 @@
                 } else {
                     alert('⚠️ Firebase yapılandırılmamış!\n\nLütfen Firebase ayarlarını kontrol edin.');
                 }
-                
-                // Otomatik yedekleme kontrolü
-                setTimeout(checkAutoBackup, 500);
             };
 
             // Metin formatını dönüştür: ilk harf BÜYÜK, diğerleri küçük
@@ -4458,6 +4455,7 @@
                                                                                 if (sizeFilter && item.size !== sizeFilter) return false;
                                                                                 return true;
                                                                             })
+                                                                            .sort((a, b) => a.fullName.localeCompare(b.fullName, 'tr'))
                                                                             .map(item => (
                                                                                 <option key={item.fullName} value={item.fullName}>
                                                                                     {item.fullName}
@@ -4774,6 +4772,7 @@
                                                                 if (sizeFilter && item.size !== sizeFilter) return false;
                                                                 return true;
                                                             })
+                                                            .sort((a, b) => a.fullName.localeCompare(b.fullName, 'tr'))
                                                             .map(item => (
                                                                 <option key={item.fullName} value={item.fullName}>
                                                                     {item.fullName}
@@ -5733,7 +5732,9 @@
                                                 </h4>
                                                 
                                                 <div className="space-y-2 max-h-96 overflow-auto">
-                                                    {ceramicData.items.map((item, idx) => (
+                                                    {ceramicData.items
+                                                        .sort((a, b) => a.fullName.localeCompare(b.fullName, 'tr'))
+                                                        .map((item, idx) => (
                                                         <div key={idx} className={`flex justify-between items-center px-4 py-3 rounded-lg group transition-all ${
                                                             theme === 'dark'
                                                                 ? 'bg-gray-800 hover:bg-gray-700 border border-gray-700'
@@ -7102,6 +7103,7 @@
                                                                                         if (sizeFilter && item.size !== sizeFilter) return false;
                                                                                         return true;
                                                                                     })
+                                                                                    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'tr'))
                                                                                     .map(item => (
                                                                                         <option key={item.fullName} value={item.fullName}>
                                                                                             {item.fullName}
