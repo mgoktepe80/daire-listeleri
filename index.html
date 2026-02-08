@@ -674,6 +674,39 @@
         };
 
         // Firebase'den verileri yükle
+        // ==========================================
+        // ESKİ VERİLERİ GÜNCELLEMEk İÇİN YARDIMCI FONKSİYON
+        // ==========================================
+        // Eski projelerdeki mahallere editable/deletable özelliklerini ekler
+        const migrateRoomsData = (rooms) => {
+            if (!rooms || !Array.isArray(rooms)) return rooms;
+            return rooms.map(room => ({
+                ...room,
+                // Eğer editable tanımlı değilse, true olarak ekle
+                editable: room.editable !== undefined ? room.editable : true,
+                // Eğer deletable tanımlı değilse, true olarak ekle
+                deletable: room.deletable !== undefined ? room.deletable : true
+            }));
+        };
+
+        // Eski dairelere customRooms ekler (yoksa 2+1 şablonu)
+        const migrateApartments = (apartments) => {
+            if (!apartments || !Array.isArray(apartments)) return apartments;
+            return apartments.map(apt => {
+                if (!apt.customRooms || apt.customRooms.length === 0) {
+                    return {
+                        ...apt,
+                        customRooms: JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1'])),
+                        hiddenRooms: apt.hiddenRooms || []
+                    };
+                }
+                return {
+                    ...apt,
+                    hiddenRooms: apt.hiddenRooms || []
+                };
+            });
+        };
+
         const loadFromFirebase = async () => {
             if (!firebaseEnabled || !db || !auth || !auth.currentUser) return null;
             
@@ -725,40 +758,40 @@
         // Daire şablonları - Yeni proje oluşturulurken kullanılacak
         const APARTMENT_TEMPLATES = {
             '1+1': [
-                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
-                { id: 'yatak_odasi', name: 'Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
-                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'], editable: true, deletable: true },
+                { id: 'yatak_odasi', name: 'Yatak Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
             ],
             '2+1': [
-                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
-                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'cocuk_oda', name: 'Çocuk Odası', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
-                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'], editable: true, deletable: true },
+                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'cocuk_oda', name: 'Çocuk Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
             ],
             '3+1': [
-                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
-                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'cocuk_oda_1', name: 'Çocuk Odası 1', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'cocuk_oda_2', name: 'Çocuk Odası 2', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
-                { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
-                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'], editable: true, deletable: true },
+                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'cocuk_oda_1', name: 'Çocuk Odası 1', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'cocuk_oda_2', name: 'Çocuk Odası 2', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
             ],
             '4+1': [
-                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'] },
-                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'cocuk_oda_1', name: 'Çocuk Odası 1', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'cocuk_oda_2', name: 'Çocuk Odası 2', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'cocuk_oda_3', name: 'Çocuk Odası 3', fields: ['zemin', 'boya', 'foto'] },
-                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
-                { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'] },
-                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'] }
+                { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'], editable: true, deletable: true },
+                { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'cocuk_oda_1', name: 'Çocuk Odası 1', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'cocuk_oda_2', name: 'Çocuk Odası 2', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'cocuk_oda_3', name: 'Çocuk Odası 3', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                { id: 'ebeveyn_banyo', name: 'Ebeveyn Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
             ]
         };
 
@@ -1039,7 +1072,25 @@
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
             const [authLoading, setAuthLoading] = useState(true);
-            const [projects, setProjects] = useState([{ id: 1, name: 'Proje 1', apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }] }]);
+            const [projects, setProjects] = useState([{ 
+                id: 1, 
+                name: 'Proje 1', 
+                apartments: [{ 
+                    id: 1, 
+                    name: 'Daire 1', 
+                    data: {}, 
+                    wallCount: {},
+                    hiddenRooms: [],
+                    customRooms: [
+                        { id: 'salon', name: 'Salon', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                        { id: 'mutfak', name: 'Mutfak', fields: ['zemin', 'boya', 'dolap_alt', 'dolap_ust', 'tezgah', 'panel', 'foto'], editable: true, deletable: true },
+                        { id: 'ebeveyn_oda', name: 'Ana Yatak Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                        { id: 'cocuk_oda', name: 'Çocuk Odası', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true },
+                        { id: 'banyo', name: 'Banyo', fields: ['zemin', 'duvar_kaplama', 'lavabo', 'klozet', 'dus', 'batarya', 'ayna', 'foto'], editable: true, deletable: true },
+                        { id: 'hol', name: 'Hol', fields: ['zemin', 'boya', 'foto'], editable: true, deletable: true }
+                    ]
+                }] 
+            }]);
             const [currentPrj, setCurrentPrj] = useState(1);
             const [currentApt, setCurrentApt] = useState(1);
             const [currentRoom, setCurrentRoom] = useState('salon');
@@ -1344,9 +1395,56 @@
                         try {
                             const firebaseData = await loadFromFirebase();
                             if (firebaseData) {
-                                if (firebaseData.projects) setProjects(firebaseData.projects);
-                                if (firebaseData.customRooms) setCustomRooms(firebaseData.customRooms);
-                                if (firebaseData.baseRooms) setBaseRooms(firebaseData.baseRooms);
+                                // Projects yükle ve migrate et
+                                if (firebaseData.projects) {
+                                    const migratedProjects = firebaseData.projects.map(project => ({
+                                        ...project,
+                                        apartments: migrateApartments(project.apartments)
+                                    }));
+                                    setProjects(migratedProjects);
+                                }
+                                
+                                // Eski mahallere editable/deletable ekle
+                                let migratedCustomRooms = firebaseData.customRooms || [];
+                                let migratedBaseRooms = firebaseData.baseRooms || DEFAULT_ROOMS;
+                                let needsMigration = false;
+                                
+                                // Migrasyon gerekli mi kontrol et
+                                if (migratedCustomRooms.length > 0 && migratedCustomRooms.some(r => r.editable === undefined || r.deletable === undefined)) {
+                                    migratedCustomRooms = migrateRoomsData(migratedCustomRooms);
+                                    needsMigration = true;
+                                    console.log('🔄 customRooms migrate edildi');
+                                }
+                                if (migratedBaseRooms.length > 0 && migratedBaseRooms.some(r => r.editable === undefined || r.deletable === undefined)) {
+                                    migratedBaseRooms = migrateRoomsData(migratedBaseRooms);
+                                    needsMigration = true;
+                                    console.log('🔄 baseRooms migrate edildi');
+                                }
+                                
+                                setCustomRooms(migratedCustomRooms);
+                                setBaseRooms(migratedBaseRooms);
+                                
+                                // Migrasyon yapıldıysa, localStorage ve Firebase'e kaydet
+                                if (needsMigration) {
+                                    console.log('💾 Migrate edilen veriler kaydediliyor...');
+                                    localStorage.setItem('custom_rooms', JSON.stringify(migratedCustomRooms));
+                                    localStorage.setItem('base_rooms', JSON.stringify(migratedBaseRooms));
+                                    
+                                    // Firebase'e de kaydet
+                                    if (db && auth.currentUser) {
+                                        await saveToFirebase({
+                                            projects: firebaseData.projects,
+                                            customRooms: migratedCustomRooms,
+                                            baseRooms: migratedBaseRooms,
+                                            fieldLabels: firebaseData.fieldLabels,
+                                            roomOrder: firebaseData.roomOrder,
+                                            materials: firebaseData.materials,
+                                            ceramicData: firebaseData.ceramicData
+                                        });
+                                        console.log('✅ Migrate edilen veriler Firebase\'e kaydedildi');
+                                    }
+                                }
+                                
                                 if (firebaseData.fieldLabels) setFieldLabels(firebaseData.fieldLabels);
                                 if (firebaseData.roomOrder) setRoomOrder(firebaseData.roomOrder);
                                 if (firebaseData.materials) setMaterials(firebaseData.materials);
@@ -1368,13 +1466,44 @@
                             const saved = localStorage.getItem('projects_data');
                             if (saved) {
                                 const loaded = JSON.parse(saved);
-                                setProjects(loaded);
+                                // Apartments'ı migrate et
+                                const migratedProjects = loaded.map(project => ({
+                                    ...project,
+                                    apartments: migrateApartments(project.apartments)
+                                }));
+                                setProjects(migratedProjects);
                                 if (loaded[0] && loaded[0].apartments[0]) setCurrentApt(loaded[0].apartments[0].id);
                             }
+                            
+                            // Mahalleri yükle ve migrate et
                             const savedRooms = localStorage.getItem('custom_rooms');
-                            if (savedRooms) setCustomRooms(JSON.parse(savedRooms));
                             const savedBaseRooms = localStorage.getItem('base_rooms');
-                            if (savedBaseRooms) setBaseRooms(JSON.parse(savedBaseRooms));
+                            let migratedCustomRooms = savedRooms ? JSON.parse(savedRooms) : [];
+                            let migratedBaseRooms = savedBaseRooms ? JSON.parse(savedBaseRooms) : DEFAULT_ROOMS;
+                            let needsMigration = false;
+                            
+                            // Migrasyon gerekli mi kontrol et
+                            if (migratedCustomRooms.length > 0 && migratedCustomRooms.some(r => r.editable === undefined || r.deletable === undefined)) {
+                                migratedCustomRooms = migrateRoomsData(migratedCustomRooms);
+                                needsMigration = true;
+                                console.log('🔄 customRooms migrate edildi (localStorage)');
+                            }
+                            if (migratedBaseRooms.length > 0 && migratedBaseRooms.some(r => r.editable === undefined || r.deletable === undefined)) {
+                                migratedBaseRooms = migrateRoomsData(migratedBaseRooms);
+                                needsMigration = true;
+                                console.log('🔄 baseRooms migrate edildi (localStorage)');
+                            }
+                            
+                            setCustomRooms(migratedCustomRooms);
+                            setBaseRooms(migratedBaseRooms);
+                            
+                            // Migrasyon yapıldıysa kaydet
+                            if (needsMigration) {
+                                console.log('💾 Migrate edilen veriler localStorage\'a kaydediliyor...');
+                                localStorage.setItem('custom_rooms', JSON.stringify(migratedCustomRooms));
+                                localStorage.setItem('base_rooms', JSON.stringify(migratedBaseRooms));
+                            }
+                            
                             const savedFieldLabels = localStorage.getItem('field_labels');
                             if (savedFieldLabels) setFieldLabels(JSON.parse(savedFieldLabels));
                             const savedRoomOrder = localStorage.getItem('room_order');
@@ -1416,14 +1545,19 @@
                         const saved = localStorage.getItem('projects_data');
                         if (saved) {
                             const loaded = JSON.parse(saved);
-                            setProjects(loaded);
+                            // Apartments'ı migrate et
+                            const migratedProjects = loaded.map(project => ({
+                                ...project,
+                                apartments: migrateApartments(project.apartments)
+                            }));
+                            setProjects(migratedProjects);
                             if (loaded[0] && loaded[0].apartments[0]) setCurrentApt(loaded[0].apartments[0].id);
                         }
                         const savedRooms = localStorage.getItem('custom_rooms');
-                        if (savedRooms) setCustomRooms(JSON.parse(savedRooms));
+                        if (savedRooms) setCustomRooms(migrateRoomsData(JSON.parse(savedRooms)));
                         
                         const savedBaseRooms = localStorage.getItem('base_rooms');
-                        if (savedBaseRooms) setBaseRooms(JSON.parse(savedBaseRooms));
+                        if (savedBaseRooms) setBaseRooms(migrateRoomsData(JSON.parse(savedBaseRooms)));
                         
                         const savedFieldLabels = localStorage.getItem('field_labels');
                         if (savedFieldLabels) setFieldLabels(JSON.parse(savedFieldLabels));
@@ -1513,9 +1647,17 @@
                     // Sadece Firebase daha yeni ise güncelle (kendi değişikliklerimizi atla)
                     if (firebaseTimestamp > lastLocalUpdateTime + 3000) { // 3 saniye tolerans
                         console.log('🔄 Başka cihazdan güncelleme alındı');
-                        if (data.projects) setProjects(data.projects);
-                        if (data.customRooms) setCustomRooms(data.customRooms);
-                        if (data.baseRooms) setBaseRooms(data.baseRooms);
+                        // Projects'i migrate ederek yükle
+                        if (data.projects) {
+                            const migratedProjects = data.projects.map(project => ({
+                                ...project,
+                                apartments: migrateApartments(project.apartments)
+                            }));
+                            setProjects(migratedProjects);
+                        }
+                        // Eski mahallere editable/deletable ekle
+                        if (data.customRooms) setCustomRooms(migrateRoomsData(data.customRooms));
+                        if (data.baseRooms) setBaseRooms(migrateRoomsData(data.baseRooms));
                         if (data.fieldLabels) setFieldLabels(data.fieldLabels);
                         if (data.roomOrder) setRoomOrder(data.roomOrder);
                         if (data.materials) setMaterials(data.materials);
@@ -1581,7 +1723,8 @@
 
             // Her daire için görünür mekanları filtrele ve sırala
             const apt = getApt();
-            const apartmentCustomRooms = apt.customRooms || [];
+            // Daire customRooms'unu migrate et (eski mahallere editable/deletable ekle)
+            const apartmentCustomRooms = migrateRoomsData(apt.customRooms || []);
             
             // Eğer dairenin özel mekanları varsa (yeni sistem), onları kullan
             // Yoksa (eski veriler), baseRooms kullan (geriye dönük uyumluluk için)
@@ -1601,7 +1744,12 @@
 
             const updateProjects = (newProjects) => setProjects(newProjects);
             const updateApartments = (newApts) => {
-                setProjects(projects.map(p => p.id === currentPrj ? { ...p, apartments: newApts } : p));
+                console.log('🔄 updateApartments çağrıldı, yeni daire sayısı:', newApts.length);
+                setProjects(prevProjects => {
+                    const updated = prevProjects.map(p => p.id === currentPrj ? { ...p, apartments: newApts } : p);
+                    console.log('✅ Projects güncellendi');
+                    return updated;
+                });
             };
 
             const save = async () => {
@@ -3402,17 +3550,20 @@
                                         }
                                     }
                                 } else if (roomData[field] && typeof roomData[field] === 'object') {
-                                    // Diğer malzeme alanları
-                                    const newField = {};
-                                    if (copyOptions.materials) {
-                                        newField.subgroup = roomData[field].subgroup || '';
-                                        newField.malzeme = roomData[field].malzeme || '';
+                                    // Diğer malzeme alanları - TÜM özellikleri kopyala
+                                    const newField = { ...roomData[field] }; // Tüm field'ı kopyala
+                                    
+                                    // Eğer copyOptions seçili değilse, sadece ilgili alanları temizle
+                                    if (!copyOptions.materials) {
+                                        delete newField.subgroup;
+                                        delete newField.malzeme;
                                     }
-                                    if (copyOptions.amounts) {
-                                        newField.miktar = roomData[field].miktar || '';
+                                    if (!copyOptions.amounts) {
+                                        delete newField.miktar;
                                     }
-                                    // Sadece dolu alanları ekle
-                                    if (newField.subgroup || newField.malzeme || newField.miktar) {
+                                    
+                                    // En az bir özellik varsa ekle
+                                    if (Object.keys(newField).length > 0) {
                                         newData[roomId][field] = newField;
                                     }
                                 }
@@ -3430,11 +3581,17 @@
                         name: newName,
                         data: newData,
                         wallCount: newWallCount,
-                        hiddenRooms: newHiddenRooms
+                        hiddenRooms: newHiddenRooms,
+                        // customRooms'u da kopyala (migrate ederek)
+                        customRooms: sourceApt.customRooms ? migrateRoomsData(JSON.parse(JSON.stringify(sourceApt.customRooms))) : undefined
                     };
                     
                     newApartments.push(newApartment);
                 }
+                
+                console.log('📋 Kopyalama öncesi daire sayısı:', apartments.length);
+                console.log('➕ Eklenecek yeni daireler:', newApartments.length);
+                console.log('📋 Toplam daire sayısı olacak:', apartments.length + newApartments.length);
                 
                 updateApartments([...apartments, ...newApartments]);
                 setCurrentApt(newApartments[0].id); // İlk oluşturulan daireye geç
@@ -3883,9 +4040,16 @@
                                 return;
                             }
                             if (confirm('Mevcut veriler silinecek ve yukleyeceginiz veriler ile degistirilecek. Devam etmek istiyor musunuz?\n\n(Oneri: Once mevcut verilerinizi yedegin disa aktarin)')) {
-                                setProjects(imported.projects || []);
-                                setCustomRooms(imported.customRooms || []);
-                                setBaseRooms(imported.baseRooms || DEFAULT_ROOMS);
+                                // Projects'i migrate ederek yükle
+                                const migratedProjects = (imported.projects || []).map(project => ({
+                                    ...project,
+                                    apartments: migrateApartments(project.apartments)
+                                }));
+                                setProjects(migratedProjects);
+                                
+                                // Eski mahallere editable/deletable ekle
+                                setCustomRooms(migrateRoomsData(imported.customRooms || []));
+                                setBaseRooms(migrateRoomsData(imported.baseRooms || DEFAULT_ROOMS));
                                 setFieldLabels(imported.fieldLabels || DEFAULT_FIELD_LABELS);
                                 setMaterials(imported.materials || DEFAULT_MATERIALS);
                                 
@@ -4001,7 +4165,10 @@
                 summaryWs['!merges'].push({ s: { r: 9, c: 0 }, e: { r: 9, c: 4 } }); // Alt başlık
                 summaryWs['!merges'].push({ s: { r: 10, c: 0 }, e: { r: 10, c: 4 } }); // Ayırıcı
                 // Otomatik filtre ekleme (tablo başlık satırı = 11. satır, index 11)
-                summaryWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 11, c: 0 }, e: { r: 11 + proj.apartments.length, c: 4 } }) };
+                // Sadece veri varsa filtre ekle
+                if (proj.apartments.length > 0) {
+                    summaryWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 11, c: 0 }, e: { r: 11 + proj.apartments.length, c: 4 } }) };
+                }
                 XLSX.utils.book_append_sheet(wb, summaryWs, '📊 ÖZET');
                 
                 // PROJE TOPLAM MALZEME LİSTESİ
@@ -4024,13 +4191,17 @@
                                     if (v && v.malzeme) {
                                         const subgroup = v.subgroup || '-';
                                         const materialKey = fc.category + '|' + subgroup + '|' + v.malzeme + '|' + (fc.unit || '');
-                                        allMaterials[materialKey] = (allMaterials[materialKey] || 0) + parseFloat(v.miktar || 0);
+                                        // NaN kontrolü ile güvenli parseFloat
+                                        const amount = parseFloat(v.miktar || 0);
+                                        allMaterials[materialKey] = (allMaterials[materialKey] || 0) + (isNaN(amount) ? 0 : amount);
                                     }
                                 }
                             } else if (rd[f] && rd[f].malzeme) {
                                 const subgroup = rd[f].subgroup || '-';
                                 const key = fc.category + '|' + subgroup + '|' + rd[f].malzeme + '|' + (fc.unit || '');
-                                allMaterials[key] = (allMaterials[key] || 0) + parseFloat(rd[f].miktar || 0);
+                                // NaN kontrolü ile güvenli parseFloat
+                                const amount = parseFloat(rd[f].miktar || 0);
+                                allMaterials[key] = (allMaterials[key] || 0) + (isNaN(amount) ? 0 : amount);
                             }
                         });
                     });
@@ -4050,8 +4221,10 @@
                 
                 Object.keys(allMaterials).sort().forEach(key => {
                     const [category, subgroup, material, unit] = key.split('|');
-                    // Sayıyı number olarak tut, Excel'de görünmesi için
-                    totalData.push([category, subgroup, material, parseFloat(allMaterials[key].toFixed(2)), unit]);
+                    // Sayıyı number olarak tut, Excel'de görünmesi için - NaN kontrolü ile
+                    const totalAmount = allMaterials[key];
+                    const finalAmount = isNaN(totalAmount) ? 0 : parseFloat(totalAmount.toFixed(2));
+                    totalData.push([category, subgroup, material, finalAmount, unit]);
                 });
                 
                 const totalWs = XLSX.utils.aoa_to_sheet(totalData);
@@ -4062,8 +4235,12 @@
                 totalWs['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 4 } }); // Alt çizgi
                 totalWs['!merges'].push({ s: { r: 7, c: 0 }, e: { r: 7, c: 4 } }); // Ayırıcı
                 // Otomatik filtre (tablo başlık satırı = 8. satır, index 8)
-                const totalDataRows = totalData.length - 1; // Veri satır sayısı
-                totalWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: totalDataRows, c: 4 } }) };
+                // Sadece malzeme verisi varsa filtre ekle
+                const totalMaterialCount = Object.keys(allMaterials).length;
+                if (totalMaterialCount > 0) {
+                    const totalDataRows = 8 + totalMaterialCount; // Başlık + veriler
+                    totalWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: totalDataRows, c: 4 } }) };
+                }
                 XLSX.utils.book_append_sheet(wb, totalWs, '📦 TOPLAM MALZEME');
                 
                 // HER DAİRE İÇİN AYRI SAYFA
@@ -4100,7 +4277,9 @@
                                 for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
                                     const v = rd[f][wallIdx];
                                     if (v && v.malzeme) {
-                                        const miktar = v.miktar ? (isNaN(v.miktar) ? v.miktar : parseFloat(v.miktar)) : '-';
+                                        // NaN kontrolü ile güvenli miktar
+                                        const parsedAmount = parseFloat(v.miktar);
+                                        const miktar = isNaN(parsedAmount) ? (v.miktar || '-') : parsedAmount;
                                         const subgroup = v.subgroup || '-';
                                         // Özel duvar ismi varsa kullan, yoksa varsayılan
                                         const wallName = v.name || `Duvar ${wallIdx + 1}`;
@@ -4109,7 +4288,9 @@
                                     }
                                 }
                             } else if (rd[f] && rd[f].malzeme) {
-                                const miktar = rd[f].miktar ? (isNaN(rd[f].miktar) ? rd[f].miktar : parseFloat(rd[f].miktar)) : '-';
+                                // NaN kontrolü ile güvenli miktar
+                                const parsedAmount = parseFloat(rd[f].miktar);
+                                const miktar = isNaN(parsedAmount) ? (rd[f].miktar || '-') : parsedAmount;
                                 const subgroup = rd[f].subgroup || '-';
                                 roomData.push([room.name, fc.label, subgroup, rd[f].malzeme, miktar, fc.unit || '']);
                                 roomHasData = true;
@@ -4151,8 +4332,12 @@
                         ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 5 } }); // Alt çizgi
                         ws['!merges'].push({ s: { r: 7, c: 0 }, e: { r: 7, c: 5 } }); // Ayırıcı
                         // Otomatik filtre (tablo başlık satırı = 8. satır)
-                        const dataRows = data.length - 1;
-                        ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: dataRows, c: 5 } }) };
+                        // Sadece malzeme verisi varsa filtre ekle
+                        const dataRowCount = data.length - 9; // Başlık öncesi satırlar = 9
+                        if (dataRowCount > 0) {
+                            const dataRows = data.length - 1;
+                            ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 8, c: 0 }, e: { r: dataRows, c: 5 } }) };
+                        }
                         XLSX.utils.book_append_sheet(wb, ws, '🏠 ' + apt.name.substring(0, 28));
                     }
                 });
@@ -4215,8 +4400,12 @@
                 roomSummaryWs['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 2, c: 2 } }); // Alt çizgi
                 roomSummaryWs['!merges'].push({ s: { r: 6, c: 0 }, e: { r: 6, c: 2 } }); // Ayırıcı
                 // Otomatik filtre (tablo başlık satırı = 7. satır)
-                const roomDataRows = roomSummaryData.length - 1;
-                roomSummaryWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 7, c: 0 }, e: { r: roomDataRows, c: 2 } }) };
+                // Sadece veri varsa filtre ekle
+                const roomDataRows = roomSummaryData.length - 8; // Başlık öncesi 8 satır var
+                if (roomDataRows > 0) {
+                    const lastRow = roomSummaryData.length - 1;
+                    roomSummaryWs['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 7, c: 0 }, e: { r: lastRow, c: 2 } }) };
+                }
                 XLSX.utils.book_append_sheet(wb, roomSummaryWs, '🏘️ MEKAN ÖZET');
                 
                 XLSX.writeFile(wb, proj.name + '_detayli_rapor_' + new Date().toISOString().split('T')[0] + '.xlsx');
@@ -4339,9 +4528,9 @@
                                 return;
                             }
                             if (confirm('Mevcut sistem ayarları silinecek ve yüklenecek ayarlar ile değiştirilecek. Devam etmek istiyor musunuz?')) {
-                                // Ayarları güncelle
-                                setCustomRooms(imported.customRooms || []);
-                                setBaseRooms(imported.baseRooms || DEFAULT_ROOMS);
+                                // Ayarları güncelle - Eski mahallere editable/deletable ekle
+                                setCustomRooms(migrateRoomsData(imported.customRooms || []));
+                                setBaseRooms(migrateRoomsData(imported.baseRooms || DEFAULT_ROOMS));
                                 setFieldLabels(imported.fieldLabels || DEFAULT_FIELD_LABELS);
                                 
                                 localStorage.setItem('custom_rooms', JSON.stringify(imported.customRooms || []));
@@ -8261,9 +8450,16 @@
                                                                                 // Kullanıcının verilerini yükle
                                                                                 const userData = allUsersData[u.userId];
                                                                                 if (userData.projects) {
-                                                                                    setProjects(userData.projects);
-                                                                                    setCustomRooms(userData.customRooms || []);
-                                                                                    setBaseRooms(userData.baseRooms || DEFAULT_ROOMS);
+                                                                                    // Projects'i migrate ederek yükle
+                                                                                    const migratedProjects = userData.projects.map(project => ({
+                                                                                        ...project,
+                                                                                        apartments: migrateApartments(project.apartments)
+                                                                                    }));
+                                                                                    setProjects(migratedProjects);
+                                                                                    
+                                                                                    // Eski mahallere editable/deletable ekle
+                                                                                    setCustomRooms(migrateRoomsData(userData.customRooms || []));
+                                                                                    setBaseRooms(migrateRoomsData(userData.baseRooms || DEFAULT_ROOMS));
                                                                                     setRoomOrder(userData.roomOrder || []);
                                                                                     setFieldLabels(userData.fieldLabels || DEFAULT_FIELD_LABELS);
                                                                                     setMaterials(userData.materials || DEFAULT_MATERIALS);
@@ -8858,7 +9054,9 @@
                                                     setCustomRoomSetup([...customRoomSetup, {
                                                         id: 'custom_' + Date.now(),
                                                         name: 'Yeni Mekan',
-                                                        fields: ['zemin', 'boya', 'foto']
+                                                        fields: ['zemin', 'boya', 'foto'],
+                                                        editable: true,
+                                                        deletable: true
                                                     }]);
                                                 }}
                                                 className={`w-full p-4 rounded-lg border-2 border-dashed font-semibold transition-all ${
@@ -9152,7 +9350,7 @@
                                                 onClick={() => {
                                                     setSelectedTemplate('copy');
                                                     if (apartments[0] && apartments[0].customRooms) {
-                                                        setCustomRoomSetup(JSON.parse(JSON.stringify(apartments[0].customRooms)));
+                                                        setCustomRoomSetup(migrateRoomsData(JSON.parse(JSON.stringify(apartments[0].customRooms))));
                                                     }
                                                 }}
                                                 className={`p-4 rounded-lg border-2 font-semibold transition-all ${
@@ -9274,7 +9472,9 @@
                                                     setCustomRoomSetup([...customRoomSetup, {
                                                         id: 'custom_' + Date.now(),
                                                         name: 'Yeni Mekan',
-                                                        fields: ['zemin', 'boya', 'foto']
+                                                        fields: ['zemin', 'boya', 'foto'],
+                                                        editable: true,
+                                                        deletable: true
                                                     }]);
                                                 }}
                                                 className={`w-full p-4 rounded-lg border-2 border-dashed font-semibold transition-all ${
@@ -9312,10 +9512,12 @@
                                                 return;
                                             }
                                             
-                                            // Her mekan için foto alanını ekle
+                                            // Her mekan için foto alanını ekle ve editable/deletable özelliklerini ekle
                                             const roomsWithPhoto = customRoomSetup.map(room => ({
                                                 ...room,
-                                                fields: room.fields.includes('foto') ? room.fields : [...room.fields, 'foto']
+                                                fields: room.fields.includes('foto') ? room.fields : [...room.fields, 'foto'],
+                                                editable: true,
+                                                deletable: true
                                             }));
                                             
                                             // Yeni daireyi oluştur
@@ -9792,9 +9994,28 @@
                                                         // Kendi verilerini yükle
                                                         const data = await loadFromFirebase();
                                                         if (data) {
-                                                            setProjects(data.projects || [{ id: 1, name: 'Proje 1', apartments: [{ id: 1, name: 'Daire 1', data: {}, wallCount: {} }] }]);
-                                                            setCustomRooms(data.customRooms || []);
-                                                            setBaseRooms(data.baseRooms || DEFAULT_ROOMS);
+                                                            // Projects'i migrate ederek yükle
+                                                            const defaultProjects = [{ 
+                                                                id: 1, 
+                                                                name: 'Proje 1', 
+                                                                apartments: [{ 
+                                                                    id: 1, 
+                                                                    name: 'Daire 1', 
+                                                                    data: {}, 
+                                                                    wallCount: {},
+                                                                    hiddenRooms: [],
+                                                                    customRooms: JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1']))
+                                                                }] 
+                                                            }];
+                                                            const migratedProjects = (data.projects || defaultProjects).map(project => ({
+                                                                ...project,
+                                                                apartments: migrateApartments(project.apartments)
+                                                            }));
+                                                            setProjects(migratedProjects);
+                                                            
+                                                            // Eski mahallere editable/deletable ekle
+                                                            setCustomRooms(migrateRoomsData(data.customRooms || []));
+                                                            setBaseRooms(migrateRoomsData(data.baseRooms || DEFAULT_ROOMS));
                                                             setRoomOrder(data.roomOrder || []);
                                                             setFieldLabels(data.fieldLabels || DEFAULT_FIELD_LABELS);
                                                             setMaterials(data.materials || DEFAULT_MATERIALS);
@@ -10049,9 +10270,9 @@
                                 <button onClick={() => {
                                     const newId = Math.max(...apartments.map(a => a.id), 0) + 1;
                                     setNewApartmentName('Daire ' + newId);
-                                    // İlk dairenin şablonunu kopyala
+                                    // İlk dairenin şablonunu kopyala (migrate ile)
                                     if (apartments[0] && apartments[0].customRooms) {
-                                        setCustomRoomSetup(JSON.parse(JSON.stringify(apartments[0].customRooms)));
+                                        setCustomRoomSetup(migrateRoomsData(JSON.parse(JSON.stringify(apartments[0].customRooms))));
                                     } else {
                                         setCustomRoomSetup(JSON.parse(JSON.stringify(APARTMENT_TEMPLATES['2+1'])));
                                     }
