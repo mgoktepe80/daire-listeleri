@@ -30,7 +30,7 @@
 <body>
     <div id="root"></div>
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo } = React;
 
         // ==========================================
         // FIREBASE YAPILANDIRMASI
@@ -1183,6 +1183,11 @@
             const [showBulkActionsDropdown, setShowBulkActionsDropdown] = useState(false);
             const [showArchiveDropdown, setShowArchiveDropdown] = useState(false);
             const [showCopyDropdown, setShowCopyDropdown] = useState(false);
+            const [showEditFieldsModal, setShowEditFieldsModal] = useState(false);
+            const [editingRoomId, setEditingRoomId] = useState(null);
+            const [selectedFieldsForEdit, setSelectedFieldsForEdit] = useState([]);
+            const [fieldSearchTerm, setFieldSearchTerm] = useState('');
+            const [draggedFieldId, setDraggedFieldId] = useState(null);
 
             // Authentication durumunu dinle
             useEffect(() => {
@@ -1723,24 +1728,47 @@
 
             // Her daire için görünür mekanları filtrele ve sırala
             const apt = getApt();
-            // Daire customRooms'unu migrate et (eski mahallere editable/deletable ekle)
-            const apartmentCustomRooms = migrateRoomsData(apt.customRooms || []);
             
-            // Eğer dairenin özel mekanları varsa (yeni sistem), onları kullan
-            // Yoksa (eski veriler), baseRooms kullan (geriye dönük uyumluluk için)
-            const allRoomsUnsorted = apartmentCustomRooms.length > 0 
-                ? [...apartmentCustomRooms, ...customRooms]  // Yeni sistem - sadece daire mekanları + global custom
-                : [...baseRooms, ...customRooms];  // Eski sistem - base mekanlar + global custom
+            // Daire customRooms'unu migrate et (eski mahallere editable/deletable ekle) - useMemo ile wrap et
+            const apartmentCustomRooms = useMemo(() => {
+                const migrated = migrateRoomsData(apt.customRooms || []);
+                console.log('🏠 apartmentCustomRooms güncelleniyor, miktar:', migrated.length);
+                return migrated;
+            }, [apt, apt.customRooms, refreshKey]);
             
-            const allRooms = roomOrder.length > 0 
-                ? roomOrder.map(id => allRoomsUnsorted.find(r => r.id === id)).filter(r => r)
-                    .concat(allRoomsUnsorted.filter(r => !roomOrder.includes(r.id)))
-                : allRoomsUnsorted;
-            const visibleRooms = allRooms.filter(room => {
-                const apt = getApt();
-                const hiddenRooms = apt.hiddenRooms || [];
-                return !hiddenRooms.includes(room.id);
-            });
+            // allRooms hesaplamasını useMemo ile wrap et - customRooms veya baseRooms değiştiğinde yeniden hesapla
+            const allRoomsUnsorted = useMemo(() => {
+                console.log('🔄 allRoomsUnsorted yeniden hesaplanıyor');
+                console.log('  apartmentCustomRooms.length:', apartmentCustomRooms.length);
+                console.log('  customRooms.length:', customRooms.length);
+                console.log('  baseRooms.length:', baseRooms.length);
+                // Eğer dairenin özel mekanları varsa (yeni sistem), onları kullan
+                // Yoksa (eski veriler), baseRooms kullan (geriye dönük uyumluluk için)
+                const rooms = apartmentCustomRooms.length > 0 
+                    ? [...apartmentCustomRooms, ...customRooms]  // Yeni sistem - sadece daire mekanları + global custom
+                    : [...baseRooms, ...customRooms];  // Eski sistem - base mekanlar + global custom
+                
+                // Her room için yeni object referansı oluştur
+                return rooms.map(r => ({ ...r }));
+            }, [apartmentCustomRooms, customRooms, baseRooms, apt, refreshKey]);
+            
+            const allRooms = useMemo(() => {
+                console.log('🔄 allRooms yeniden hesaplanıyor');
+                const ordered = roomOrder.length > 0 
+                    ? roomOrder.map(id => allRoomsUnsorted.find(r => r.id === id)).filter(r => r)
+                        .concat(allRoomsUnsorted.filter(r => !roomOrder.includes(r.id)))
+                    : allRoomsUnsorted;
+                
+                // Her room için yeni object referansı oluştur - useMemo dependency'lerin çalışması için
+                return ordered.map(r => ({ ...r }));
+            }, [roomOrder, allRoomsUnsorted, refreshKey]);
+            const visibleRooms = useMemo(() => {
+                return allRooms.filter(room => {
+                    const apt = getApt();
+                    const hiddenRooms = apt.hiddenRooms || [];
+                    return !hiddenRooms.includes(room.id);
+                });
+            }, [allRooms, currentApt, refreshKey]);
 
             const updateProjects = (newProjects) => setProjects(newProjects);
             const updateApartments = (newApts) => {
@@ -1945,13 +1973,17 @@
                 newOrder.splice(targetIndex, 0, draggedRoom);
 
                 setRoomOrder(newOrder);
-                localStorage.setItem('room_order', JSON.stringify(newOrder));
+                // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
+                // Ekranı yenile
+                setRefreshKey(prev => prev + 1);
             };
 
             const resetRoomOrder = () => {
                 if (confirm('Mekan sıralamasını varsayılana döndürmek istediğinize emin misiniz?')) {
                     setRoomOrder([]);
-                    localStorage.removeItem('room_order');
+                    // localStorage.removeItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
+                    // Ekranı yenile
+                    setRefreshKey(prev => prev + 1);
                     alert('Sıralama sıfırlandı!');
                 }
             };
@@ -2132,7 +2164,7 @@
                 const newRoom = { id, name: name.trim(), fields: selectedFields, custom: true };
                 const updated = [...customRooms, newRoom];
                 setCustomRooms(updated);
-                localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                 setCurrentRoom(id);
                 
                 // Toplu ekleme seçeneği
@@ -2176,6 +2208,8 @@
                     }
                 }
                 
+                // Ekranı yenile
+                setRefreshKey(prev => prev + 1);
                 alert('Mekan olusturuldu!\nEklenen alanlar:\n' + selectedFields.map(f => fieldNames[f] || f).join('\n'));
             };
 
@@ -2190,15 +2224,25 @@
                 if (newName && newName.trim()) {
                     if (room.custom) {
                         // Özel mekan
-                        const updated = customRooms.map(r => r.id === roomId ? { ...r, name: newName.trim() } : r);
-                        setCustomRooms(updated);
-                        localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                        const updated = customRooms.map(r => 
+                            r.id === roomId 
+                                ? { ...r, name: newName.trim(), _timestamp: Date.now() } 
+                                : r
+                        );
+                        setCustomRooms([...updated]);
+                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                     } else {
                         // Varsayılan mekan
-                        const updated = baseRooms.map(r => r.id === roomId ? { ...r, name: newName.trim() } : r);
-                        setBaseRooms(updated);
-                        localStorage.setItem('base_rooms', JSON.stringify(updated));
+                        const updated = baseRooms.map(r => 
+                            r.id === roomId 
+                                ? { ...r, name: newName.trim(), _timestamp: Date.now() } 
+                                : r
+                        );
+                        setBaseRooms([...updated]);
+                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                     }
+                    // Ekranı yenile
+                    setRefreshKey(prev => prev + 1);
                 }
             };
 
@@ -2222,7 +2266,7 @@
                 
                 const updated = [...customRooms, newRoom];
                 setCustomRooms(updated);
-                localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                 
                 // Toplu ekleme seçeneği
                 const applyChoice = prompt(
@@ -2262,6 +2306,8 @@
                 }
                 
                 setCurrentRoom(newId);
+                // Ekranı yenile
+                setRefreshKey(prev => prev + 1);
                 alert('Mekan kopyalandi!\n\n"' + room.name + '" -> "' + newName.trim() + '"\n\nAlanlar: ' + room.fields.length + ' adet');
             };
 
@@ -2272,74 +2318,147 @@
                     return;
                 }
                 
-                // fieldLabels'dan dinamik olarak alan listesi oluştur
-                const availableFields = Object.entries(fieldLabels).map(([id, field], index) => ({
-                    id,
-                    label: field.label,
-                    number: index + 1
-                }));
+                // Modal'ı aç ve state'leri ayarla
+                setEditingRoomId(roomId);
+                setSelectedFieldsForEdit([...room.fields]); // Mevcut alanları kopyala
+                setFieldSearchTerm('');
+                setShowEditFieldsModal(true);
+            };
+            
+            // Sürükle-bırak fonksiyonları (alan sıralaması için)
+            const handleFieldDragStart = (e, fieldId) => {
+                setDraggedFieldId(fieldId);
+                e.dataTransfer.effectAllowed = 'move';
+            };
+            
+            const handleFieldDragOver = (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            };
+            
+            const handleFieldDrop = (e, targetFieldId) => {
+                e.preventDefault();
+                if (!draggedFieldId || draggedFieldId === targetFieldId) return;
                 
-                // Mevcut alanları göster
-                const currentFieldsText = room.fields.map(f => {
-                    const field = fieldLabels[f];
-                    return field ? field.label : f;
-                }).join(', ');
+                const currentIndex = selectedFieldsForEdit.indexOf(draggedFieldId);
+                const targetIndex = selectedFieldsForEdit.indexOf(targetFieldId);
                 
-                // Prompt metnini dinamik oluştur
-                let promptText = room.name + ' - Mevcut alanlar:\n' + currentFieldsText + '\n\n' +
-                    'Yeni alan secimi:\n\n';
+                if (currentIndex === -1 || targetIndex === -1) return;
                 
-                // Alanları listele (her satırda 3 alan)
-                availableFields.forEach((field, idx) => {
-                    promptText += field.number + '=' + field.label;
-                    if ((idx + 1) % 3 === 0) {
-                        promptText += '\n';
-                    } else {
-                        promptText += ', ';
-                    }
-                });
+                console.log('🔄 Sürükle-bırak yapılıyor');
+                console.log('  Sürüklenen:', draggedFieldId, 'index:', currentIndex);
+                console.log('  Hedef:', targetFieldId, 'index:', targetIndex);
+                console.log('  Eski sıralama:', selectedFieldsForEdit);
                 
-                promptText += '\n\nSeciminiz (virgülle ayırın):';
+                // Yeni sıralama oluştur
+                const newOrder = [...selectedFieldsForEdit];
+                newOrder.splice(currentIndex, 1);
+                newOrder.splice(targetIndex, 0, draggedFieldId);
                 
-                // Mevcut alanları numara olarak göster
-                const currentFieldNumbers = room.fields.map(f => {
-                    const found = availableFields.find(af => af.id === f);
-                    return found ? found.number : null;
-                }).filter(n => n !== null).join(',');
+                console.log('  Yeni sıralama:', newOrder);
+                setSelectedFieldsForEdit(newOrder);
+                setDraggedFieldId(null);
+            };
+            
+            const handleFieldDragEnd = () => {
+                setDraggedFieldId(null);
+            };
+            
+            // Modal'daki değişiklikleri kaydet
+            const saveEditedFields = () => {
+                if (!editingRoomId) return;
                 
-                const selection = prompt(promptText, currentFieldNumbers);
+                const room = allRooms.find(r => r.id === editingRoomId);
+                if (!room) return;
                 
-                if (selection) {
-                    const nums = selection.split(',').map(n => parseInt(n.trim()));
-                    
-                    // Numara -> ID mapping
-                    let newFields = nums.map(num => {
-                        const found = availableFields.find(f => f.number === num);
-                        return found ? found.id : null;
-                    }).filter(f => f !== null);
-                    
-                    if (newFields.length === 0) newFields = ['zemin', 'boya'];
-                    
-                    if (room.custom) {
-                        // Özel mekan - customRooms'da güncelle
-                        const updated = customRooms.map(r => r.id === roomId ? { ...r, fields: newFields } : r);
-                        setCustomRooms(updated);
-                        localStorage.setItem('custom_rooms', JSON.stringify(updated));
-                    } else {
-                        // Varsayılan mekan - baseRooms'da güncelle
-                        const updated = baseRooms.map(r => r.id === roomId ? { ...r, fields: newFields } : r);
-                        setBaseRooms(updated);
-                        localStorage.setItem('base_rooms', JSON.stringify(updated));
-                    }
-                    
-                    // Güncellenen alanları göster
-                    const updatedFieldNames = newFields.map(f => {
-                        const field = fieldLabels[f];
-                        return field ? field.label : f;
-                    }).join('\n');
-                    
-                    alert('Guncellenen alanlar:\n' + updatedFieldNames);
+                // En az bir alan seçilmeli
+                if (selectedFieldsForEdit.length === 0) {
+                    alert('En az bir alan seçmelisiniz!');
+                    return;
                 }
+                
+                console.log('🔧 Alan düzenleme başladı');
+                console.log('Mekan:', room.name, '(ID:', editingRoomId, ')');
+                console.log('Eski fields:', room.fields);
+                console.log('Yeni fields (SIRALAMA ÖNEMLİ):', selectedFieldsForEdit);
+                console.log('Yeni fields isimleri:', selectedFieldsForEdit.map(id => fieldLabels[id]?.label));
+                console.log('Custom mekan mı?', room.custom);
+                
+                // Yeni fields dizisini kopyala
+                const newFields = [...selectedFieldsForEdit];
+                console.log('newFields (kopyalandı):', newFields);
+                
+                if (room.custom) {
+                    // Özel mekan - customRooms'da güncelle
+                    setCustomRooms(prevRooms => {
+                        const updated = prevRooms.map(r => {
+                            if (r.id === editingRoomId) {
+                                return { 
+                                    ...r, 
+                                    fields: newFields,
+                                    _timestamp: Date.now()
+                                };
+                            }
+                            return r;
+                        });
+                        console.log('✅ customRooms güncellendi:', updated.find(r => r.id === editingRoomId));
+                        return [...updated];
+                    });
+                } else {
+                    // Varsayılan mekan - baseRooms'da güncelle
+                    setBaseRooms(prevRooms => {
+                        const updated = prevRooms.map(r => {
+                            if (r.id === editingRoomId) {
+                                return { 
+                                    ...r, 
+                                    fields: newFields,
+                                    _timestamp: Date.now()
+                                };
+                            }
+                            return r;
+                        });
+                        console.log('✅ baseRooms güncellendi:', updated.find(r => r.id === editingRoomId));
+                        return [...updated];
+                    });
+                    
+                    // AYRICA: Eğer bu mekan apartment'ın customRooms'unda da varsa orayı da güncelle
+                    const currentApt = getApt();
+                    if (currentApt.customRooms && currentApt.customRooms.some(r => r.id === editingRoomId)) {
+                        console.log('⚠️ Bu mekan apartment customRooms\'unda da var, güncelleniyor...');
+                        const updatedApts = apartments.map(a => {
+                            if (a.id === currentApt.id) {
+                                return {
+                                    ...a,
+                                    customRooms: a.customRooms.map(r => 
+                                        r.id === editingRoomId 
+                                            ? { ...r, fields: newFields, _timestamp: Date.now() }
+                                            : r
+                                    )
+                                };
+                            }
+                            return a;
+                        });
+                        updateApartments(updatedApts);
+                        console.log('✅ Apartment customRooms da güncellendi');
+                    }
+                }
+                
+                // Modal'ı kapat ve state'leri temizle
+                setShowEditFieldsModal(false);
+                setEditingRoomId(null);
+                setSelectedFieldsForEdit([]);
+                setFieldSearchTerm('');
+                
+                // Force refresh
+                setTimeout(() => {
+                    console.log('🔄 RefreshKey artırılıyor');
+                    setRefreshKey(prev => prev + 1);
+                }, 0);
+                
+                // Başarı mesajı
+                setTimeout(() => {
+                    alert('✅ Alanlar güncellendi!\n\nDeğişiklikleri kaydetmek için "Kaydet" butonuna basın.');
+                }, 50);
             };
 
             const deleteRoom = async (roomId) => {
@@ -2408,10 +2527,12 @@
                         console.log('updatedProjects:', updatedProjects);
                         
                         setProjects(updatedProjects);
-                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
-                        console.log('State ve localStorage guncellendi');
+                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
+                        console.log('State guncellendi');
                         
                         setCurrentRoom('salon');
+                        // Ekranı yenile
+                        setRefreshKey(prev => prev + 1);
                         alert('Mekan bu daireden TAMAMEN kaldirildi! Diger daireler etkilenmedi.');
                         console.log('SECENEK 1 - Tamamlandi');
                     } else {
@@ -2440,8 +2561,10 @@
                         });
                         const updatedProjects = projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p);
                         setProjects(updatedProjects);
-                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         setCurrentRoom('salon');
+                        // Ekranı yenile
+                        setRefreshKey(prev => prev + 1);
                         alert('Mekan bu projedeki tum dairelerden TAMAMEN kaldirildi!');
                     }
                 } else if (deleteChoice === '3') {
@@ -2461,20 +2584,22 @@
                             })
                         }));
                         setProjects(updatedProjects);
-                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
+                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         
                         // Sonra mekanı tamamen sil
                         if (room.custom) {
                             const updated = customRooms.filter(r => r.id !== roomId);
                             setCustomRooms(updated);
-                            localStorage.setItem('custom_rooms', JSON.stringify(updated));
+                            // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         } else {
                             const updated = baseRooms.filter(r => r.id !== roomId);
                             setBaseRooms(updated);
-                            localStorage.setItem('base_rooms', JSON.stringify(updated));
+                            // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         }
                         
                         setCurrentRoom('salon');
+                        // Ekranı yenile
+                        setRefreshKey(prev => prev + 1);
                         alert('Mekan tamamen silindi! ' + totalApts + ' daireden tum veriler temizlendi.');
                     }
                 }
@@ -5436,7 +5561,11 @@
                 );
             };
 
-            const room = allRooms.find(r => r.id === currentRoom);
+            const room = useMemo(() => {
+                const foundRoom = allRooms.find(r => r.id === currentRoom);
+                console.log('🔄 room yeniden hesaplanıyor, currentRoom:', currentRoom, 'foundRoom:', foundRoom?.name, 'fields:', foundRoom?.fields?.length);
+                return foundRoom;
+            }, [allRooms, currentRoom, refreshKey]);
 
             // Auth yükleniyor ekranı
             if (authLoading) {
@@ -6725,6 +6854,396 @@
                             </div>
                         </div>
                     )}
+                    
+                    {/* ALAN DÜZENLEME MODAL */}
+                    {showEditFieldsModal && (() => {
+                        const room = allRooms.find(r => r.id === editingRoomId);
+                        if (!room) return null;
+                        
+                        // Alan listesini kategorilere göre grupla
+                        const groupedFields = {};
+                        Object.entries(fieldLabels).forEach(([fieldId, field]) => {
+                            const category = field.category || 'Diğer';
+                            if (!groupedFields[category]) {
+                                groupedFields[category] = [];
+                            }
+                            groupedFields[category].push({ id: fieldId, ...field });
+                        });
+                        
+                        // Arama filtresi uygula
+                        const filteredGroups = {};
+                        Object.entries(groupedFields).forEach(([category, fields]) => {
+                            const filtered = fields.filter(field => 
+                                field.label.toLowerCase().includes(fieldSearchTerm.toLowerCase()) ||
+                                category.toLowerCase().includes(fieldSearchTerm.toLowerCase())
+                            );
+                            if (filtered.length > 0) {
+                                filteredGroups[category] = filtered;
+                            }
+                        });
+                        
+                        return (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                                <div className={`rounded-lg p-6 max-w-4xl w-full my-8 max-h-[90vh] overflow-y-auto transition-colors ${
+                                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                                }`}>
+                                    {/* Modal Başlık */}
+                                    <div className={`flex justify-between items-center mb-6 pb-4 border-b sticky top-0 z-10 ${
+                                        theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                                    }`}>
+                                        <h2 className={`text-2xl font-bold flex items-center gap-2 ${
+                                            theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                        }`}>
+                                            <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                            </svg>
+                                            {room.name} - Alan Seçimi
+                                        </h2>
+                                        <button 
+                                            onClick={() => {
+                                                setShowEditFieldsModal(false);
+                                                setEditingRoomId(null);
+                                                setSelectedFieldsForEdit([]);
+                                                setFieldSearchTerm('');
+                                            }} 
+                                            className={`text-3xl transition-colors ${
+                                                theme === 'dark' ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'
+                                            }`}
+                                        >×</button>
+                                    </div>
+                                    
+                                    {/* Bilgi Banner */}
+                                    <div className={`mb-4 p-4 rounded-lg border-l-4 ${
+                                        theme === 'dark' 
+                                            ? 'bg-blue-900 border-blue-700 text-blue-100' 
+                                            : 'bg-blue-50 border-blue-500 text-blue-800'
+                                    }`}>
+                                        <p className="text-sm">
+                                            ✅ <strong>{selectedFieldsForEdit.length}</strong> alan seçildi
+                                            {selectedFieldsForEdit.length === 0 && ' - En az bir alan seçmelisiniz!'}
+                                        </p>
+                                    </div>
+                                    
+                                    {/* Arama ve Hızlı Seçim */}
+                                    <div className="mb-6 space-y-3">
+                                        {/* Arama */}
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                placeholder="Alan veya kategori ara..."
+                                                value={fieldSearchTerm}
+                                                onChange={(e) => setFieldSearchTerm(e.target.value)}
+                                                className={`w-full pl-10 pr-4 py-2.5 border-2 rounded-lg transition-all ${
+                                                    theme === 'dark'
+                                                        ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400 focus:border-blue-500'
+                                                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500'
+                                                }`}
+                                            />
+                                            <svg className="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                            </svg>
+                                        </div>
+                                        
+                                        {/* Hızlı Butonlar */}
+                                        <div className="flex gap-2 flex-wrap">
+                                            <button
+                                                onClick={() => {
+                                                    const allFieldIds = Object.keys(fieldLabels);
+                                                    setSelectedFieldsForEdit(allFieldIds);
+                                                }}
+                                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                                                    theme === 'dark'
+                                                        ? 'bg-green-700 hover:bg-green-600 text-white'
+                                                        : 'bg-green-500 hover:bg-green-600 text-white'
+                                                }`}
+                                            >
+                                                ✓ Tümünü Seç
+                                            </button>
+                                            <button
+                                                onClick={() => setSelectedFieldsForEdit([])}
+                                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                                                    theme === 'dark'
+                                                        ? 'bg-red-700 hover:bg-red-600 text-white'
+                                                        : 'bg-red-500 hover:bg-red-600 text-white'
+                                                }`}
+                                            >
+                                                ✗ Hiçbirini Seçme
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const allFieldIds = Object.keys(fieldLabels);
+                                                    const newSelection = allFieldIds.filter(
+                                                        id => !selectedFieldsForEdit.includes(id)
+                                                    );
+                                                    setSelectedFieldsForEdit(newSelection);
+                                                }}
+                                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                                                    theme === 'dark'
+                                                        ? 'bg-purple-700 hover:bg-purple-600 text-white'
+                                                        : 'bg-purple-500 hover:bg-purple-600 text-white'
+                                                }`}
+                                            >
+                                                ⇄ Seçimi Ters Çevir
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* 2 Kolonlu Düzen */}
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
+                                        {/* SOL KOLON: Tüm Alanlar */}
+                                        <div>
+                                            <h3 className={`font-bold mb-3 flex items-center gap-2 ${
+                                                theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                            }`}>
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                                                </svg>
+                                                Tüm Alanlar
+                                            </h3>
+                                            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                                                {Object.entries(filteredGroups).sort((a, b) => a[0].localeCompare(b[0], 'tr')).map(([category, fields]) => (
+                                                    <div key={category} className={`rounded-lg border-2 p-3 ${
+                                                        theme === 'dark' ? 'bg-gray-750 border-gray-700' : 'bg-gray-50 border-gray-200'
+                                                    }`}>
+                                                        {/* Kategori Başlığı */}
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <h4 className={`font-bold text-xs ${
+                                                                theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
+                                                            }`}>
+                                                                📁 {category}
+                                                            </h4>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const categoryFieldIds = fields.map(f => f.id);
+                                                                    const allSelected = categoryFieldIds.every(id => 
+                                                                        selectedFieldsForEdit.includes(id)
+                                                                    );
+                                                                    
+                                                                    if (allSelected) {
+                                                                        setSelectedFieldsForEdit(
+                                                                            selectedFieldsForEdit.filter(id => !categoryFieldIds.includes(id))
+                                                                        );
+                                                                    } else {
+                                                                        const newSelection = [...selectedFieldsForEdit];
+                                                                        categoryFieldIds.forEach(id => {
+                                                                            if (!newSelection.includes(id)) {
+                                                                                newSelection.push(id);
+                                                                            }
+                                                                        });
+                                                                        setSelectedFieldsForEdit(newSelection);
+                                                                    }
+                                                                }}
+                                                                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                                                    fields.every(f => selectedFieldsForEdit.includes(f.id))
+                                                                        ? theme === 'dark'
+                                                                            ? 'bg-red-700 hover:bg-red-600 text-white'
+                                                                            : 'bg-red-500 hover:bg-red-600 text-white'
+                                                                        : theme === 'dark'
+                                                                            ? 'bg-green-700 hover:bg-green-600 text-white'
+                                                                            : 'bg-green-500 hover:bg-green-600 text-white'
+                                                                }`}
+                                                            >
+                                                                {fields.every(f => selectedFieldsForEdit.includes(f.id)) ? '✗' : '✓'}
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        {/* Alanlar */}
+                                                        <div className="space-y-1">
+                                                            {fields.sort((a, b) => a.label.localeCompare(b.label, 'tr')).map(field => {
+                                                                const isSelected = selectedFieldsForEdit.includes(field.id);
+                                                                return (
+                                                                    <label
+                                                                        key={field.id}
+                                                                        className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                                                            isSelected
+                                                                                ? theme === 'dark'
+                                                                                    ? 'border-blue-500 bg-blue-900 bg-opacity-30'
+                                                                                    : 'border-blue-500 bg-blue-50'
+                                                                                : theme === 'dark'
+                                                                                    ? 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                                                                                    : 'border-gray-300 bg-white hover:border-gray-400'
+                                                                        }`}
+                                                                    >
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={(e) => {
+                                                                                if (e.target.checked) {
+                                                                                    setSelectedFieldsForEdit([...selectedFieldsForEdit, field.id]);
+                                                                                } else {
+                                                                                    setSelectedFieldsForEdit(
+                                                                                        selectedFieldsForEdit.filter(id => id !== field.id)
+                                                                                    );
+                                                                                }
+                                                                            }}
+                                                                            className="w-3 h-3 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                                                        />
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className={`font-medium text-xs truncate ${
+                                                                                theme === 'dark' ? 'text-gray-100' : 'text-gray-900'
+                                                                            }`}>
+                                                                                {field.label}
+                                                                            </div>
+                                                                            {field.unit && (
+                                                                                <div className={`text-xs ${
+                                                                                    theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                                                }`}>
+                                                                                    {field.unit}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        
+                                        {/* SAĞ KOLON: Seçili Alanlar (Sürüklenebilir Sıralama) */}
+                                        <div>
+                                            <h3 className={`font-bold mb-3 flex items-center gap-2 ${
+                                                theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
+                                            }`}>
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"></path>
+                                                </svg>
+                                                Seçili Alanlar - Sıralama
+                                                <span className={`ml-auto text-xs px-2 py-1 rounded-full ${
+                                                    theme === 'dark' ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'
+                                                }`}>
+                                                    {selectedFieldsForEdit.length}
+                                                </span>
+                                            </h3>
+                                            {selectedFieldsForEdit.length === 0 ? (
+                                                <div className={`text-center py-12 rounded-lg border-2 border-dashed ${
+                                                    theme === 'dark' ? 'border-gray-700 text-gray-400' : 'border-gray-300 text-gray-500'
+                                                }`}>
+                                                    <svg className="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                                                    </svg>
+                                                    <p className="text-sm">Soldan alan seçin</p>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                                                    {selectedFieldsForEdit.map((fieldId, index) => {
+                                                        const field = fieldLabels[fieldId];
+                                                        if (!field) return null;
+                                                        
+                                                        const isDragging = draggedFieldId === fieldId;
+                                                        
+                                                        return (
+                                                            <div
+                                                                key={fieldId}
+                                                                draggable="true"
+                                                                onDragStart={(e) => handleFieldDragStart(e, fieldId)}
+                                                                onDragOver={handleFieldDragOver}
+                                                                onDrop={(e) => handleFieldDrop(e, fieldId)}
+                                                                onDragEnd={handleFieldDragEnd}
+                                                                className={`flex items-center gap-2 p-3 rounded-lg border-2 cursor-move transition-all ${
+                                                                    isDragging
+                                                                        ? theme === 'dark'
+                                                                            ? 'border-yellow-500 bg-yellow-900 bg-opacity-30 opacity-50'
+                                                                            : 'border-yellow-500 bg-yellow-50 opacity-50'
+                                                                        : theme === 'dark'
+                                                                            ? 'border-gray-700 bg-gray-800 hover:border-blue-500 hover:bg-gray-750'
+                                                                            : 'border-gray-300 bg-white hover:border-blue-400 hover:shadow-md'
+                                                                }`}
+                                                            >
+                                                                {/* Sürükleme Handle */}
+                                                                <svg className={`w-5 h-5 flex-shrink-0 ${
+                                                                    theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+                                                                }`} fill="currentColor" viewBox="0 0 20 20">
+                                                                    <path d="M10 3a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM10 8.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM11.5 15.5a1.5 1.5 0 10-3 0 1.5 1.5 0 003 0z"></path>
+                                                                </svg>
+                                                                
+                                                                {/* Sıra Numarası */}
+                                                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                                                    theme === 'dark' ? 'bg-blue-700 text-blue-100' : 'bg-blue-500 text-white'
+                                                                }`}>
+                                                                    {index + 1}
+                                                                </div>
+                                                                
+                                                                {/* Alan Bilgisi */}
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className={`font-semibold text-sm ${
+                                                                        theme === 'dark' ? 'text-gray-100' : 'text-gray-900'
+                                                                    }`}>
+                                                                        {field.label}
+                                                                    </div>
+                                                                    <div className={`text-xs flex items-center gap-2 ${
+                                                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                                    }`}>
+                                                                        {field.category && <span>📁 {field.category}</span>}
+                                                                        {field.unit && <span>• {field.unit}</span>}
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                {/* Kaldır Butonu */}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSelectedFieldsForEdit(
+                                                                            selectedFieldsForEdit.filter(id => id !== fieldId)
+                                                                        );
+                                                                    }}
+                                                                    className={`p-1 rounded-lg transition-colors flex-shrink-0 ${
+                                                                        theme === 'dark'
+                                                                            ? 'hover:bg-red-700 text-red-400 hover:text-white'
+                                                                            : 'hover:bg-red-100 text-red-500 hover:text-red-700'
+                                                                    }`}
+                                                                    title="Listeden çıkar"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    
+                                    {/* Alt Butonlar */}
+                                    <div className={`flex gap-3 pt-4 border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+                                        <button
+                                            onClick={() => {
+                                                setShowEditFieldsModal(false);
+                                                setEditingRoomId(null);
+                                                setSelectedFieldsForEdit([]);
+                                                setFieldSearchTerm('');
+                                            }}
+                                            className={`flex-1 px-6 py-3 rounded-lg font-semibold transition-colors ${
+                                                theme === 'dark'
+                                                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-100'
+                                                    : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+                                            }`}
+                                        >
+                                            İptal
+                                        </button>
+                                        <button
+                                            onClick={saveEditedFields}
+                                            disabled={selectedFieldsForEdit.length === 0}
+                                            className={`flex-1 px-6 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${
+                                                selectedFieldsForEdit.length === 0
+                                                    ? 'bg-gray-400 cursor-not-allowed text-gray-600'
+                                                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white'
+                                            }`}
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                            </svg>
+                                            Uygula
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                     
                     {/* DAİRE KOPYALAMA MODAL */}
                     {showCopyModal && (
@@ -11079,11 +11598,11 @@
                                 {/* Veri Giriş Alanları - Kategorilere Göre Gruplandırılmış */}
                                 <div className="space-y-6" key={refreshKey}>
                                     {room && (() => {
-                                        // fieldLabels'ın sırasına göre grupla (Kaydet'teki sırayı koru)
+                                        // room.fields sırasına göre grupla (KULLANICI SİRALAMASI)
                                         const grouped = {};
                                         const fotoField = room.fields.includes('foto') ? 'foto' : null;
-                                        const fieldOrder = Object.keys(fieldLabels); // fieldLabels'ın sırası
                                         
+                                        // ÖNEMLİ: room.fields array'inin sırasını koru!
                                         room.fields.filter(f => f !== 'foto').forEach(f => {
                                             const fc = fieldLabels[f];
                                             if (!fc) return;
@@ -11093,17 +11612,18 @@
                                             grouped[category].push(f);
                                         });
                                         
-                                        // Her kategorideki field'ları fieldLabels sırasına göre sırala
+                                        // Her kategorideki field'ları room.fields sırasına göre sırala
                                         Object.keys(grouped).forEach(cat => {
                                             grouped[cat].sort((a, b) => {
-                                                return fieldOrder.indexOf(a) - fieldOrder.indexOf(b);
+                                                return room.fields.indexOf(a) - room.fields.indexOf(b);
                                             });
                                         });
                                         
-                                        // Kategorileri de fieldLabels'da ilk görünme sırasına göre al
+                                        // Kategorileri de room.fields'da ilk görünme sırasına göre al
                                         const categoryFirstAppearance = {};
-                                        fieldOrder.forEach((fieldKey, idx) => {
+                                        room.fields.forEach((fieldKey, idx) => {
                                             const fc = fieldLabels[fieldKey];
+                                            if (!fc) return;
                                             const cat = fc.category || 'Diğer';
                                             if (categoryFirstAppearance[cat] === undefined) {
                                                 categoryFirstAppearance[cat] = idx;
