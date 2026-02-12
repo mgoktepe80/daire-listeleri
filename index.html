@@ -1212,6 +1212,26 @@
             const [showExcelImportModal, setShowExcelImportModal] = useState(false);
             const [excelImportText, setExcelImportText] = useState('');
             const [excelImportPreview, setExcelImportPreview] = useState([]);
+            
+            // Malzeme kategorileri için Excel import state'leri
+            const [showMaterialImportModal, setShowMaterialImportModal] = useState(false);
+            const [materialImportCategory, setMaterialImportCategory] = useState('');
+            const [materialImportText, setMaterialImportText] = useState('');
+            const [materialImportPreview, setMaterialImportPreview] = useState([]);
+            
+            // PDF Onay Formu Sütun Ayarları
+            const [showPdfColumnSettings, setShowPdfColumnSettings] = useState(false);
+            const [pdfColumnWidths, setPdfColumnWidths] = useState(() => {
+                const saved = localStorage.getItem('pdf_column_widths');
+                return saved ? JSON.parse(saved) : {
+                    col1: 16, // Tür
+                    col2: 16, // Alt Grup
+                    col3: 14, // Tip
+                    col4: 28, // Malzeme
+                    col5: 16, // Miktar/Detay
+                    col6: 10  // Birim
+                };
+            });
             const [showDefaultSettings, setShowDefaultSettings] = useState(false);
             const [newCategoryName, setNewCategoryName] = useState('');
             const [editingCategory, setEditingCategory] = useState(null);
@@ -1458,10 +1478,8 @@
                 }
             }, [theme]);
 
-            // Materials veya fieldLabels değiştiğinde formu yenile
-            useEffect(() => {
-                setRefreshKey(prev => prev + 1);
-            }, [materials, fieldLabels]);
+            // NOT: Materials veya fieldLabels değişikliklerinde React otomatik yeniler
+            // refreshKey kullanımı kaldırıldı - gereksiz re-render'ları önlemek için
 
             // Eski dairelere (customRooms olmayan) otomatik şablon ata
             useEffect(() => {
@@ -1968,7 +1986,7 @@
                 });
                 console.log('🔄 apartments yeniden hesaplandı, miktar:', sorted.length);
                 return sorted;
-            }, [currentProject, refreshKey]); // ÖNEMLİ: refreshKey eklendi - force update için
+            }, [currentProject.apartments]); // Sadece apartments array'ine bak
             
             // ÖNEMLİ: Current apartment'ı useMemo ile cache'le
             const currentApartment = useMemo(() => {
@@ -1997,7 +2015,7 @@
                 console.log('🏠 apartmentCustomRooms güncelleniyor, miktar:', migrated.length);
                 console.log('   currentApt ID:', currentApartment.id);
                 return migrated;
-            }, [currentApartment, refreshKey]); // ÖNEMLİ: currentApartment değişince yeniden hesapla
+            }, [currentApartment?.id, currentApartment?.customRooms]); // Sadece gerçek değişimleri izle
             
             // allRooms hesaplamasını useMemo ile wrap et - customRooms veya baseRooms değiştiğinde yeniden hesapla
             const allRoomsUnsorted = useMemo(() => {
@@ -2011,9 +2029,8 @@
                     ? [...apartmentCustomRooms, ...customRooms]  // Yeni sistem - sadece daire mekanları + global custom
                     : [...baseRooms, ...customRooms];  // Eski sistem - base mekanlar + global custom
                 
-                // Her room için yeni object referansı oluştur
-                return rooms.map(r => ({ ...r }));
-            }, [apartmentCustomRooms, customRooms, baseRooms, refreshKey]);
+                return rooms; // Object spreading kaldırıldı - gereksiz
+            }, [apartmentCustomRooms, customRooms, baseRooms]); // refreshKey kaldırıldı
             
             const allRooms = useMemo(() => {
                 console.log('🔄 allRooms yeniden hesaplanıyor');
@@ -2022,14 +2039,13 @@
                         .concat(allRoomsUnsorted.filter(r => !roomOrder.includes(r.id)))
                     : allRoomsUnsorted;
                 
-                // Her room için yeni object referansı oluştur - useMemo dependency'lerin çalışması için
-                return ordered.map(r => ({ ...r }));
-            }, [roomOrder, allRoomsUnsorted, refreshKey]);
+                return ordered; // Object spreading kaldırıldı - gereksiz
+            }, [roomOrder, allRoomsUnsorted]); // refreshKey kaldırıldı
             
             const visibleRooms = useMemo(() => {
                 const hiddenRooms = currentApartment?.hiddenRooms || [];
                 return allRooms.filter(room => !hiddenRooms.includes(room.id));
-            }, [allRooms, currentApartment, refreshKey]);
+            }, [allRooms, currentApartment?.hiddenRooms]); // refreshKey kaldırıldı, sadece hiddenRooms'a bak
 
             const updateProjects = (newProjects) => {
                 console.log('📝 updateProjects çağrıldı');
@@ -2060,10 +2076,7 @@
                     return updated;
                 });
                 
-                // ÖNEMLİ: Force refresh - UI'ı güncelle
-                setTimeout(() => {
-                    setRefreshKey(prev => prev + 1);
-                }, 50);
+                // refreshKey artık gereksiz - useMemo'lar otomatik yenilenir
             };
 
             const save = async () => {
@@ -2892,7 +2905,7 @@
                 // 4 veya başka bir değer = İptal (hiçbir şey yapma)
             };
 
-            const updateField = (field, value) => {
+            const updateField = (field, value, shouldRefresh = false) => {
                 console.log('📝 updateField çağrıldı, field:', field, 'currentRoom:', currentRoom);
                 console.log('   currentApt:', currentApt, 'currentPrj:', currentPrj);
                 console.log('   currentProject.id:', currentProject?.id);
@@ -2916,13 +2929,13 @@
                         return updated;
                     }
                     return a;
-                }));
+                }), shouldRefresh);
             };
 
-            const updateWallCover = (idx, type, val) => {
+            const updateWallCover = (idx, type, val, shouldRefresh = false) => {
                 const current = getRoomData().duvar_kaplama || {};
                 const updated = { ...current, [idx]: { ...current[idx], [type]: val } };
-                updateField('duvar_kaplama', updated);
+                updateField('duvar_kaplama', updated, shouldRefresh);
             };
 
             const addWallCover = () => {
@@ -3382,6 +3395,171 @@
                 
                 // Bilgilendirme
                 alert(`✅ İçe Aktarma Tamamlandı!\n\n✓ Eklenen: ${addedCount}\n⊘ Atlanan (zaten mevcut): ${skippedCount}\n━━━━━━━━━━━━━━\nToplam: ${validItems.length}`);
+            };
+            
+            // ==========================================
+            // MALZEME KATEGORİLERİ İÇİN EXCEL IMPORT FONKSİYONLARI
+            // ==========================================
+            
+            const parseMaterialExcelData = (text, category) => {
+                if (!text.trim() || !category) {
+                    setMaterialImportPreview([]);
+                    return;
+                }
+                
+                const categoryConfig = materials[category];
+                const hasSubGroup2 = categoryConfig?.useSubGroup2 === true;
+                const expectedColumns = hasSubGroup2 ? 3 : 2;
+                
+                const lines = text.split('\n').filter(line => line.trim());
+                const parsed = [];
+                
+                lines.forEach((line, index) => {
+                    // TAB veya çoklu boşluk ile ayrılmış değerleri parse et
+                    const parts = line.split(/\t+/).map(p => p.trim()).filter(p => p);
+                    
+                    // Eğer TAB yoksa, 2+ boşlukla ayır
+                    const finalParts = parts.length >= expectedColumns ? parts : line.split(/\s{2,}/).map(p => p.trim()).filter(p => p);
+                    
+                    if (hasSubGroup2) {
+                        // 3 sütun bekleniyor: Alt Grup | Alt Grup 2 | Malzeme
+                        if (finalParts.length >= 3) {
+                            const subGroup = finalParts[0];
+                            const subGroup2 = finalParts[1];
+                            const material = finalParts.slice(2).join(' '); // Geri kalan tüm kısımlar malzeme adı
+                            
+                            parsed.push({
+                                lineNumber: index + 1,
+                                subGroup,
+                                subGroup2,
+                                material,
+                                displayText: `${subGroup} → ${subGroup2} → ${material}`,
+                                valid: true
+                            });
+                        } else {
+                            parsed.push({
+                                lineNumber: index + 1,
+                                original: line,
+                                valid: false,
+                                error: 'Eksik sütun (3 sütun gerekli: Alt Grup, Alt Grup 2, Malzeme)'
+                            });
+                        }
+                    } else {
+                        // 2 sütun bekleniyor: Alt Grup | Malzeme
+                        if (finalParts.length >= 2) {
+                            const subGroup = finalParts[0];
+                            const material = finalParts.slice(1).join(' '); // Geri kalan tüm kısımlar malzeme adı
+                            
+                            parsed.push({
+                                lineNumber: index + 1,
+                                subGroup,
+                                material,
+                                displayText: `${subGroup} → ${material}`,
+                                valid: true
+                            });
+                        } else {
+                            parsed.push({
+                                lineNumber: index + 1,
+                                original: line,
+                                valid: false,
+                                error: 'Eksik sütun (2 sütun gerekli: Alt Grup, Malzeme)'
+                            });
+                        }
+                    }
+                });
+                
+                setMaterialImportPreview(parsed);
+            };
+            
+            const importMaterialExcelData = () => {
+                const validItems = materialImportPreview.filter(item => item.valid);
+                
+                if (validItems.length === 0) {
+                    alert('⚠️ İçe aktarılacak geçerli veri yok!');
+                    return;
+                }
+                
+                const category = materialImportCategory;
+                const categoryConfig = materials[category];
+                const hasSubGroup2 = categoryConfig?.useSubGroup2 === true;
+                
+                let addedCount = 0;
+                let skippedCount = 0;
+                
+                // Yeni materials objesi oluştur
+                const newMaterials = JSON.parse(JSON.stringify(materials));
+                
+                if (!newMaterials[category].subGroups) {
+                    newMaterials[category].subGroups = {};
+                }
+                
+                validItems.forEach(item => {
+                    if (hasSubGroup2) {
+                        // Alt Grup 2'li yapı
+                        const { subGroup, subGroup2, material } = item;
+                        
+                        // Alt Grup yoksa oluştur
+                        if (!newMaterials[category].subGroups[subGroup]) {
+                            newMaterials[category].subGroups[subGroup] = {
+                                subGroup2s: [],
+                                items: {}
+                            };
+                        }
+                        
+                        // Alt Grup 2 yoksa ekle
+                        if (!newMaterials[category].subGroups[subGroup].subGroup2s.includes(subGroup2)) {
+                            newMaterials[category].subGroups[subGroup].subGroup2s.push(subGroup2);
+                        }
+                        
+                        // Items objesi yoksa oluştur
+                        if (!newMaterials[category].subGroups[subGroup].items[subGroup2]) {
+                            newMaterials[category].subGroups[subGroup].items[subGroup2] = [];
+                        }
+                        
+                        // Malzeme zaten var mı kontrol et
+                        const exists = newMaterials[category].subGroups[subGroup].items[subGroup2].includes(material);
+                        
+                        if (!exists) {
+                            newMaterials[category].subGroups[subGroup].items[subGroup2].push(material);
+                            addedCount++;
+                        } else {
+                            skippedCount++;
+                        }
+                    } else {
+                        // Alt Grup 2'siz yapı
+                        const { subGroup, material } = item;
+                        
+                        // Alt Grup yoksa oluştur
+                        if (!newMaterials[category].subGroups[subGroup]) {
+                            newMaterials[category].subGroups[subGroup] = {
+                                items: []
+                            };
+                        }
+                        
+                        // Malzeme zaten var mı kontrol et
+                        const exists = newMaterials[category].subGroups[subGroup].items.includes(material);
+                        
+                        if (!exists) {
+                            newMaterials[category].subGroups[subGroup].items.push(material);
+                            addedCount++;
+                        } else {
+                            skippedCount++;
+                        }
+                    }
+                });
+                
+                // State'i güncelle
+                setMaterials(newMaterials);
+                localStorage.setItem('materials_data', JSON.stringify(newMaterials));
+                
+                // Modal'ı kapat
+                setShowMaterialImportModal(false);
+                setMaterialImportCategory('');
+                setMaterialImportText('');
+                setMaterialImportPreview([]);
+                
+                // Bilgilendirme
+                alert(`✅ İçe Aktarma Tamamlandı!\n\n📂 Kategori: ${category}\n✓ Eklenen: ${addedCount}\n⊘ Atlanan (zaten mevcut): ${skippedCount}\n━━━━━━━━━━━━━━\nToplam: ${validItems.length}`);
             };
 
             const updateCeramicItem = (oldItem, newName) => {
@@ -5116,7 +5294,13 @@
                 html += 'body{font-family:Arial;margin:40px}h1{text-align:center;color:#2563eb;border-bottom:3px solid #2563eb;padding-bottom:10px}';
                 html += 'h2{color:#1e40af;margin-top:30px;border-bottom:2px solid #ddd}table{width:100%;border-collapse:collapse;margin:20px 0;table-layout:fixed}';
                 html += 'th,td{border:1px solid #ddd;padding:12px;word-wrap:break-word}th{background:#2563eb;color:white}tr:nth-child(even){background:#f8f9fa}';
-                html += 'th:nth-child(1),td:nth-child(1){width:16%}th:nth-child(2),td:nth-child(2){width:16%}th:nth-child(3),td:nth-child(3){width:14%}th:nth-child(4),td:nth-child(4){width:28%}th:nth-child(5),td:nth-child(5){width:16%}th:nth-child(6),td:nth-child(6){width:10%}';
+                // Dinamik sütun genişlikleri
+                html += `th:nth-child(1),td:nth-child(1){width:${pdfColumnWidths.col1}%}`;
+                html += `th:nth-child(2),td:nth-child(2){width:${pdfColumnWidths.col2}%}`;
+                html += `th:nth-child(3),td:nth-child(3){width:${pdfColumnWidths.col3}%}`;
+                html += `th:nth-child(4),td:nth-child(4){width:${pdfColumnWidths.col4}%}`;
+                html += `th:nth-child(5),td:nth-child(5){width:${pdfColumnWidths.col5}%;text-align:center}`;
+                html += `th:nth-child(6),td:nth-child(6){width:${pdfColumnWidths.col6}%;text-align:center}`;
                 html += '.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(' + size + 'px,1fr));gap:20px;margin:20px 0}';
                 html += '.photo-item{border:3px solid #ddd;padding:15px;text-align:center;border-radius:8px}';
                 html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:5px}';
@@ -5580,7 +5764,7 @@
                                                             type="number" 
                                                             step="0.01" 
                                                             value={wallData.miktar || ''} 
-                                                            onChange={(e) => updateWallCover(i, 'miktar', e.target.value)} 
+                                                            onChange={(e) => updateWallCover(i, 'miktar', e.target.value, false)} 
                                                             placeholder="0.00" 
                                                             className={`border-2 rounded-lg px-3 py-2 text-sm w-full focus:ring transition-all pr-12 ${
                                                                 theme === 'dark'
@@ -5617,7 +5801,7 @@
                                                         type="number" 
                                                         step="0.01" 
                                                         value={wallData.miktar || ''} 
-                                                        onChange={(e) => updateWallCover(i, 'miktar', e.target.value)} 
+                                                        onChange={(e) => updateWallCover(i, 'miktar', e.target.value, false)} 
                                                         placeholder="0.00" 
                                                         className={`border-2 rounded-lg px-3 py-2 text-sm w-full focus:ring transition-all pr-12 ${
                                                             theme === 'dark'
@@ -5790,7 +5974,7 @@
                                                         type="number" 
                                                         step="0.01" 
                                                         value={data[f].miktar || ''} 
-                                                        onChange={(e) => updateField(f, { ...data[f], miktar: e.target.value })} 
+                                                        onChange={(e) => updateField(f, { ...data[f], miktar: e.target.value }, false)} 
                                                         placeholder="0.00" 
                                                         className={`border-2 rounded-lg px-4 py-2.5 w-full focus:ring transition-all pr-16 ${
                                                             theme === 'dark'
@@ -6077,7 +6261,7 @@
                                             type="number" 
                                             step="0.01" 
                                             value={data[f].miktar || ''} 
-                                            onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value })} 
+                                            onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value }, false)} 
                                             placeholder="0.00" 
                                             className={`border-2 rounded-lg px-4 py-2.5 w-full focus:ring transition-all pr-16 ${
                                                 theme === 'dark'
@@ -6091,7 +6275,7 @@
                                     <input 
                                         type="text" 
                                         value={data[f].miktar || ''} 
-                                        onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value })} 
+                                        onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value }, false)} 
                                         placeholder="Detay giriniz..." 
                                         className={`border-2 rounded-lg px-4 py-2.5 w-full focus:ring transition-all ${
                                             theme === 'dark'
@@ -6110,7 +6294,7 @@
                 const foundRoom = allRooms.find(r => r.id === currentRoom);
                 console.log('🔄 room yeniden hesaplanıyor, currentRoom:', currentRoom, 'foundRoom:', foundRoom?.name, 'fields:', foundRoom?.fields?.length);
                 return foundRoom;
-            }, [allRooms, currentRoom, refreshKey]);
+            }, [allRooms, currentRoom]); // refreshKey gereksiz
 
             // Auth yükleniyor ekranı
             if (authLoading) {
@@ -7173,6 +7357,22 @@
                                                 <div className="flex gap-2">
                                                     {cat !== 'Seramik' && (
                                                         <>
+                                                            {/* Excel Import Butonu */}
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setMaterialImportCategory(cat);
+                                                                    setShowMaterialImportModal(true);
+                                                                    setMaterialImportText('');
+                                                                    setMaterialImportPreview([]);
+                                                                }}
+                                                                className="px-3 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg text-sm font-semibold hover:from-green-600 hover:to-emerald-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                                                title="Excel'den toplu veri aktar"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                                                </svg>
+                                                                Excel'den İçe Aktar
+                                                            </button>
                                                             <button 
                                                                 onClick={() => {
                                                                     const newName = prompt('Yeni kategori adı:', cat);
@@ -8039,6 +8239,382 @@
                                         </svg>
                                         İçe Aktar ({excelImportPreview.filter(i => i.valid).length} adet)
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* MALZEME KATEGORİLERİ İÇİN EXCEL İMPORT MODAL */}
+                    {showMaterialImportModal && (() => {
+                        const category = materialImportCategory;
+                        const categoryConfig = materials[category];
+                        const hasSubGroup2 = categoryConfig?.useSubGroup2 === true;
+                        const columnCount = hasSubGroup2 ? 3 : 2;
+                        
+                        return (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                                <div className={`rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden ${
+                                    theme === 'dark'
+                                        ? 'bg-gradient-to-br from-gray-800 to-gray-900'
+                                        : 'bg-gradient-to-br from-white to-gray-50'
+                                }`}>
+                                    {/* Header */}
+                                    <div className="bg-gradient-to-r from-green-600 to-emerald-700 p-6">
+                                        <div className="flex items-center justify-between">
+                                            <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                                </svg>
+                                                Excel'den {category} İçe Aktarma
+                                            </h2>
+                                            <button
+                                                onClick={() => {
+                                                    setShowMaterialImportModal(false);
+                                                    setMaterialImportCategory('');
+                                                    setMaterialImportText('');
+                                                    setMaterialImportPreview([]);
+                                                }}
+                                                className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition-all"
+                                            >
+                                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Content */}
+                                    <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
+                                        {/* Açıklama */}
+                                        <div className={`p-4 rounded-lg mb-6 ${
+                                            theme === 'dark' ? 'bg-blue-900 bg-opacity-30' : 'bg-blue-50'
+                                        }`}>
+                                            <h3 className={`font-bold mb-2 flex items-center gap-2 ${
+                                                theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
+                                            }`}>
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                </svg>
+                                                Nasıl Kullanılır?
+                                            </h3>
+                                            <ol className={`list-decimal list-inside space-y-1 text-sm ${
+                                                theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                                            }`}>
+                                                <li>Excel'de verilerinizi <strong>{columnCount} sütun</strong> halinde hazırlayın</li>
+                                                {hasSubGroup2 ? (
+                                                    <li>Sütunlar: <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Alt Grup</kbd> - <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Alt Grup 2</kbd> - <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Malzeme</kbd></li>
+                                                ) : (
+                                                    <li>Sütunlar: <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Alt Grup</kbd> - <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Malzeme</kbd></li>
+                                                )}
+                                                <li>Excel'den seçip <kbd className="px-1 py-0.5 bg-gray-200 text-gray-800 rounded text-xs">Ctrl+C</kbd> ile kopyalayın</li>
+                                                <li>Aşağıdaki alana yapıştırın</li>
+                                                <li>Önizlemeyi kontrol edin ve onaylayın</li>
+                                            </ol>
+                                        </div>
+                                        
+                                        {/* Textarea */}
+                                        <div className="mb-4">
+                                            <label className={`block font-semibold mb-2 ${
+                                                theme === 'dark' ? 'text-gray-200' : 'text-gray-700'
+                                            }`}>
+                                                Excel Verilerini Buraya Yapıştırın:
+                                            </label>
+                                            <textarea
+                                                value={materialImportText}
+                                                onChange={(e) => {
+                                                    setMaterialImportText(e.target.value);
+                                                    parseMaterialExcelData(e.target.value, category);
+                                                }}
+                                                placeholder={hasSubGroup2 
+                                                    ? "Excel'den kopyaladığınız verileri buraya yapıştırın...\n\nÖrnek (3 sütun):\nGranit    Mat       Siyah Granit\nGranit    Mat       Gri Granit\nGranit    Parlak    Beyaz Granit\nMermer    Cilalı    Krem Mermer"
+                                                    : "Excel'den kopyaladığınız verileri buraya yapıştırın...\n\nÖrnek (2 sütun):\nSaten     Beyaz Saten\nSaten     Krem Saten\nMat       Mat Beyaz\nİpek      İpek Beyaz"
+                                                }
+                                                className={`w-full h-48 p-3 rounded-lg font-mono text-sm ${
+                                                    theme === 'dark'
+                                                        ? 'bg-gray-700 text-white border-gray-600'
+                                                        : 'bg-white text-gray-900 border-gray-300'
+                                                } border-2 focus:ring-2 focus:ring-green-500 focus:border-green-500`}
+                                            />
+                                        </div>
+                                        
+                                        {/* Önizleme */}
+                                        {materialImportPreview.length > 0 && (
+                                            <div>
+                                                <h3 className={`font-bold mb-3 flex items-center gap-2 ${
+                                                    theme === 'dark' ? 'text-gray-200' : 'text-gray-700'
+                                                }`}>
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                                    </svg>
+                                                    Önizleme
+                                                </h3>
+                                                <div className={`rounded-lg p-4 max-h-64 overflow-y-auto ${
+                                                    theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
+                                                }`}>
+                                                    <div className="space-y-1">
+                                                        {materialImportPreview.map((item, idx) => (
+                                                            <div
+                                                                key={idx}
+                                                                className={`flex items-center gap-3 p-2 rounded text-sm ${
+                                                                    item.valid
+                                                                        ? theme === 'dark'
+                                                                            ? 'bg-green-900 bg-opacity-30 text-green-300'
+                                                                            : 'bg-green-50 text-green-700'
+                                                                        : theme === 'dark'
+                                                                            ? 'bg-red-900 bg-opacity-30 text-red-300'
+                                                                            : 'bg-red-50 text-red-700'
+                                                                }`}
+                                                            >
+                                                                <span className={`font-mono text-xs px-2 py-0.5 rounded ${
+                                                                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                                                                }`}>
+                                                                    {item.lineNumber}
+                                                                </span>
+                                                                {item.valid ? (
+                                                                    <>
+                                                                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                                                        </svg>
+                                                                        <span className="flex-1">{item.displayText}</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                                        </svg>
+                                                                        <span className="flex-1">
+                                                                            <span className="font-semibold">HATA:</span> {item.error}
+                                                                            <br />
+                                                                            <span className="text-xs opacity-75">Orijinal: {item.original}</span>
+                                                                        </span>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                
+                                                {/* Özet */}
+                                                <div className={`mt-3 flex gap-4 text-sm ${
+                                                    theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                                }`}>
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                                                        <strong>{materialImportPreview.filter(i => i.valid).length}</strong> geçerli
+                                                    </span>
+                                                    {materialImportPreview.filter(i => !i.valid).length > 0 && (
+                                                        <span className="flex items-center gap-1">
+                                                            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                                                            <strong>{materialImportPreview.filter(i => !i.valid).length}</strong> hatalı
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        {/* Butonlar */}
+                                        <div className="flex gap-3 justify-end mt-6">
+                                            <button
+                                                onClick={() => {
+                                                    setShowMaterialImportModal(false);
+                                                    setMaterialImportCategory('');
+                                                    setMaterialImportText('');
+                                                    setMaterialImportPreview([]);
+                                                }}
+                                                className={`px-6 py-2.5 rounded-lg font-semibold transition-all ${
+                                                    theme === 'dark'
+                                                        ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                                                        : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                                                }`}
+                                            >
+                                                İptal
+                                            </button>
+                                            <button
+                                                onClick={importMaterialExcelData}
+                                                disabled={materialImportPreview.filter(i => i.valid).length === 0}
+                                                className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                                                    materialImportPreview.filter(i => i.valid).length === 0
+                                                        ? 'bg-gray-400 cursor-not-allowed text-gray-200'
+                                                        : theme === 'dark'
+                                                            ? 'bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow-lg'
+                                                            : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg'
+                                                }`}
+                                            >
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                                </svg>
+                                                İçe Aktar ({materialImportPreview.filter(i => i.valid).length} adet)
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
+                    
+                    {/* PDF SÜTUN AYARLARI MODAL */}
+                    {showPdfColumnSettings && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                            <div className={`rounded-2xl shadow-2xl max-w-2xl w-full ${
+                                theme === 'dark'
+                                    ? 'bg-gradient-to-br from-gray-800 to-gray-900'
+                                    : 'bg-gradient-to-br from-white to-gray-50'
+                            }`}>
+                                {/* Header */}
+                                <div className="bg-gradient-to-r from-orange-600 to-amber-700 p-6">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                                            </svg>
+                                            PDF Onay Formu - Sütun Genişlikleri
+                                        </h2>
+                                        <button
+                                            onClick={() => setShowPdfColumnSettings(false)}
+                                            className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition-all"
+                                        >
+                                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {/* Content */}
+                                <div className="p-6">
+                                    {/* Açıklama */}
+                                    <div className={`p-4 rounded-lg mb-6 ${
+                                        theme === 'dark' ? 'bg-blue-900 bg-opacity-30' : 'bg-blue-50'
+                                    }`}>
+                                        <p className={`text-sm ${
+                                            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                                        }`}>
+                                            📊 PDF onay formundaki tablo sütunlarının genişliklerini ayarlayın.
+                                            <br />
+                                            ⚠️ <strong>Toplam</strong> her zaman <strong>100%</strong> olmalıdır!
+                                        </p>
+                                    </div>
+                                    
+                                    {/* Sütun Ayarları */}
+                                    <div className="space-y-4">
+                                        {[
+                                            { key: 'col1', label: '1. Tür', color: 'blue' },
+                                            { key: 'col2', label: '2. Alt Grup', color: 'green' },
+                                            { key: 'col3', label: '3. Tip', color: 'purple' },
+                                            { key: 'col4', label: '4. Malzeme', color: 'red' },
+                                            { key: 'col5', label: '5. Miktar/Detay', color: 'yellow' },
+                                            { key: 'col6', label: '6. Birim', color: 'pink' }
+                                        ].map(({ key, label, color }) => (
+                                            <div key={key} className={`p-4 rounded-lg ${
+                                                theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
+                                            }`}>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <label className={`font-semibold ${
+                                                        theme === 'dark' ? 'text-gray-200' : 'text-gray-700'
+                                                    }`}>
+                                                        {label}
+                                                    </label>
+                                                    <span className={`text-lg font-bold ${
+                                                        theme === 'dark' ? 'text-white' : 'text-gray-900'
+                                                    }`}>
+                                                        {pdfColumnWidths[key]}%
+                                                    </span>
+                                                </div>
+                                                <input
+                                                    type="range"
+                                                    min="5"
+                                                    max="50"
+                                                    value={pdfColumnWidths[key]}
+                                                    onChange={(e) => {
+                                                        const newWidths = {
+                                                            ...pdfColumnWidths,
+                                                            [key]: parseInt(e.target.value)
+                                                        };
+                                                        setPdfColumnWidths(newWidths);
+                                                    }}
+                                                    className={`w-full h-2 rounded-lg appearance-none cursor-pointer bg-${color}-200`}
+                                                    style={{
+                                                        background: `linear-gradient(to right, 
+                                                            ${color === 'blue' ? '#3b82f6' : 
+                                                              color === 'green' ? '#10b981' :
+                                                              color === 'purple' ? '#8b5cf6' :
+                                                              color === 'red' ? '#ef4444' :
+                                                              color === 'yellow' ? '#f59e0b' : '#ec4899'} 0%, 
+                                                            ${color === 'blue' ? '#60a5fa' : 
+                                                              color === 'green' ? '#34d399' :
+                                                              color === 'purple' ? '#a78bfa' :
+                                                              color === 'red' ? '#f87171' :
+                                                              color === 'yellow' ? '#fbbf24' : '#f472b6'} 100%)`
+                                                    }}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                    
+                                    {/* Toplam Göstergesi */}
+                                    <div className={`mt-6 p-4 rounded-lg text-center font-bold text-lg ${
+                                        (() => {
+                                            const total = Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0);
+                                            if (total === 100) {
+                                                return theme === 'dark' 
+                                                    ? 'bg-green-900 bg-opacity-30 text-green-300'
+                                                    : 'bg-green-100 text-green-700';
+                                            } else {
+                                                return theme === 'dark'
+                                                    ? 'bg-red-900 bg-opacity-30 text-red-300'
+                                                    : 'bg-red-100 text-red-700';
+                                            }
+                                        })()
+                                    }`}>
+                                        Toplam: {Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0)}%
+                                        {Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0) === 100 ? ' ✅' : ' ⚠️'}
+                                    </div>
+                                    
+                                    {/* Butonlar */}
+                                    <div className="flex gap-3 justify-end mt-6">
+                                        <button
+                                            onClick={() => {
+                                                setPdfColumnWidths({
+                                                    col1: 16,
+                                                    col2: 16,
+                                                    col3: 14,
+                                                    col4: 28,
+                                                    col5: 16,
+                                                    col6: 10
+                                                });
+                                            }}
+                                            className={`px-6 py-2.5 rounded-lg font-semibold transition-all ${
+                                                theme === 'dark'
+                                                    ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                                                    : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                                            }`}
+                                        >
+                                            Varsayılana Dön
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                const total = Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0);
+                                                if (total !== 100) {
+                                                    alert('⚠️ Toplam 100% olmalıdır!\n\nŞu an: ' + total + '%');
+                                                    return;
+                                                }
+                                                localStorage.setItem('pdf_column_widths', JSON.stringify(pdfColumnWidths));
+                                                setShowPdfColumnSettings(false);
+                                                alert('✅ Ayarlar kaydedildi!\n\nPDF onay formunda yeni genişlikler kullanılacak.');
+                                            }}
+                                            className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                                                theme === 'dark'
+                                                    ? 'bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow-lg'
+                                                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg'
+                                            }`}
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                            </svg>
+                                            Kaydet
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -12644,12 +13220,23 @@
                                 
                                 <div className="border-t pt-3 mt-3">
                                     <h4 className="text-xs font-bold text-gray-500 mb-3 tracking-wide uppercase">Raporlar</h4>
-                                    <button onClick={generatePrintForm} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-red-600 hover:to-rose-700 transition-all flex items-center justify-center gap-2">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    <div className="flex gap-2 mb-2">
+                                        <button onClick={generatePrintForm} className="flex-1 px-4 py-3 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-red-600 hover:to-rose-700 transition-all flex items-center justify-center gap-2">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                         </svg>
                                         Onay Formu
                                     </button>
+                                    <button 
+                                        onClick={() => setShowPdfColumnSettings(true)}
+                                        className="px-3 py-3 bg-gradient-to-r from-orange-500 to-amber-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-orange-600 hover:to-amber-700 transition-all flex items-center justify-center"
+                                        title="PDF Sütun Ayarları"
+                                    >
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                                     <button onClick={downloadExcel} className="w-full px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-700 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-green-700 hover:to-emerald-800 transition-all flex items-center justify-center gap-2">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
@@ -12722,7 +13309,7 @@
                                 </div>
 
                                 {/* Veri Giriş Alanları - Kategorilere Göre Gruplandırılmış */}
-                                <div className="space-y-6" key={refreshKey}>
+                                <div className="space-y-6">
                                     {room && (() => {
                                         // room.fields sırasına göre grupla (KULLANICI SİRALAMASI)
                                         const grouped = {};
