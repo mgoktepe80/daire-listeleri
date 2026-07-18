@@ -742,6 +742,23 @@
             return migrated;
         };
 
+        // Mekan şablonundaki varsayılan miktarlardan (defaultAmounts) daire data'sı üretir
+        // Malzeme seçimi yapılmadan miktar girilmiş olur; malzeme sonradan seçilebilir
+        const buildDefaultAmountData = (rooms) => {
+            const data = {};
+            (rooms || []).forEach(room => {
+                const defs = room.defaultAmounts || {};
+                Object.entries(defs).forEach(([fk, amt]) => {
+                    if (amt === '' || amt === null || amt === undefined) return;
+                    if (!(room.fields || []).includes(fk)) return;
+                    if (fk === 'foto' || fk === 'duvar_kaplama') return;
+                    if (!data[room.id]) data[room.id] = {};
+                    data[room.id][fk] = { miktar: String(amt) };
+                });
+            });
+            return data;
+        };
+
         // Eski dairelere customRooms ekler (yoksa 2+1 şablonu)
         const migrateApartments = (apartments) => {
             if (!apartments || !Array.isArray(apartments)) return apartments;
@@ -3959,13 +3976,18 @@
                     
                     const updatedData = { ...apt.data };
                     
-                    // Her mekan için
-                    Object.keys(updatedData).forEach(roomId => {
-                        const room = allRooms.find(r => r.id === roomId);
-                        if (!room) return;
+                    // Her mekan için - dairenin TÜM mekanları (data boş olsa bile çalışır)
+                    const aptRooms = (apt.customRooms && apt.customRooms.length > 0) ? apt.customRooms : allRooms;
+                    aptRooms.forEach(room => {
+                        const roomId = room.id;
                         
                         // Bu mekan hedef tipte mi?
                         if (!shouldApplyToRoom(room.name)) return;
+                        
+                        // Mekan data'da yoksa oluştur
+                        if (!updatedData[roomId]) {
+                            updatedData[roomId] = {};
+                        }
                         
                         // Seçilen alanları güncelle
                         selectedFields.forEach(field => {
@@ -4092,13 +4114,18 @@
                     
                     const updatedData = { ...apt.data };
                     
-                    // Her mekan için
-                    Object.keys(updatedData).forEach(roomId => {
-                        const room = allRooms.find(r => r.id === roomId);
-                        if (!room) return;
+                    // Her mekan için - dairenin TÜM mekanları (data boş olsa bile çalışır)
+                    const aptRooms = (apt.customRooms && apt.customRooms.length > 0) ? apt.customRooms : allRooms;
+                    aptRooms.forEach(room => {
+                        const roomId = room.id;
                         
                         // Bu mekan hedef tipte mi?
                         if (!shouldApplyToRoom(room.name)) return;
+                        
+                        // Mekan data'da yoksa oluştur
+                        if (!updatedData[roomId]) {
+                            updatedData[roomId] = {};
+                        }
                         
                         // Seçilen alanları güncelle
                         selectedFields.forEach(field => {
@@ -5829,7 +5856,7 @@
                                                         </div>
                                                     )}
                                                 </div>
-                                                {wallData.malzeme && (
+                                                {(
                                                     <div className="relative">
                                                         <input 
                                                             type="number" 
@@ -6039,13 +6066,13 @@
                                                     <option key={m} value={m}>{m}</option>
                                                 ))}
                                             </select>
-                                            {data[f] && data[f].malzeme && (
+                                            {(
                                                 <div className="relative">
                                                     <input 
                                                         type="number" 
                                                         step="0.01" 
-                                                        value={data[f].miktar || ''} 
-                                                        onChange={(e) => updateField(f, { ...data[f], miktar: e.target.value }, false)} 
+                                                        value={(data[f] && data[f].miktar) || ''} 
+                                                        onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value }, false)} 
                                                         placeholder="0.00" 
                                                         className={`border-2 rounded-lg px-4 py-2.5 w-full focus:ring transition-all pr-16 ${
                                                             theme === 'dark'
@@ -6324,14 +6351,14 @@
                                 })()}
                             </div>
                         {/* Miktar/Detay - Alt satır */}
-                        {(data[f] && data[f].malzeme) && (
+                        {(
                             <div className="mt-3 pt-3 border-t-2 border-white">
                                 {fc.unit ? (
                                     <div className="relative">
                                         <input 
                                             type="number" 
                                             step="0.01" 
-                                            value={data[f].miktar || ''} 
+                                            value={(data[f] && data[f].miktar) || ''} 
                                             onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value }, false)} 
                                             placeholder="0.00" 
                                             className={`border-2 rounded-lg px-4 py-2.5 w-full focus:ring transition-all pr-16 ${
@@ -6345,7 +6372,7 @@
                                 ) : (
                                     <input 
                                         type="text" 
-                                        value={data[f].miktar || ''} 
+                                        value={(data[f] && data[f].miktar) || ''} 
                                         onChange={(e) => updateField(f, { ...(data[f] || {}), miktar: e.target.value }, false)} 
                                         placeholder="Detay giriniz..." 
                                         className={`border-2 rounded-lg px-4 py-2.5 w-full focus:ring transition-all ${
@@ -11359,25 +11386,49 @@
                                                             {/* Alan Seçimi */}
                                                             <div className="mt-3 flex flex-wrap gap-2">
                                                                 {Object.entries(fieldLabels).filter(([key]) => key !== 'foto').map(([fieldKey, fieldConfig]) => (
-                                                                    <label key={fieldKey} className="flex items-center gap-2 cursor-pointer">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={room.fields.includes(fieldKey)}
-                                                                            onChange={(e) => {
-                                                                                const updated = [...customRoomSetup];
-                                                                                if (e.target.checked) {
-                                                                                    updated[idx].fields.push(fieldKey);
-                                                                                } else {
-                                                                                    updated[idx].fields = updated[idx].fields.filter(f => f !== fieldKey);
-                                                                                }
-                                                                                setCustomRoomSetup(updated);
-                                                                            }}
-                                                                            className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
-                                                                        />
-                                                                        <span className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                            {fieldConfig.label}
-                                                                        </span>
-                                                                    </label>
+                                                                    <div key={fieldKey} className="flex items-center gap-1">
+                                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={room.fields.includes(fieldKey)}
+                                                                                onChange={(e) => {
+                                                                                    const updated = [...customRoomSetup];
+                                                                                    if (e.target.checked) {
+                                                                                        updated[idx].fields.push(fieldKey);
+                                                                                    } else {
+                                                                                        updated[idx].fields = updated[idx].fields.filter(f => f !== fieldKey);
+                                                                                    }
+                                                                                    setCustomRoomSetup(updated);
+                                                                                }}
+                                                                                className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                                                            />
+                                                                            <span className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                {fieldConfig.label}
+                                                                            </span>
+                                                                        </label>
+                                                                        {/* Varsayılan miktar - alan seçiliyse ve birimi varsa göster */}
+                                                                        {room.fields.includes(fieldKey) && fieldConfig.unit && fieldKey !== 'duvar_kaplama' && (
+                                                                            <div className="relative">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    value={(room.defaultAmounts && room.defaultAmounts[fieldKey]) || ''}
+                                                                                    onChange={(e) => {
+                                                                                        const updated = [...customRoomSetup];
+                                                                                        updated[idx] = {
+                                                                                            ...updated[idx],
+                                                                                            defaultAmounts: { ...(updated[idx].defaultAmounts || {}), [fieldKey]: e.target.value }
+                                                                                        };
+                                                                                        setCustomRoomSetup(updated);
+                                                                                    }}
+                                                                                    placeholder="0"
+                                                                                    title={`Varsayılan miktar (${fieldConfig.unit})`}
+                                                                                    className={`w-20 px-2 py-1 text-xs border rounded pr-7 ${theme === 'dark' ? 'border-gray-500 bg-gray-600 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                                                                                />
+                                                                                <span className={`absolute right-1.5 top-1/2 -translate-y-1/2 text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>{fieldConfig.unit}</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
                                                                 ))}
                                                                 {/* Fotoğraf her zaman dahil */}
                                                                 <span className={`text-xs px-2 py-1 rounded ${
@@ -11463,7 +11514,7 @@
                                                 apartments: [{
                                                     id: 1,
                                                     name: 'Daire 1',
-                                                    data: {},
+                                                    data: buildDefaultAmountData(roomsWithPhoto),
                                                     wallCount: {},
                                                     hiddenRooms: [],
                                                     customRooms: roomsWithPhoto
@@ -11780,25 +11831,49 @@
                                                             
                                                             <div className="mt-3 flex flex-wrap gap-2">
                                                                 {Object.entries(fieldLabels).filter(([key]) => key !== 'foto').map(([fieldKey, fieldConfig]) => (
-                                                                    <label key={fieldKey} className="flex items-center gap-2 cursor-pointer">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={room.fields.includes(fieldKey)}
-                                                                            onChange={(e) => {
-                                                                                const updated = [...customRoomSetup];
-                                                                                if (e.target.checked) {
-                                                                                    updated[idx].fields.push(fieldKey);
-                                                                                } else {
-                                                                                    updated[idx].fields = updated[idx].fields.filter(f => f !== fieldKey);
-                                                                                }
-                                                                                setCustomRoomSetup(updated);
-                                                                            }}
-                                                                            className="w-4 h-4 text-green-600 rounded focus:ring-2 focus:ring-green-500"
-                                                                        />
-                                                                        <span className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                                                            {fieldConfig.label}
-                                                                        </span>
-                                                                    </label>
+                                                                    <div key={fieldKey} className="flex items-center gap-1">
+                                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={room.fields.includes(fieldKey)}
+                                                                                onChange={(e) => {
+                                                                                    const updated = [...customRoomSetup];
+                                                                                    if (e.target.checked) {
+                                                                                        updated[idx].fields.push(fieldKey);
+                                                                                    } else {
+                                                                                        updated[idx].fields = updated[idx].fields.filter(f => f !== fieldKey);
+                                                                                    }
+                                                                                    setCustomRoomSetup(updated);
+                                                                                }}
+                                                                                className="w-4 h-4 text-green-600 rounded focus:ring-2 focus:ring-green-500"
+                                                                            />
+                                                                            <span className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                                                {fieldConfig.label}
+                                                                            </span>
+                                                                        </label>
+                                                                        {/* Varsayılan miktar - alan seçiliyse ve birimi varsa göster */}
+                                                                        {room.fields.includes(fieldKey) && fieldConfig.unit && fieldKey !== 'duvar_kaplama' && (
+                                                                            <div className="relative">
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    value={(room.defaultAmounts && room.defaultAmounts[fieldKey]) || ''}
+                                                                                    onChange={(e) => {
+                                                                                        const updated = [...customRoomSetup];
+                                                                                        updated[idx] = {
+                                                                                            ...updated[idx],
+                                                                                            defaultAmounts: { ...(updated[idx].defaultAmounts || {}), [fieldKey]: e.target.value }
+                                                                                        };
+                                                                                        setCustomRoomSetup(updated);
+                                                                                    }}
+                                                                                    placeholder="0"
+                                                                                    title={`Varsayılan miktar (${fieldConfig.unit})`}
+                                                                                    className={`w-20 px-2 py-1 text-xs border rounded pr-7 ${theme === 'dark' ? 'border-gray-500 bg-gray-600 text-white' : 'border-gray-300 bg-white text-gray-900'}`}
+                                                                                />
+                                                                                <span className={`absolute right-1.5 top-1/2 -translate-y-1/2 text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>{fieldConfig.unit}</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
                                                                 ))}
                                                                 <span className={`text-xs px-2 py-1 rounded ${
                                                                     theme === 'dark' ? 'bg-green-900 text-green-200' : 'bg-green-100 text-green-700'
@@ -11880,7 +11955,7 @@
                                             updateApartments([...apartments, {
                                                 id: newId,
                                                 name: newApartmentName.trim(),
-                                                data: {},
+                                                data: buildDefaultAmountData(roomsWithPhoto),
                                                 wallCount: {},
                                                 hiddenRooms: [],
                                                 customRooms: roomsWithPhoto
