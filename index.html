@@ -768,6 +768,12 @@
             const userId = auth.currentUser.uid;
             return db.collection('appData').doc(userId).onSnapshot((doc) => {
                 if (doc.exists) {
+                    // ÖNEMLİ: Kendi cihazımızdan yapılan yazma işlemlerini atla
+                    // hasPendingWrites = true ise bu bizim kendi yazdığımız veri, işleme gerek yok
+                    if (doc.metadata.hasPendingWrites) {
+                        console.log('⏭️ Kendi yazma işlemimiz, listener atlıyor');
+                        return;
+                    }
                     console.log('🔄 Firebase\'den güncelleme alındı (Kullanıcı:', userId.substring(0, 8) + '...)');
                     callback(doc.data());
                 }
@@ -1284,6 +1290,10 @@
             const [sessionConflict, setSessionConflict] = useState(null);
             const [showSessionConflictModal, setShowSessionConflictModal] = useState(false);
             const [refreshKey, setRefreshKey] = useState(0); // Form yenileme için - ayarlar değiştiğinde formu günceller
+            // ÖNEMLİ: Sonsuz döngü koruması - listener'dan gelen güncellemelerde autosave'i atla
+            const applyingRemoteRef = React.useRef(false);
+            // Son kaydedilen/uygulanan verinin hash'i - aynı veri tekrar işlenmesin
+            const lastAppliedDataRef = React.useRef('');
             const [showNewProjectModal, setShowNewProjectModal] = useState(false);
             const [newProjectName, setNewProjectName] = useState('');
             const [selectedTemplate, setSelectedTemplate] = useState('2+1');
@@ -1438,9 +1448,22 @@
             useEffect(() => {
                 if (authLoading || !user) return; // İlk yükleme tamamlanana kadar bekle
                 
+                // ÖNEMLİ: Bu state değişikliği Firebase listener'dan geldiyse KAYDETME
+                // Aksi halde: listener → setState → autosave → Firebase → listener → ... sonsuz döngü olur
+                if (applyingRemoteRef.current) {
+                    console.log('⏭️ Uzaktan gelen güncelleme, autosave atlanıyor');
+                    applyingRemoteRef.current = false;
+                    return;
+                }
+                
                 if (firebaseSync && firebaseEnabled && user) {
                     // Debounce: 2 saniye bekle, ardından kaydet (gereksiz kayıtları engelle)
                     const saveTimeout = setTimeout(async () => {
+                        // Kaydedilen verinin hash'ini tut - listener sunucu yankısını atlasın
+                        lastAppliedDataRef.current = JSON.stringify({
+                            p: projects, c: customRooms, b: baseRooms,
+                            f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData
+                        });
                         await saveToFirebase({
                             projects,
                             customRooms,
@@ -1839,11 +1862,28 @@
                     
                     // Sadece Firebase daha yeni ise güncelle (kendi değişikliklerimizi atla)
                     if (firebaseTimestamp > lastLocalUpdateTime + 3000) { // 3 saniye tolerans
-                        console.log('🔄 Başka cihazdan güncelleme alındı');
-                        
                         // ÖNEMLİ: Firebase object'lerini deep clone ile normal JS object'e çevir
                         const cleanData = JSON.parse(JSON.stringify(data));
-                        console.log('🔄 Firebase listener data deep clone yapıldı');
+                        
+                        // ÖNEMLİ: Gelen veri şu anki veriyle AYNI ise hiçbir şey yapma
+                        // (kendi kaydımızın sunucudan geri yankısı olabilir)
+                        const incomingHash = JSON.stringify({
+                            p: cleanData.projects, c: cleanData.customRooms, b: cleanData.baseRooms,
+                            f: cleanData.fieldLabels, r: cleanData.roomOrder, m: cleanData.materials, cd: cleanData.ceramicData
+                        });
+                        if (incomingHash === lastAppliedDataRef.current) {
+                            console.log('⏭️ Gelen veri mevcut veriyle aynı, listener atlıyor');
+                            lastLocalUpdateTime = firebaseTimestamp;
+                            return;
+                        }
+                        lastAppliedDataRef.current = incomingHash;
+                        
+                        console.log('🔄 Başka cihazdan güncelleme alındı');
+                        
+                        // ÖNEMLİ: Autosave effect'inin tetiklenmesini engelle (sonsuz döngü koruması)
+                        applyingRemoteRef.current = true;
+                        // Güvenlik: bayrak 1 saniye sonra otomatik temizlensin (takılı kalmasın)
+                        setTimeout(() => { applyingRemoteRef.current = false; }, 1000);
                         
                         // Projects'i migrate ederek yükle
                         if (cleanData.projects) {
@@ -1887,12 +1927,9 @@
                         lastLocalUpdateTime = firebaseTimestamp;
                         setLastSyncTime(new Date(firebaseTimestamp));
                         
-                        // FORCE REFRESH
-                        console.log('🔄 Listener sonrası force refresh yapılıyor...');
-                        setTimeout(() => {
-                            setRefreshKey(prev => prev + 1);
-                            console.log('✅ Listener force refresh tamamlandı');
-                        }, 100);
+                        // NOT: Force refresh (setRefreshKey) KALDIRILDI
+                        // setState çağrıları zaten re-render tetikler, useMemo'lar otomatik yenilenir
+                        // Ekstra refresh gereksiz render döngüsüne neden oluyordu
                         
                         // Geçici bildirim göster
                         setFirebaseStatus({ connected: true, message: 'Başka cihazdan güncelleme alındı', type: 'success' });
@@ -2096,13 +2133,20 @@
                         console.log('👑 Admin başka kullanıcı verisini kaydediyor:', viewingUserId.substring(0, 8) + '...');
                     }
                     
+                    // Kaydedilen verinin hash'ini tut - listener sunucu yankısını atlasın
+                    lastAppliedDataRef.current = JSON.stringify({
+                        p: projects, c: customRooms, b: baseRooms,
+                        f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData
+                    });
+                    
                     const success = await saveToFirebaseWithUserId(targetUserId, {
                         projects,
                         customRooms,
                         baseRooms,
                         roomOrder,
                         fieldLabels,
-                        materials
+                        materials,
+                        ceramicData
                     });
                     
                     if (success) {
