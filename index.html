@@ -677,6 +677,23 @@
         // ==========================================
         // ESKİ VERİLERİ GÜNCELLEMEk İÇİN YARDIMCI FONKSİYON
         // ==========================================
+        // ÖNEMLİ: Anahtar sırasından bağımsız stringify
+        // Firestore map anahtarlarını alfabetik döndürür, JSON.stringify sıraya duyarlıdır
+        // Bu yüzden normal stringify ile karşılaştırma yanlış "farklı veri" sonucu verir
+        const stableStringify = (obj) => {
+            const sortKeys = (v) => {
+                if (Array.isArray(v)) return v.map(sortKeys);
+                if (v && typeof v === 'object') {
+                    return Object.keys(v).sort().reduce((acc, k) => {
+                        acc[k] = sortKeys(v[k]);
+                        return acc;
+                    }, {});
+                }
+                return v;
+            };
+            return JSON.stringify(sortKeys(obj));
+        };
+
         // Eski projelerdeki mahallere editable/deletable özelliklerini ekler
         const migrateRoomsData = (rooms) => {
             if (!rooms || !Array.isArray(rooms)) return rooms;
@@ -1449,10 +1466,22 @@
                 if (authLoading || !user) return; // İlk yükleme tamamlanana kadar bekle
                 
                 // ÖNEMLİ: Bu state değişikliği Firebase listener'dan geldiyse KAYDETME
-                // Aksi halde: listener → setState → autosave → Firebase → listener → ... sonsuz döngü olur
+                // NOT: Bayrağı burada SIFIRLAMA! React 17'de listener'daki her setState
+                // ayrı render tetikler, effect birden fazla kez çalışabilir.
+                // Bayrak sadece listener'daki güvenlik timeout'u ile temizlenir.
                 if (applyingRemoteRef.current) {
                     console.log('⏭️ Uzaktan gelen güncelleme, autosave atlanıyor');
-                    applyingRemoteRef.current = false;
+                    return;
+                }
+                
+                // ÖNEMLİ: İçerik gerçekten değişti mi kontrol et
+                // Referans değişse bile içerik aynıysa (sunucu yankısı) kaydetme
+                const currentHash = stableStringify({
+                    p: projects, c: customRooms, b: baseRooms,
+                    f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData
+                });
+                if (currentHash === lastAppliedDataRef.current) {
+                    console.log('⏭️ İçerik değişmedi, autosave gereksiz');
                     return;
                 }
                 
@@ -1460,10 +1489,7 @@
                     // Debounce: 2 saniye bekle, ardından kaydet (gereksiz kayıtları engelle)
                     const saveTimeout = setTimeout(async () => {
                         // Kaydedilen verinin hash'ini tut - listener sunucu yankısını atlasın
-                        lastAppliedDataRef.current = JSON.stringify({
-                            p: projects, c: customRooms, b: baseRooms,
-                            f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData
-                        });
+                        lastAppliedDataRef.current = currentHash;
                         await saveToFirebase({
                             projects,
                             customRooms,
@@ -1867,7 +1893,8 @@
                         
                         // ÖNEMLİ: Gelen veri şu anki veriyle AYNI ise hiçbir şey yapma
                         // (kendi kaydımızın sunucudan geri yankısı olabilir)
-                        const incomingHash = JSON.stringify({
+                        // stableStringify: Firestore anahtarları alfabetik döndürdüğü için şart
+                        const incomingHash = stableStringify({
                             p: cleanData.projects, c: cleanData.customRooms, b: cleanData.baseRooms,
                             f: cleanData.fieldLabels, r: cleanData.roomOrder, m: cleanData.materials, cd: cleanData.ceramicData
                         });
@@ -2134,7 +2161,7 @@
                     }
                     
                     // Kaydedilen verinin hash'ini tut - listener sunucu yankısını atlasın
-                    lastAppliedDataRef.current = JSON.stringify({
+                    lastAppliedDataRef.current = stableStringify({
                         p: projects, c: customRooms, b: baseRooms,
                         f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData
                     });
