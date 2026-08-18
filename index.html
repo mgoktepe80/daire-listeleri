@@ -700,6 +700,27 @@
             }
         };
 
+        // Firestore undefined değer kabul etmez (set() hata verir).
+        // Kaydetmeden önce undefined alanları temizle.
+        const stripUndefined = (value) => {
+            if (Array.isArray(value)) {
+                return value.map(v => (v === undefined ? null : stripUndefined(v)));
+            }
+            if (value && typeof value === 'object') {
+                // Firestore özel tiplerine (Timestamp, FieldValue) dokunma
+                if (value instanceof Date || typeof value.toDate === 'function' || value._delegate || value._methodName) {
+                    return value;
+                }
+                const out = {};
+                Object.keys(value).forEach(k => {
+                    if (value[k] === undefined) return; // anahtarı tamamen çıkar
+                    out[k] = stripUndefined(value[k]);
+                });
+                return out;
+            }
+            return value;
+        };
+
         const saveToFirebase = async (data) => {
             if (!firebaseEnabled || !db || !auth || !auth.currentUser) return false;
             
@@ -710,7 +731,7 @@
                 const migratedData = await migrateIconsToStorage(data);
                 
                 await db.collection('appData').doc(userId).set({
-                    ...migratedData,
+                    ...stripUndefined(migratedData),
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 console.log('✅ Firebase\'e kaydedildi (Kullanıcı:', userId.substring(0, 8) + '...)');
@@ -730,7 +751,7 @@
                 const migratedData = await migrateIconsToStorage(data);
                 
                 await db.collection('appData').doc(targetUserId).set({
-                    ...migratedData,
+                    ...stripUndefined(migratedData),
                     lastUpdate: firebase.firestore.FieldValue.serverTimestamp()
                 });
                 console.log('✅ Firebase\'e kaydedildi (Hedef:', targetUserId.substring(0, 8) + '...)');
@@ -3233,7 +3254,8 @@
                 }
                 
                 delete photos[idx];
-                updateField('foto', Object.keys(photos).length > 0 ? photos : undefined);
+                // undefined YAZMA: Firestore undefined kabul etmiyor, boş obje kullan
+                updateField('foto', photos);
             };
 
             // Kategori yönetimi fonksiyonları
@@ -4518,7 +4540,7 @@
                         wallCount: newWallCount,
                         hiddenRooms: newHiddenRooms,
                         // customRooms'u da kopyala (migrate ederek)
-                        customRooms: sourceApt.customRooms ? migrateRoomsData(JSON.parse(JSON.stringify(sourceApt.customRooms))) : undefined
+                        customRooms: sourceApt.customRooms ? migrateRoomsData(JSON.parse(JSON.stringify(sourceApt.customRooms))) : []
                     };
                     
                     newApartments.push(newApartment);
