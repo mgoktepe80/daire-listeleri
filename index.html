@@ -1428,6 +1428,10 @@
             const [pdfShowProductPhotos, setPdfShowProductPhotos] = useState(
                 () => localStorage.getItem('pdf_show_product_photos') !== 'false'
             );
+            // Onay formu antet bilgileri
+            const [companyName, setCompanyName] = useState(() => localStorage.getItem('company_name') || '');
+            const [companyLogo, setCompanyLogo] = useState(() => localStorage.getItem('company_logo') || '');
+            const [logoUploading, setLogoUploading] = useState(false);
             const [showDefaultSettings, setShowDefaultSettings] = useState(false);
             const [newCategoryName, setNewCategoryName] = useState('');
             const [editingCategory, setEditingCategory] = useState(null);
@@ -1713,7 +1717,9 @@
                             fieldLabels,
                             materials,
                             ceramicData,
-                            productPhotos: productPhotosToArray(productPhotos)
+                            productPhotos: productPhotosToArray(productPhotos),
+                            companyName,
+                            companyLogo
                         });
                     }, 2000);
 
@@ -1882,6 +1888,14 @@
                                     const cleanPhotos = productPhotosFromAny(JSON.parse(JSON.stringify(firebaseData.productPhotos)));
                                     setProductPhotos(cleanPhotos);
                                     localStorage.setItem('product_photos', JSON.stringify(cleanPhotos));
+                                }
+                                if (typeof firebaseData.companyName === 'string') {
+                                    setCompanyName(firebaseData.companyName);
+                                    localStorage.setItem('company_name', firebaseData.companyName);
+                                }
+                                if (typeof firebaseData.companyLogo === 'string') {
+                                    setCompanyLogo(firebaseData.companyLogo);
+                                    localStorage.setItem('company_logo', firebaseData.companyLogo);
                                 }
                                 const firebaseTimestamp = firebaseData.lastUpdate?.toMillis() || Date.now();
                                 setLastSyncTime(new Date(firebaseTimestamp));
@@ -2178,6 +2192,14 @@
                             setProductPhotos(cleanPhotos);
                             localStorage.setItem('product_photos', JSON.stringify(cleanPhotos));
                         }
+                        if (typeof cleanData.companyName === 'string') {
+                            setCompanyName(cleanData.companyName);
+                            localStorage.setItem('company_name', cleanData.companyName);
+                        }
+                        if (typeof cleanData.companyLogo === 'string') {
+                            setCompanyLogo(cleanData.companyLogo);
+                            localStorage.setItem('company_logo', cleanData.companyLogo);
+                        }
                         
                         lastLocalUpdateTime = firebaseTimestamp;
                         setLastSyncTime(new Date(firebaseTimestamp));
@@ -2372,6 +2394,54 @@
             };
 
             // ==========================================
+            // FİRMA ANTETİ (onay formu için)
+            // ==========================================
+
+            const setFirmaAdi = (ad) => {
+                setCompanyName(ad);
+                localStorage.setItem('company_name', ad);
+            };
+
+            const firmaLogosuYukle = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.onchange = async (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (!file) return;
+                    setLogoUploading(true);
+                    try {
+                        const base64 = await new Promise((resolve, reject) => {
+                            const r = new FileReader();
+                            r.onload = ev => resolve(ev.target.result);
+                            r.onerror = reject;
+                            r.readAsDataURL(file);
+                        });
+                        // Logo küçük kalsın ama net olsun
+                        const compressed = await compressImage(base64, 600, 0.85);
+                        let url = compressed;
+                        if (auth && auth.currentUser) {
+                            url = await uploadIconToStorage(compressed, auth.currentUser.uid, 'firma', 'logo');
+                        }
+                        setCompanyLogo(url);
+                        localStorage.setItem('company_logo', url);
+                    } catch (err) {
+                        console.error('❌ Logo yükleme hatası:', err);
+                        alert('❌ Logo yüklenemedi!\n\n' + (err.message || err));
+                    } finally {
+                        setLogoUploading(false);
+                    }
+                };
+                input.click();
+            };
+
+            const firmaLogosuSil = () => {
+                if (!confirm('Firma logosu kaldırılsın mı?')) return;
+                setCompanyLogo('');
+                localStorage.removeItem('company_logo');
+            };
+
+            // ==========================================
             // GÜNCELLEME / ÖNBELLEK YARDIMCILARI
             // ==========================================
 
@@ -2387,7 +2457,8 @@
                 return await saveToFirebaseWithUserId(targetUserId, {
                     projects, customRooms, baseRooms, roomOrder,
                     fieldLabels, materials, ceramicData,
-                    productPhotos: productPhotosToArray(productPhotos)
+                    productPhotos: productPhotosToArray(productPhotos),
+                    companyName, companyLogo
                 });
             };
 
@@ -2440,7 +2511,7 @@
                     'projects_data', 'custom_rooms', 'base_rooms', 'field_labels',
                     'room_order', 'material_database', 'ceramic_data', 'product_photos',
                     'icon_library', 'pdf_column_widths', 'pdf_show_product_photos',
-                    'only_photo_categories'
+                    'only_photo_categories', 'company_name', 'company_logo'
                 ].forEach(k => localStorage.removeItem(k));
 
                 alert('✅ Buluta kaydedildi ve yerel kopya temizlendi.\n\nSayfa yeniden açılıyor, veriler buluttan yüklenecek.');
@@ -2480,7 +2551,9 @@
                         fieldLabels,
                         materials,
                         ceramicData,
-                        productPhotos: productPhotosToArray(productPhotos)
+                        productPhotos: productPhotosToArray(productPhotos),
+                        companyName,
+                        companyLogo
                     });
                     
                     if (success) {
@@ -6225,9 +6298,27 @@
                 html += '.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(' + size + 'px,1fr));gap:20px;margin:20px 0}';
                 html += '.photo-item{border:3px solid #ddd;padding:15px;text-align:center;border-radius:8px}';
                 html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:5px}';
+                html += '.antet{display:flex;align-items:center;gap:20px;border-bottom:3px solid #2563eb;padding-bottom:14px;margin-bottom:18px}';
+                html += '.antet img{max-height:80px;max-width:240px;object-fit:contain}';
+                html += '.antet .firma{font-size:24px;font-weight:bold;color:#1e40af;letter-spacing:.5px}';
+                html += '.imza-alani{margin-top:45px;border-top:2px solid #333;padding-top:22px;page-break-inside:avoid}';
+                html += '.imza-tablo{width:100%;border-collapse:collapse;margin-top:18px;table-layout:fixed}';
+                html += '.imza-tablo td{border:1px solid #999;vertical-align:top;padding:0}';
+                html += '.imza-tablo .baslik{background:#f1f5f9;font-size:13px;font-weight:bold;color:#334155;padding:8px 10px;border-bottom:1px solid #999}';
+                html += '.imza-tablo .kutu{height:95px}';
+                html += '.imza-tablo td:nth-child(1){width:45%}.imza-tablo td:nth-child(2){width:33%}.imza-tablo td:nth-child(3){width:22%}';
                 html += '.print-btn{position:fixed;top:20px;right:20px;background:#2563eb;color:white;padding:15px 30px;cursor:pointer;border-radius:5px}';
                 html += '@media print{.print-btn{display:none}}</style></head><body>';
                 html += '<button class="print-btn" onclick="window.print()">Yazdir/PDF</button>';
+
+                // Firma anteti (logo ve/veya firma adı tanımlıysa)
+                if (companyLogo || companyName) {
+                    html += '<div class="antet">';
+                    if (companyLogo) html += '<img src="' + companyLogo + '" alt="">';
+                    if (companyName) html += '<div class="firma">' + companyName + '</div>';
+                    html += '</div>';
+                }
+
                 html += '<h1>MALZEME ONAY FORMU</h1><div style="text-align:center;font-size:20px;margin-bottom:30px">' + proj.name + ' - ' + apt.name + '<br>Tarih: ' + new Date().toLocaleDateString('tr-TR') + '</div>';
                 
                 // Seçilen ürünün görsel hücresini üret
@@ -6323,8 +6414,16 @@
                         html += '</div>';
                     }
                 });
-                html += '<div style="margin-top:50px;border-top:2px solid #333;padding-top:30px"><h2>ONAY</h2><p>Belirtilen malzemeleri onayliyorum.</p><br><br>';
-                html += 'Daire Sahibi: _____________________ Imza: _____________________ Tarih: _____________________</div></body></html>';
+                html += '<div class="imza-alani"><h2 style="margin-top:0">ONAY</h2>';
+                html += '<p style="font-size:15px">Yukarida belirtilen malzemeleri inceledim ve onayliyorum.</p>';
+                html += '<table class="imza-tablo">';
+                html += '<tr><td class="baslik">DAIRE SAHIBI (Ad Soyad)</td><td class="baslik">IMZA</td><td class="baslik">TARIH</td></tr>';
+                html += '<tr><td class="kutu"></td><td class="kutu"></td><td class="kutu"></td></tr>';
+                html += '</table>';
+                if (companyName) {
+                    html += '<div style="margin-top:14px;font-size:12px;color:#666">' + companyName + '</div>';
+                }
+                html += '</div></body></html>';
                 
                 const win = window.open('', '_blank');
                 win.document.write(html);
@@ -9722,6 +9821,67 @@
                                                 pdfShowProductPhotos ? 'left-7' : 'left-1'
                                             }`}></span>
                                         </button>
+                                    </div>
+
+                                    {/* Firma Anteti */}
+                                    <div className={`px-3 py-2.5 rounded-lg mb-3 ${
+                                        theme === 'dark' ? 'bg-gray-700' : 'bg-amber-50'
+                                    }`}>
+                                        <div className={`text-sm font-semibold mb-2 ${
+                                            theme === 'dark' ? 'text-amber-200' : 'text-amber-800'
+                                        }`}>
+                                            🏢 Firma Anteti <span className="font-normal text-xs opacity-75">(formun üstünde görünür)</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            {companyLogo ? (
+                                                <img
+                                                    src={companyLogo}
+                                                    alt=""
+                                                    onClick={() => setPreviewPhoto(companyLogo)}
+                                                    className={`w-16 h-12 object-contain rounded border-2 cursor-zoom-in flex-shrink-0 bg-white ${
+                                                        theme === 'dark' ? 'border-gray-600' : 'border-amber-300'
+                                                    }`}
+                                                />
+                                            ) : (
+                                                <div className={`w-16 h-12 rounded border-2 border-dashed flex items-center justify-center text-[10px] flex-shrink-0 ${
+                                                    theme === 'dark' ? 'border-gray-600 text-gray-500' : 'border-amber-300 text-amber-500'
+                                                }`}>
+                                                    Logo
+                                                </div>
+                                            )}
+                                            <input
+                                                type="text"
+                                                value={companyName}
+                                                onChange={(e) => setFirmaAdi(e.target.value)}
+                                                placeholder="Firma adı (ör. ABC İnşaat A.Ş.)"
+                                                className={`flex-1 min-w-0 border-2 rounded-lg px-3 py-2 text-sm transition-all ${
+                                                    theme === 'dark'
+                                                        ? 'border-gray-600 bg-gray-800 text-gray-100 placeholder-gray-500 focus:border-amber-400'
+                                                        : 'border-amber-300 bg-white text-gray-900 placeholder-gray-400 focus:border-amber-500'
+                                                }`}
+                                            />
+                                            <button
+                                                onClick={firmaLogosuYukle}
+                                                disabled={logoUploading}
+                                                className={`px-3 py-2 rounded-lg text-xs font-bold flex-shrink-0 transition-all ${
+                                                    logoUploading
+                                                        ? 'bg-gray-400 text-white cursor-wait'
+                                                        : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-600 hover:to-orange-700'
+                                                }`}
+                                                title={companyLogo ? 'Logoyu değiştir' : 'Logo yükle'}
+                                            >
+                                                {logoUploading ? '⏳' : (companyLogo ? '🔄' : '📷')}
+                                            </button>
+                                            {companyLogo && !logoUploading && (
+                                                <button
+                                                    onClick={firmaLogosuSil}
+                                                    className="px-2.5 py-2 rounded-lg text-xs font-bold bg-red-500 text-white hover:bg-red-600 flex-shrink-0 transition-all"
+                                                    title="Logoyu kaldır"
+                                                >
+                                                    ✕
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Sütun Ayarları - 2 kolon */}
