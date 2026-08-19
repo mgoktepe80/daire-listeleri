@@ -9588,59 +9588,40 @@
 
                     {/* PDF SÜTUN AYARLARI MODAL */}
                     {showPdfColumnSettings && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className={`rounded-2xl shadow-2xl max-w-2xl w-full ${
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+                            <div className={`rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden ${
                                 theme === 'dark'
                                     ? 'bg-gradient-to-br from-gray-800 to-gray-900'
                                     : 'bg-gradient-to-br from-white to-gray-50'
                             }`}>
                                 {/* Header */}
-                                <div className="bg-gradient-to-r from-orange-600 to-amber-700 p-6">
-                                    <div className="flex items-center justify-between">
-                                        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <div className="bg-gradient-to-r from-orange-600 to-amber-700 px-4 py-3 flex-shrink-0">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h2 className="text-base font-bold text-white flex items-center gap-2 min-w-0">
+                                            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
                                             </svg>
-                                            PDF Onay Formu - Sütun Genişlikleri
+                                            <span className="truncate">PDF Onay Formu — Sütun Genişlikleri</span>
                                         </h2>
                                         <button
                                             onClick={() => setShowPdfColumnSettings(false)}
-                                            className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition-all"
+                                            className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5 transition-all flex-shrink-0"
                                         >
-                                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                                             </svg>
                                         </button>
                                     </div>
                                 </div>
-                                
-                                {/* Content */}
-                                <div className="p-6">
-                                    {/* Açıklama */}
-                                    <div className={`p-4 rounded-lg mb-6 ${
-                                        theme === 'dark' ? 'bg-blue-900 bg-opacity-30' : 'bg-blue-50'
-                                    }`}>
-                                        <p className={`text-sm ${
-                                            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                                        }`}>
-                                            📊 PDF onay formundaki tablo sütunlarının genişliklerini ayarlayın.
-                                            <br />
-                                            ⚠️ <strong>Toplam</strong> her zaman <strong>100%</strong> olmalıdır!
-                                        </p>
-                                    </div>
 
-                                    {/* Ürün Görseli Aç/Kapa */}
-                                    <div className={`p-4 rounded-lg mb-6 flex items-center justify-between ${
+                                {/* İçerik - kaydırılabilir */}
+                                <div className="px-4 py-3 overflow-y-auto flex-1">
+                                    {/* Ürün Görseli Aç/Kapa - kompakt */}
+                                    <div className={`px-3 py-2 rounded-lg mb-3 flex items-center justify-between gap-3 ${
                                         theme === 'dark' ? 'bg-indigo-900 bg-opacity-30' : 'bg-indigo-50'
                                     }`}>
-                                        <div>
-                                            <div className={`font-semibold ${theme === 'dark' ? 'text-indigo-200' : 'text-indigo-800'}`}>
-                                                🖼️ Ürün görsellerini forma ekle
-                                            </div>
-                                            <div className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-                                                Seçilen her malzemenin fotoğrafı tabloda ayrı bir sütunda gösterilir.
-                                                Fotoğraflar <strong>Veri Tabanı</strong> ekranından 📷 butonu ile yüklenir.
-                                            </div>
+                                        <div className={`text-sm font-semibold ${theme === 'dark' ? 'text-indigo-200' : 'text-indigo-800'}`}>
+                                            🖼️ Ürün görsellerini forma ekle
                                         </div>
                                         <button
                                             onClick={() => {
@@ -9648,18 +9629,19 @@
                                                 setPdfShowProductPhotos(next);
                                                 localStorage.setItem('pdf_show_product_photos', String(next));
                                             }}
-                                            className={`ml-4 shrink-0 w-14 h-7 rounded-full transition-all relative ${
+                                            className={`shrink-0 w-12 h-6 rounded-full transition-all relative ${
                                                 pdfShowProductPhotos ? 'bg-indigo-600' : (theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300')
                                             }`}
+                                            title="Seçilen malzemelerin fotoğrafı forma ayrı bir sütun olarak eklenir"
                                         >
-                                            <span className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-all ${
-                                                pdfShowProductPhotos ? 'left-8' : 'left-1'
+                                            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                                                pdfShowProductPhotos ? 'left-7' : 'left-1'
                                             }`}></span>
                                         </button>
                                     </div>
 
-                                    {/* Sütun Ayarları */}
-                                    <div className="space-y-4">
+                                    {/* Sütun Ayarları - 2 kolon */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         {[
                                             { key: 'col1', label: '1. Tür', color: 'blue' },
                                             { key: 'col2', label: '2. Alt Grup', color: 'green' },
@@ -9669,16 +9651,16 @@
                                             { key: 'col6', label: '6. Birim', color: 'pink' },
                                             { key: 'col7', label: '7. Ürün Görseli', color: 'indigo' }
                                         ].map(({ key, label, color }) => (
-                                            <div key={key} className={`p-4 rounded-lg ${
+                                            <div key={key} className={`px-3 py-2 rounded-lg ${
                                                 theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
                                             }`}>
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <label className={`font-semibold ${
+                                                <div className="flex items-center justify-between mb-1.5 gap-2">
+                                                    <label className={`text-xs font-semibold truncate ${
                                                         theme === 'dark' ? 'text-gray-200' : 'text-gray-700'
                                                     }`}>
                                                         {label}
                                                     </label>
-                                                    <span className={`text-lg font-bold ${
+                                                    <span className={`text-sm font-bold flex-shrink-0 ${
                                                         theme === 'dark' ? 'text-white' : 'text-gray-900'
                                                     }`}>
                                                         {pdfColumnWidths[key]}%
@@ -9690,13 +9672,12 @@
                                                     max="50"
                                                     value={pdfColumnWidths[key]}
                                                     onChange={(e) => {
-                                                        const newWidths = {
+                                                        setPdfColumnWidths({
                                                             ...pdfColumnWidths,
                                                             [key]: parseInt(e.target.value)
-                                                        };
-                                                        setPdfColumnWidths(newWidths);
+                                                        });
                                                     }}
-                                                    className={`w-full h-2 rounded-lg appearance-none cursor-pointer bg-${color}-200`}
+                                                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer"
                                                     style={{
                                                         background: `linear-gradient(to right,
                                                             ${color === 'blue' ? '#3b82f6' :
@@ -9716,64 +9697,61 @@
                                             </div>
                                         ))}
                                     </div>
-                                    
-                                    {/* Toplam Göstergesi */}
-                                    <div className={`mt-6 p-4 rounded-lg text-center font-bold text-lg ${
-                                        (() => {
+
+                                    <p className={`text-[11px] mt-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        💡 Sütun genişliklerinin toplamı %100 olmalıdır. Görsel sütunu kapalıysa kalan altı sütun otomatik ölçeklenir.
+                                    </p>
+                                </div>
+
+                                {/* Alt bar - sabit */}
+                                <div className={`px-4 py-3 flex items-center gap-2 flex-shrink-0 border-t ${
+                                    theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
+                                }`}>
+                                    {(() => {
+                                        const total = Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0);
+                                        return (
+                                            <span className={`text-sm font-bold px-3 py-1.5 rounded-lg ${
+                                                total === 100
+                                                    ? (theme === 'dark' ? 'bg-green-900 bg-opacity-40 text-green-300' : 'bg-green-100 text-green-700')
+                                                    : (theme === 'dark' ? 'bg-red-900 bg-opacity-40 text-red-300' : 'bg-red-100 text-red-700')
+                                            }`}>
+                                                Toplam: {total}% {total === 100 ? '✅' : '⚠️'}
+                                            </span>
+                                        );
+                                    })()}
+                                    <button
+                                        onClick={() => setPdfColumnWidths({ ...PDF_DEFAULT_COLUMN_WIDTHS })}
+                                        className={`ml-auto px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                            theme === 'dark'
+                                                ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                                                : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                                        }`}
+                                    >
+                                        Varsayılan
+                                    </button>
+                                    <button
+                                        onClick={() => {
                                             const total = Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0);
-                                            if (total === 100) {
-                                                return theme === 'dark' 
-                                                    ? 'bg-green-900 bg-opacity-30 text-green-300'
-                                                    : 'bg-green-100 text-green-700';
-                                            } else {
-                                                return theme === 'dark'
-                                                    ? 'bg-red-900 bg-opacity-30 text-red-300'
-                                                    : 'bg-red-100 text-red-700';
+                                            if (total !== 100) {
+                                                alert('⚠️ Toplam 100% olmalıdır!\n\nŞu an: ' + total + '%');
+                                                return;
                                             }
-                                        })()
-                                    }`}>
-                                        Toplam: {Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0)}%
-                                        {Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0) === 100 ? ' ✅' : ' ⚠️'}
-                                    </div>
-                                    
-                                    {/* Butonlar */}
-                                    <div className="flex gap-3 justify-end mt-6">
-                                        <button
-                                            onClick={() => {
-                                                setPdfColumnWidths({ ...PDF_DEFAULT_COLUMN_WIDTHS });
-                                            }}
-                                            className={`px-6 py-2.5 rounded-lg font-semibold transition-all ${
-                                                theme === 'dark'
-                                                    ? 'bg-gray-700 hover:bg-gray-600 text-white'
-                                                    : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
-                                            }`}
-                                        >
-                                            Varsayılana Dön
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                const total = Object.values(pdfColumnWidths).reduce((a, b) => a + b, 0);
-                                                if (total !== 100) {
-                                                    alert('⚠️ Toplam 100% olmalıdır!\n\nŞu an: ' + total + '%');
-                                                    return;
-                                                }
-                                                localStorage.setItem('pdf_column_widths', JSON.stringify(pdfColumnWidths));
-                                                localStorage.setItem('pdf_show_product_photos', String(pdfShowProductPhotos));
-                                                setShowPdfColumnSettings(false);
-                                                alert('✅ Ayarlar kaydedildi!\n\nPDF onay formunda yeni genişlikler kullanılacak.');
-                                            }}
-                                            className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${
-                                                theme === 'dark'
-                                                    ? 'bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow-lg'
-                                                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg'
-                                            }`}
-                                        >
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                                            </svg>
-                                            Kaydet
-                                        </button>
-                                    </div>
+                                            localStorage.setItem('pdf_column_widths', JSON.stringify(pdfColumnWidths));
+                                            localStorage.setItem('pdf_show_product_photos', String(pdfShowProductPhotos));
+                                            setShowPdfColumnSettings(false);
+                                            alert('✅ Ayarlar kaydedildi!');
+                                        }}
+                                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                                            theme === 'dark'
+                                                ? 'bg-gradient-to-r from-green-600 to-emerald-700 hover:from-green-700 hover:to-emerald-800 text-white shadow'
+                                                : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow'
+                                        }`}
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                        Kaydet
+                                    </button>
                                 </div>
                             </div>
                         </div>
