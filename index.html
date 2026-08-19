@@ -5687,16 +5687,14 @@
             // ==========================================
 
             // Seçilen bir ürünün fotoğrafını bul
-            // 1) Tam anahtar  2) Seramik kütüphanesi  3) Sadece isme göre (kategori değişse de bulunur)
+            // SADECE tam anahtar veya (seramikler için) global seramik anahtarı.
+            // Ada göre tahmin YOK: aynı ürün adı farklı tiplerde (ör. Ral 9016 / Ral 7016)
+            // bulunabildiği için yanlış görsel gelmesine yol açıyordu.
             const getProductPhoto = (cat, subgroup, subgroup2, name) => {
                 if (!name) return '';
                 const exact = productPhotos[makeProductKey(cat, subgroup, subgroup2, name)];
                 if (exact) return exact;
-                const ceramic = productPhotos[makeCeramicKey(name)];
-                if (ceramic) return ceramic;
-                const suffix = '|' + name;
-                const hit = Object.keys(productPhotos).find(k => k.endsWith(suffix) && productPhotos[k]);
-                return hit ? productPhotos[hit] : '';
+                return productPhotos[makeCeramicKey(name)] || '';
             };
 
             // ---- "Sadece fotoğraflı ürünler" filtresi yardımcıları ----
@@ -5856,17 +5854,14 @@
                 remapProductPhotoKeys(({ cat, sub, sub2, name }) =>
                     (cat === cat0 && sub === sub0 && sub2 === oldType) ? makeProductKey(cat, sub, newType, name) : null);
 
-            // Anahtar bulunamazsa isme göre eşleşen anahtarı bul
-            // (yapısal bir yeniden adlandırma sonrası küçük görsel kaybolmasın)
+            // Anahtar çözümleme: tam anahtar, seramiklerde global anahtar.
+            // Ada göre tahmin yapılmaz (bkz. getProductPhoto notu).
             const resolveProductPhotoKey = (productKey) => {
                 if (productPhotos[productKey]) return productKey;
                 const { name } = splitProductKey(productKey);
                 if (!name) return productKey;
                 const ceramicKey = makeCeramicKey(name);
-                if (productPhotos[ceramicKey]) return ceramicKey;
-                const suffix = '|' + name;
-                const hit = Object.keys(productPhotos).find(k => k.endsWith(suffix) && productPhotos[k]);
-                return hit || productKey;
+                return productPhotos[ceramicKey] ? ceramicKey : productKey;
             };
 
             // Ürün adı değiştirildiğinde fotoğrafı yeni ada taşı
@@ -5952,6 +5947,68 @@
                     </div>
                 );
             };
+
+            // Eski sürümlerdeki yeniden adlandırmalar yüzünden sahipsiz kalmış
+            // fotoğraf anahtarlarını onar. Yalnızca ürün adı veri tabanında
+            // TEK bir yerde geçiyorsa taşınır; belirsizse hiç dokunulmaz.
+            const repairOrphanPhotoKeys = () => {
+                const locations = {};
+                const validKeys = new Set();
+                const add = (name, key) => {
+                    validKeys.add(key);
+                    if (!locations[name]) locations[name] = [];
+                    locations[name].push(key);
+                };
+
+                Object.keys(materials || {}).forEach(cat => {
+                    const cd = materials[cat];
+                    if (Array.isArray(cd)) {
+                        cd.forEach(m => add(m, makeProductKey(cat, '-', '-', m)));
+                    } else if (cd && cd.subGroups) {
+                        Object.keys(cd.subGroups).forEach(sg => {
+                            const sgd = cd.subGroups[sg] || {};
+                            if (Array.isArray(sgd.items)) {
+                                sgd.items.forEach(m => add(m, makeProductKey(cat, sg, '-', m)));
+                            } else if (sgd.items) {
+                                Object.keys(sgd.items).forEach(t =>
+                                    (sgd.items[t] || []).forEach(m => add(m, makeProductKey(cat, sg, t, m))));
+                            }
+                        });
+                    }
+                });
+
+                setProductPhotos(prev => {
+                    const next = { ...prev };
+                    let changed = 0;
+                    Object.keys(prev).forEach(key => {
+                        if (key.indexOf('Seramik|-|-|') === 0) return; // seramikler global, dokunma
+                        if (validKeys.has(key)) return;                // yeri duruyor
+                        const { name } = splitProductKey(key);
+                        const yerler = locations[name];
+                        if (!yerler || yerler.length !== 1) return;    // belirsiz → dokunma
+                        const hedef = yerler[0];
+                        if (prev[hedef]) return;                       // hedefte zaten fotoğraf var
+                        next[hedef] = prev[key];
+                        delete next[key];
+                        changed++;
+                    });
+                    if (!changed) return prev;
+                    try {
+                        localStorage.setItem('product_photos', JSON.stringify(next));
+                    } catch (e) {
+                        console.error('❌ Ürün fotoğrafı localStorage hatası:', e);
+                    }
+                    console.log(`🖼️ ${changed} sahipsiz ürün fotoğrafı anahtarı onarıldı`);
+                    return next;
+                });
+            };
+
+            const photoRepairDoneRef = React.useRef(false);
+            useEffect(() => {
+                if (!showDB || photoRepairDoneRef.current) return;
+                photoRepairDoneRef.current = true;
+                repairOrphanPhotoKeys();
+            }, [showDB]);
 
             // ==========================================
             // DUVAR KAPLAMA - KATLANABİLİR LİSTE
