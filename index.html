@@ -2814,29 +2814,49 @@
                 }
                 
                 const newName = prompt('Yeni mekan adi:', room.name);
-                if (newName && newName.trim()) {
-                    if (room.custom) {
-                        // Özel mekan
-                        const updated = customRooms.map(r => 
-                            r.id === roomId 
-                                ? { ...r, name: newName.trim(), _timestamp: Date.now() } 
-                                : r
-                        );
-                        setCustomRooms([...updated]);
-                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
-                    } else {
-                        // Varsayılan mekan
-                        const updated = baseRooms.map(r => 
-                            r.id === roomId 
-                                ? { ...r, name: newName.trim(), _timestamp: Date.now() } 
-                                : r
-                        );
-                        setBaseRooms([...updated]);
-                        // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
-                    }
-                    // Ekranı yenile
-                    setRefreshKey(prev => prev + 1);
+                if (!newName || !newName.trim()) return;
+                const yeniAd = newName.trim();
+                if (yeniAd === room.name) return;
+
+                // ÖNEMLİ: Mekan dairenin KENDİ listesinde (customRooms) olabilir.
+                // Bu durumda global listeleri güncellemek hiçbir şey değiştirmez.
+                const daireninMekani = apartmentCustomRooms.some(r => r.id === roomId);
+
+                if (daireninMekani) {
+                    const secim = prompt(
+                        `"${room.name}" → "${yeniAd}"\n\n` +
+                        'Bu degisiklik nerede gecerli olsun?\n\n' +
+                        '1 = Sadece bu daire\n' +
+                        '2 = Bu projedeki TUM daireler',
+                        '1'
+                    );
+                    if (secim === null) return;
+                    const tumDaireler = secim.trim() === '2';
+
+                    updateApartments(apartments.map(a => {
+                        if (!tumDaireler && a.id !== currentApt) return a;
+                        if (!a.customRooms || !a.customRooms.some(r => r.id === roomId)) return a;
+                        return {
+                            ...a,
+                            customRooms: a.customRooms.map(r =>
+                                r.id === roomId ? { ...r, name: yeniAd, _timestamp: Date.now() } : r
+                            )
+                        };
+                    }));
+                } else if (customRooms.some(r => r.id === roomId)) {
+                    // Global özel mekan
+                    setCustomRooms(customRooms.map(r =>
+                        r.id === roomId ? { ...r, name: yeniAd, _timestamp: Date.now() } : r
+                    ));
+                } else {
+                    // Varsayılan mekan
+                    setBaseRooms(baseRooms.map(r =>
+                        r.id === roomId ? { ...r, name: yeniAd, _timestamp: Date.now() } : r
+                    ));
                 }
+
+                // Ekranı yenile
+                setRefreshKey(prev => prev + 1);
             };
 
             const copyRoom = (roomId) => {
