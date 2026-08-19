@@ -1428,6 +1428,29 @@
             const [pdfShowProductPhotos, setPdfShowProductPhotos] = useState(
                 () => localStorage.getItem('pdf_show_product_photos') !== 'false'
             );
+            // Onay formu yazı boyutları (px)
+            const PDF_DEFAULT_FONTS = {
+                formBaslik: 21,   // MALZEME ONAY FORMU
+                altBaslik: 16,    // Proje · Daire · Tarih
+                mahalBaslik: 17,  // Mahal adı bandı
+                tabloBaslik: 13,  // Tür / Alt Grup / Tip ...
+                tabloVeri: 14,    // Tablo hücreleri
+                onayBaslik: 15,   // ONAY
+                onayMetin: 15,    // Onay cümlesi
+                imzaBaslik: 13    // Daire Sahibi / İmza / Tarih
+            };
+            const [pdfFonts, setPdfFonts] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('pdf_font_sizes');
+                    return saved
+                        ? { ...PDF_DEFAULT_FONTS, ...JSON.parse(saved) }
+                        : { ...PDF_DEFAULT_FONTS };
+                } catch (e) {
+                    return { ...PDF_DEFAULT_FONTS };
+                }
+            });
+            const [showFontSettings, setShowFontSettings] = useState(false);
+
             // Onay formu antet bilgileri
             const [companyName, setCompanyName] = useState(() => localStorage.getItem('company_name') || '');
             const [companyLogo, setCompanyLogo] = useState(() => localStorage.getItem('company_logo') || '');
@@ -1719,7 +1742,8 @@
                             ceramicData,
                             productPhotos: productPhotosToArray(productPhotos),
                             companyName,
-                            companyLogo
+                            companyLogo,
+                            pdfFonts
                         });
                     }, 2000);
 
@@ -1896,6 +1920,11 @@
                                 if (typeof firebaseData.companyLogo === 'string') {
                                     setCompanyLogo(firebaseData.companyLogo);
                                     localStorage.setItem('company_logo', firebaseData.companyLogo);
+                                }
+                                if (firebaseData.pdfFonts && typeof firebaseData.pdfFonts === 'object') {
+                                    const f = { ...PDF_DEFAULT_FONTS, ...JSON.parse(JSON.stringify(firebaseData.pdfFonts)) };
+                                    setPdfFonts(f);
+                                    localStorage.setItem('pdf_font_sizes', JSON.stringify(f));
                                 }
                                 const firebaseTimestamp = firebaseData.lastUpdate?.toMillis() || Date.now();
                                 setLastSyncTime(new Date(firebaseTimestamp));
@@ -2200,6 +2229,11 @@
                             setCompanyLogo(cleanData.companyLogo);
                             localStorage.setItem('company_logo', cleanData.companyLogo);
                         }
+                        if (cleanData.pdfFonts && typeof cleanData.pdfFonts === 'object') {
+                            const f = { ...PDF_DEFAULT_FONTS, ...cleanData.pdfFonts };
+                            setPdfFonts(f);
+                            localStorage.setItem('pdf_font_sizes', JSON.stringify(f));
+                        }
                         
                         lastLocalUpdateTime = firebaseTimestamp;
                         setLastSyncTime(new Date(firebaseTimestamp));
@@ -2458,7 +2492,7 @@
                     projects, customRooms, baseRooms, roomOrder,
                     fieldLabels, materials, ceramicData,
                     productPhotos: productPhotosToArray(productPhotos),
-                    companyName, companyLogo
+                    companyName, companyLogo, pdfFonts
                 });
             };
 
@@ -2511,7 +2545,7 @@
                     'projects_data', 'custom_rooms', 'base_rooms', 'field_labels',
                     'room_order', 'material_database', 'ceramic_data', 'product_photos',
                     'icon_library', 'pdf_column_widths', 'pdf_show_product_photos',
-                    'only_photo_categories', 'company_name', 'company_logo'
+                    'only_photo_categories', 'company_name', 'company_logo', 'pdf_font_sizes'
                 ].forEach(k => localStorage.removeItem(k));
 
                 alert('✅ Buluta kaydedildi ve yerel kopya temizlendi.\n\nSayfa yeniden açılıyor, veriler buluttan yüklenecek.');
@@ -2553,7 +2587,8 @@
                         ceramicData,
                         productPhotos: productPhotosToArray(productPhotos),
                         companyName,
-                        companyLogo
+                        companyLogo,
+                        pdfFonts
                     });
                     
                     if (success) {
@@ -6264,6 +6299,8 @@
                 
                 // Ürün görselleri gösterilecek mi? (PDF ayarlarından kapatılabilir)
                 const withPhotos = pdfShowProductPhotos;
+                // Yazı boyutları (PDF ayarlarından değiştirilebilir)
+                const F = { ...PDF_DEFAULT_FONTS, ...(pdfFonts || {}) };
 
                 // Görsel sütunu kapalıysa 6 sütunu %100'e normalize et
                 const baseKeys = ['col1', 'col2', 'col3', 'col4', 'col5', 'col6'];
@@ -6279,8 +6316,8 @@
                 let html = '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>' + proj.name + ' - ' + apt.name + '</title><style>';
                 // ---- TEMEL ----
                 html += "body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2937;margin:34px 38px;-webkit-print-color-adjust:exact;print-color-adjust:exact}";
-                html += 'h1{text-align:center;font-size:21px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#0f172a;margin:0 0 6px}';
-                html += '.alt-baslik{text-align:center;color:#64748b;font-size:13px;margin:0 0 30px;line-height:1.7}';
+                html += 'h1{text-align:center;font-size:' + F.formBaslik + 'px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#0f172a;margin:0 0 6px}';
+                html += '.alt-baslik{text-align:center;color:#475569;font-size:' + F.altBaslik + 'px;margin:0 0 30px;line-height:1.7}';
                 html += '.alt-baslik strong{color:#334155;font-weight:600}';
 
                 // ---- ANTET ----
@@ -6290,15 +6327,15 @@
 
                 // ---- TABLO ----
                 html += 'table{width:100%;border-collapse:collapse;margin:0 0 24px;table-layout:fixed;font-size:14px}';
-                html += 'td{padding:10px 12px;border-bottom:1px solid #eef2f6;border-right:1px solid #eef2f6;word-wrap:break-word;vertical-align:middle;color:#0f172a;font-weight:600}';
+                html += 'td{padding:10px 12px;border-bottom:1px solid #eef2f6;border-right:1px solid #eef2f6;word-wrap:break-word;vertical-align:middle;color:#0f172a;font-weight:600;font-size:' + F.tabloVeri + 'px}';
                 html += 'td:last-child{border-right:none}';
                 html += 'tbody tr:nth-child(even){background:#fbfcfd}';
                 html += 'tbody tr:last-child td{border-bottom:1px solid #cbd5e1}';
-                html += 'th{background:#f8fafc;color:#64748b;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:10px 12px;text-align:left;border-bottom:1.5px solid #cbd5e1;border-right:1px solid #e6ebf1;word-wrap:break-word}';
+                html += 'th{background:#f8fafc;color:#475569;font-size:' + F.tabloBaslik + 'px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;padding:10px 6px;text-align:center;border-bottom:1.5px solid #cbd5e1;border-right:1px solid #e6ebf1;word-wrap:break-word}';
                 html += 'th:last-child{border-right:none}';
 
                 // Mahal başlığı - ince renk şeridi, ters kontrast yok
-                html += '.mahal-basligi td{background:#eef4ff;color:#1d4ed8;font-size:16px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:14px 14px;border:none;border-left:5px solid #2563eb;border-bottom:none;width:auto}';
+                html += '.mahal-basligi td{background:#eef4ff;color:#1d4ed8;font-size:' + F.mahalBaslik + 'px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:14px 14px;border:none;border-left:5px solid #2563eb;border-bottom:none;width:auto}';
 
                 // ---- ÜRÜN GÖRSELİ ----
                 html += 'td.urun-gorsel{text-align:center;padding:6px}';
@@ -6311,32 +6348,30 @@
                 html += '@media print{thead{display:table-header-group}}';
 
                 // Dinamik sütun genişlikleri
-                html += `th:nth-child(1),td:nth-child(1){width:${w.col1}%}`;
-                html += `th:nth-child(2),td:nth-child(2){width:${w.col2}%}`;
-                html += `th:nth-child(3),td:nth-child(3){width:${w.col3}%}`;
-                html += `th:nth-child(4),td:nth-child(4){width:${w.col4}%}`;
-                html += `th:nth-child(5),td:nth-child(5){width:${w.col5}%;text-align:center}`;
-                html += `th:nth-child(6),td:nth-child(6){width:${w.col6}%;text-align:center;color:#64748b}`;
+                // ÖNEMLİ: Genişlikler <colgroup> ile veriliyor.
+                // table-layout:fixed genişlikleri ilk satırdan okur; ilk satır
+                // colspan'li mahal başlığı olduğu için nth-child kuralları işlemiyordu.
+                html += 'th:nth-child(5),td:nth-child(5){text-align:center}';
+                html += 'th:nth-child(6),td:nth-child(6){text-align:center;color:#64748b}';
                 if (withPhotos) {
-                    html += `th:nth-child(7),td:nth-child(7){width:${w.col7}%;text-align:center}`;
+                    html += 'th:nth-child(7),td:nth-child(7){text-align:center}';
                 }
-                // Mahal başlığı satırı yukarıdaki genişlik kuralından etkilenmesin
-                html += '.mahal-basligi td:nth-child(1){width:auto;text-align:left;color:#1d4ed8;font-weight:700;font-size:16px;border-right:none}';
+                html += '.mahal-basligi td{text-align:left;color:#1d4ed8;font-weight:700;font-size:' + F.mahalBaslik + 'px;border-right:none}';
 
                 // ---- FOTOĞRAFLAR ----
                 html += '.foto-baslik{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;margin:0 0 10px}';
                 html += '.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(' + size + 'px,1fr));gap:16px;margin:0 0 26px}';
                 html += '.photo-item{border:1px solid #e2e8f0;border-radius:10px;padding:8px;text-align:center}';
-                html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:6px;display:block}';
+                html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:6px;display:block;margin:0 auto}';
                 html += '.photo-item div{font-size:10px;color:#94a3b8;letter-spacing:.5px;margin-top:6px}';
 
                 // ---- İMZA ----
                 html += '.imza-alani{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;page-break-inside:avoid}';
-                html += '.imza-alani h2{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:#94a3b8;margin:0 0 8px}';
-                html += '.imza-alani p{font-size:13px;color:#475569;margin:0 0 18px}';
+                html += '.imza-alani h2{font-size:' + F.onayBaslik + 'px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#475569;margin:0 0 10px}';
+                html += '.imza-alani p{font-size:' + F.onayMetin + 'px;color:#334155;margin:0 0 20px}';
                 html += '.imza-tablo{width:100%;border-collapse:separate;border-spacing:12px 0;margin:0;table-layout:fixed}';
                 html += '.imza-tablo td{padding:0;vertical-align:top;border:none}';
-                html += '.imza-tablo .baslik{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;padding:0 0 7px}';
+                html += '.imza-tablo .baslik{font-size:' + F.imzaBaslik + 'px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#475569;padding:0 0 8px}';
                 html += '.imza-tablo .kutu{height:96px;border:1px solid #cbd5e1;border-radius:8px;background:#fcfdfe}';
                 html += '.imza-tablo td:nth-child(1){width:45%}.imza-tablo td:nth-child(2){width:33%}.imza-tablo td:nth-child(3){width:22%}';
                 html += '.imza-firma{margin-top:16px;font-size:10.5px;color:#94a3b8;letter-spacing:.4px}';
@@ -6375,7 +6410,11 @@
                     const rd = apt.data[room.id];
                     if (!rd) return;
                     const kolonSayisi = withPhotos ? 7 : 6;
+                    const kolonGenislikleri = withPhotos
+                        ? [w.col1, w.col2, w.col3, w.col4, w.col5, w.col6, w.col7]
+                        : [w.col1, w.col2, w.col3, w.col4, w.col5, w.col6];
                     html += '<table>';
+                    html += '<colgroup>' + kolonGenislikleri.map(g => '<col style="width:' + g + '%">').join('') + '</colgroup>';
                     html += '<thead>';
                     html += '<tr class="mahal-basligi"><td colspan="' + kolonSayisi + '">' + room.name + '</td></tr>';
                     html += '<tr><th>Tür</th><th>Alt Grup</th><th>Tip</th><th>Malzeme</th><th>Miktar</th><th>Birim</th>' + (withPhotos ? '<th>Görsel</th>' : '') + '</tr>';
@@ -9986,6 +10025,73 @@
                                     <p className={`text-[11px] mt-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                                         💡 Sütun genişliklerinin toplamı %100 olmalıdır. Görsel sütunu kapalıysa kalan altı sütun otomatik ölçeklenir.
                                     </p>
+
+                                    {/* YAZI BOYUTLARI */}
+                                    <div className={`mt-3 rounded-lg border-2 ${
+                                        theme === 'dark' ? 'border-gray-700' : 'border-slate-200'
+                                    }`}>
+                                        <button
+                                            onClick={() => setShowFontSettings(!showFontSettings)}
+                                            className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold rounded-lg transition-all ${
+                                                theme === 'dark' ? 'text-gray-200 hover:bg-gray-700' : 'text-slate-700 hover:bg-slate-50'
+                                            }`}
+                                        >
+                                            <span>🔠 Yazı Boyutları</span>
+                                            <span className="text-xs">{showFontSettings ? '▲' : '▼'}</span>
+                                        </button>
+
+                                        {showFontSettings && (
+                                            <div className="px-3 pb-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                    {[
+                                                        { key: 'formBaslik', label: 'Form başlığı', min: 14, max: 34 },
+                                                        { key: 'altBaslik', label: 'Proje · Daire · Tarih', min: 10, max: 26 },
+                                                        { key: 'mahalBaslik', label: 'Mahal adı', min: 11, max: 28 },
+                                                        { key: 'tabloBaslik', label: 'Sütun başlıkları', min: 9, max: 20 },
+                                                        { key: 'tabloVeri', label: 'Tablo verileri', min: 9, max: 22 },
+                                                        { key: 'onayBaslik', label: '"ONAY" başlığı', min: 10, max: 24 },
+                                                        { key: 'onayMetin', label: 'Onay metni', min: 10, max: 22 },
+                                                        { key: 'imzaBaslik', label: 'İmza başlıkları', min: 9, max: 20 }
+                                                    ].map(({ key, label, min, max }) => (
+                                                        <div key={key} className={`px-2.5 py-2 rounded-lg ${
+                                                            theme === 'dark' ? 'bg-gray-700' : 'bg-slate-100'
+                                                        }`}>
+                                                            <div className="flex items-center justify-between mb-1 gap-2">
+                                                                <label className={`text-xs font-semibold truncate ${
+                                                                    theme === 'dark' ? 'text-gray-200' : 'text-slate-700'
+                                                                }`}>{label}</label>
+                                                                <span className={`text-xs font-bold flex-shrink-0 ${
+                                                                    theme === 'dark' ? 'text-white' : 'text-slate-900'
+                                                                }`}>{pdfFonts[key]} px</span>
+                                                            </div>
+                                                            <input
+                                                                type="range"
+                                                                min={min}
+                                                                max={max}
+                                                                value={pdfFonts[key]}
+                                                                onChange={(e) => setPdfFonts({
+                                                                    ...pdfFonts,
+                                                                    [key]: parseInt(e.target.value)
+                                                                })}
+                                                                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer"
+                                                                style={{ background: 'linear-gradient(to right,#0f172a 0%,#64748b 100%)' }}
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <button
+                                                    onClick={() => setPdfFonts({ ...PDF_DEFAULT_FONTS })}
+                                                    className={`mt-2 w-full px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                                                        theme === 'dark'
+                                                            ? 'bg-gray-700 hover:bg-gray-600 text-gray-200'
+                                                            : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+                                                    }`}
+                                                >
+                                                    Yazı boyutlarını varsayılana döndür
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Alt bar - sabit */}
@@ -10023,6 +10129,7 @@
                                             }
                                             localStorage.setItem('pdf_column_widths', JSON.stringify(pdfColumnWidths));
                                             localStorage.setItem('pdf_show_product_photos', String(pdfShowProductPhotos));
+                                            localStorage.setItem('pdf_font_sizes', JSON.stringify(pdfFonts));
                                             setShowPdfColumnSettings(false);
                                             alert('✅ Ayarlar kaydedildi!');
                                         }}
