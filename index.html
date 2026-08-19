@@ -6020,16 +6020,57 @@
                         if (f === 'duvar_kaplama' && rd[f]) {
                             // wallCount'a göre sadece o kadar duvar yaz
                             const wallCount = apt.wallCount && apt.wallCount[room.id] ? apt.wallCount[room.id] : 1;
+
+                            // AYNI ÜRÜNÜ KULLANAN DUVARLARI TEK SATIRDA GRUPLA
+                            const wallGroups = [];
+                            const wallGroupIndex = {};
                             for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
                                 const v = rd[f][wallIdx];
-                                if (v && v.malzeme) {
-                                    const subgroup = v.subgroup || '-';
-                                    const subgroup2 = v.subgroup2 || '-';
-                                    // Özel duvar ismi varsa kullan, yoksa varsayılan
-                                    const wallName = v.name || ('Duvar ' + (wallIdx + 1));
-                                    html += '<tr><td>' + wallName + '</td><td>' + subgroup + '</td><td>' + subgroup2 + '</td><td>' + v.malzeme + '</td><td>' + (v.miktar || '-') + '</td><td>' + (fc.unit || '-') + '</td>' + photoCell(fc.category, subgroup, subgroup2, v.malzeme) + '</tr>';
+                                if (!v || !v.malzeme) continue;
+
+                                const subgroup = v.subgroup || '-';
+                                const subgroup2 = v.subgroup2 || '-';
+                                const groupKey = subgroup + '||' + subgroup2 + '||' + v.malzeme;
+
+                                if (wallGroupIndex[groupKey] === undefined) {
+                                    wallGroupIndex[groupKey] = wallGroups.length;
+                                    wallGroups.push({
+                                        subgroup: subgroup,
+                                        subgroup2: subgroup2,
+                                        malzeme: v.malzeme,
+                                        walls: [],
+                                        toplam: 0,
+                                        miktarVar: false
+                                    });
+                                }
+
+                                const g = wallGroups[wallGroupIndex[groupKey]];
+                                g.walls.push({ idx: wallIdx, name: v.name || '' });
+
+                                const miktar = parseFloat(String(v.miktar || '').replace(',', '.'));
+                                if (!isNaN(miktar)) {
+                                    g.toplam += miktar;
+                                    g.miktarVar = true;
                                 }
                             }
+
+                            // Grup etiketi: hepsi varsayılan adlıysa "Duvar 1, 2, 3", değilse adları yaz
+                            const wallGroupLabel = (walls) => {
+                                const hepsiVarsayilan = walls.every(x => !x.name || x.name.trim() === '' || x.name.trim() === ('Duvar ' + (x.idx + 1)));
+                                if (hepsiVarsayilan) {
+                                    return 'Duvar ' + walls.map(x => x.idx + 1).join(', ');
+                                }
+                                return walls.map(x => (x.name && x.name.trim()) ? x.name.trim() : ('Duvar ' + (x.idx + 1))).join(', ');
+                            };
+
+                            wallGroups.forEach(g => {
+                                const etiket = wallGroupLabel(g.walls);
+                                // Toplam miktar (tek duvarsa zaten kendi miktarı)
+                                const miktarStr = g.miktarVar
+                                    ? String(Math.round(g.toplam * 100) / 100).replace('.', ',')
+                                    : '-';
+                                html += '<tr><td>' + etiket + '</td><td>' + g.subgroup + '</td><td>' + g.subgroup2 + '</td><td>' + g.malzeme + '</td><td>' + miktarStr + '</td><td>' + (fc.unit || '-') + '</td>' + photoCell(fc.category, g.subgroup, g.subgroup2, g.malzeme) + '</tr>';
+                            });
                         } else if (rd[f] && rd[f].malzeme) {
                             const subgroup = rd[f].subgroup || '-';
                             const subgroup2 = rd[f].subgroup2 || '-';
