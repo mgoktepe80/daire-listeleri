@@ -1348,6 +1348,8 @@
             });
             const [uploadingPhotoKey, setUploadingPhotoKey] = useState(null);
             const [previewPhoto, setPreviewPhoto] = useState(null);
+            // Duvar kaplama: katlanabilir liste (hangi duvarlar açık)
+            const [openWalls, setOpenWalls] = useState({});
             // Mahal veri girişinde "sadece fotoğraflı ürünler" filtresi - KATEGORİ BAZLI
             // { 'Zemin': true, 'Boya': false, ... }
             const [onlyPhotoCats, setOnlyPhotoCats] = useState(() => {
@@ -3432,6 +3434,8 @@
                 setFieldLabels(newFieldLabels);
                 localStorage.setItem('material_database', JSON.stringify(newMaterials));
                 localStorage.setItem('field_labels', JSON.stringify(newFieldLabels));
+                // Ürün fotoğraflarını yeni kategori adına taşı
+                renameProductPhotoCategory(oldName, newName);
                 setEditingCategory(null);
                 alert(`✅ "${oldName}" kategorisi "${newName}" olarak değiştirildi!`);
             };
@@ -5737,6 +5741,58 @@
                 input.click();
             };
 
+            // Anahtarı parçalara ayır: Kategori|AltGrup|Tip|Ad (ad içinde "|" olabilir)
+            const splitProductKey = (key) => {
+                const p = (key || '').split('|');
+                return { cat: p[0], sub: p[1], sub2: p[2], name: p.slice(3).join('|') };
+            };
+
+            // Kategori / alt grup / tip adı değişince tüm anahtarları yeniden eşle
+            const remapProductPhotoKeys = (mapFn) => {
+                setProductPhotos(prev => {
+                    let changed = false;
+                    const next = {};
+                    Object.keys(prev).forEach(k => {
+                        const nk = mapFn(splitProductKey(k), k) || k;
+                        if (nk !== k) changed = true;
+                        next[nk] = prev[k];
+                    });
+                    if (!changed) return prev;
+                    try {
+                        localStorage.setItem('product_photos', JSON.stringify(next));
+                    } catch (e) {
+                        console.error('❌ Ürün fotoğrafı localStorage hatası:', e);
+                    }
+                    console.log('🖼️ Ürün fotoğrafı anahtarları güncellendi');
+                    return next;
+                });
+            };
+
+            const renameProductPhotoCategory = (oldCat, newCat) =>
+                remapProductPhotoKeys(({ cat, sub, sub2, name }) =>
+                    cat === oldCat ? makeProductKey(newCat, sub, sub2, name) : null);
+
+            const renameProductPhotoSubGroup = (cat0, oldSub, newSub) =>
+                remapProductPhotoKeys(({ cat, sub, sub2, name }) =>
+                    (cat === cat0 && sub === oldSub) ? makeProductKey(cat, newSub, sub2, name) : null);
+
+            const renameProductPhotoSubGroup2 = (cat0, sub0, oldType, newType) =>
+                remapProductPhotoKeys(({ cat, sub, sub2, name }) =>
+                    (cat === cat0 && sub === sub0 && sub2 === oldType) ? makeProductKey(cat, sub, newType, name) : null);
+
+            // Anahtar bulunamazsa isme göre eşleşen anahtarı bul
+            // (yapısal bir yeniden adlandırma sonrası küçük görsel kaybolmasın)
+            const resolveProductPhotoKey = (productKey) => {
+                if (productPhotos[productKey]) return productKey;
+                const { name } = splitProductKey(productKey);
+                if (!name) return productKey;
+                const ceramicKey = makeCeramicKey(name);
+                if (productPhotos[ceramicKey]) return ceramicKey;
+                const suffix = '|' + name;
+                const hit = Object.keys(productPhotos).find(k => k.endsWith(suffix) && productPhotos[k]);
+                return hit || productKey;
+            };
+
             // Ürün adı değiştirildiğinde fotoğrafı yeni ada taşı
             const renameProductPhotoKey = (oldKey, newKey) => {
                 if (!oldKey || !newKey || oldKey === newKey) return;
@@ -5765,7 +5821,9 @@
 
             // Malzeme/seramik listelerinde kullanılan küçük fotoğraf hücresi
             const ProductPhotoCell = ({ productKey, size }) => {
-                const url = productPhotos[productKey];
+                // Yapısal bir ad değişikliğinden sonra da görseli bul
+                const resolvedKey = resolveProductPhotoKey(productKey);
+                const url = productPhotos[resolvedKey];
                 const busy = uploadingPhotoKey === productKey;
                 const box = size === 'lg' ? 'w-12 h-12' : 'w-9 h-9';
 
@@ -5806,7 +5864,7 @@
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (confirm('Bu ürünün fotoğrafı silinsin mi?')) removeProductPhoto(productKey);
+                                        if (confirm('Bu ürünün fotoğrafı silinsin mi?')) removeProductPhoto(resolvedKey);
                                     }}
                                     title="Fotoğrafı sil"
                                     className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500 text-white hover:bg-red-600 transition-all"
@@ -5817,6 +5875,75 @@
                         </div>
                     </div>
                 );
+            };
+
+            // ==========================================
+            // DUVAR KAPLAMA - KATLANABİLİR LİSTE
+            // ==========================================
+
+            const wallStateKey = (i) => `${currentRoom}|${i}`;
+            const isWallOpen = (i) => !!openWalls[wallStateKey(i)];
+
+            const toggleWall = (i) => setOpenWalls(prev => ({
+                ...prev,
+                [wallStateKey(i)]: !prev[wallStateKey(i)]
+            }));
+
+            const setAllWallsOpen = (count, open) => setOpenWalls(prev => {
+                const next = { ...prev };
+                for (let i = 0; i < count; i++) next[`${currentRoom}|${i}`] = open;
+                return next;
+            });
+
+            const allWallsOpen = (count) => {
+                for (let i = 0; i < count; i++) {
+                    if (!openWalls[`${currentRoom}|${i}`]) return false;
+                }
+                return count > 0;
+            };
+
+            // Kaç duvar dolduruldu?
+            const filledWallCount = (count) => {
+                const walls = getRoomData().duvar_kaplama || {};
+                let n = 0;
+                for (let i = 0; i < count; i++) if (walls[i] && walls[i].malzeme) n++;
+                return n;
+            };
+
+            // Bir duvardaki malzemeyi diğer tüm duvarlara kopyala (miktar ve ad korunur)
+            const applyWallToAll = (i, count) => {
+                const rd = getRoomData();
+                const src = (rd.duvar_kaplama || {})[i] || {};
+                if (!src.malzeme) {
+                    alert('⚠️ Önce bu duvar için bir malzeme seçin!');
+                    return;
+                }
+                const label = src.name || ('Duvar ' + (i + 1));
+                if (!confirm(
+                    `"${label}" duvarındaki malzeme diğer ${count - 1} duvara kopyalanacak.\n\n` +
+                    `Malzeme: ${src.malzeme}\n\n` +
+                    `⚠️ Duvar adları ve miktarlar DEĞİŞMEYECEK.\n\nDevam edilsin mi?`
+                )) return;
+
+                const walls = { ...(rd.duvar_kaplama || {}) };
+                for (let j = 0; j < count; j++) {
+                    if (j === i) continue;
+                    walls[j] = {
+                        ...(walls[j] || {}),
+                        subgroup: src.subgroup || '',
+                        subgroup2: src.subgroup2 || '',
+                        malzeme: src.malzeme,
+                        ceramicSerie: src.ceramicSerie || '',
+                        ceramicSize: src.ceramicSize || ''
+                    };
+                }
+
+                updateApartments(apartments.map(a =>
+                    a.id === currentApt
+                        ? { ...a, data: { ...a.data, [currentRoom]: { ...a.data[currentRoom], duvar_kaplama: walls } } }
+                        : a
+                ));
+                alert(`✅ Malzeme ${count - 1} duvara kopyalandı!`);
             };
 
             const generatePrintForm = () => {
@@ -5995,22 +6122,85 @@
                                     {fc.label}
                                     <span className="ml-auto bg-orange-600 text-white text-xs px-2.5 py-1 rounded-full">{count} Duvar</span>
                                 </label>
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                                        filledWallCount(count) === count
+                                            ? 'bg-green-600 text-white'
+                                            : (theme === 'dark' ? 'bg-gray-600 text-gray-200' : 'bg-orange-200 text-orange-800')
+                                    }`}>
+                                        {filledWallCount(count)}/{count} dolu
+                                    </span>
+                                    {count > 1 && (
+                                        <button
+                                            onClick={() => setAllWallsOpen(count, !allWallsOpen(count))}
+                                            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                                                theme === 'dark'
+                                                    ? 'bg-gray-600 text-white hover:bg-gray-500'
+                                                    : 'bg-white text-orange-700 border-2 border-orange-300 hover:bg-orange-100'
+                                            }`}
+                                            title={allWallsOpen(count) ? 'Tüm duvarları kapat' : 'Tüm duvarları aç'}
+                                        >
+                                            {allWallsOpen(count) ? '▲ Tümünü Kapat' : '▼ Tümünü Aç'}
+                                        </button>
+                                    )}
                                 <button onClick={addWallCover} className="px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs rounded-lg hover:from-green-600 hover:to-green-700 shadow-md flex items-center gap-1">
                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
                                     </svg>
                                     Duvar Ekle
                                 </button>
+                                </div>
                             </div>
-                            <div className="space-y-3">
+                            <div className="space-y-2">
                                 {[...Array(count)].map((_, i) => {
                                     const wallData = data.duvar_kaplama && data.duvar_kaplama[i] ? data.duvar_kaplama[i] : {};
+                                    const wallOpen = isWallOpen(i);
+                                    const wallDolu = !!wallData.malzeme;
+                                    const wallOzet = wallDolu
+                                        ? wallData.malzeme + (wallData.miktar ? ` · ${wallData.miktar} m²` : '')
+                                        : 'Henüz malzeme seçilmedi';
                                     return (
-                                        <div key={i} className={`rounded-lg p-4 border-2 transition-all ${
+                                        <div key={i} className={`rounded-lg border-2 transition-all ${
                                             theme === 'dark'
                                                 ? 'bg-gray-700 border-orange-600 hover:border-orange-500'
                                                 : 'bg-white border-orange-200 hover:border-orange-300'
                                         }`}>
+                                            {/* ÖZET BAŞLIK - tıklayınca açılır/kapanır */}
+                                            <div
+                                                onClick={() => toggleWall(i)}
+                                                className={`flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none ${
+                                                    wallOpen ? 'border-b-2 ' + (theme === 'dark' ? 'border-gray-600' : 'border-orange-100') : ''
+                                                }`}
+                                            >
+                                                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                                    wallDolu ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'
+                                                }`}>{i + 1}</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`text-sm font-semibold truncate ${
+                                                        theme === 'dark' ? 'text-orange-200' : 'text-orange-900'
+                                                    }`}>
+                                                        {wallData.name || `Duvar ${i + 1}`}
+                                                    </div>
+                                                    {!wallOpen && (
+                                                        <div className={`text-xs truncate ${
+                                                            wallDolu
+                                                                ? (theme === 'dark' ? 'text-gray-300' : 'text-gray-600')
+                                                                : (theme === 'dark' ? 'text-gray-500' : 'text-gray-400')
+                                                        }`}>
+                                                            {wallOzet}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {!wallOpen && wallDolu && (
+                                                    <span className="text-green-500 text-sm flex-shrink-0">✓</span>
+                                                )}
+                                                <span className={`text-xs flex-shrink-0 ${
+                                                    theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                }`}>{wallOpen ? '▲' : '▼'}</span>
+                                            </div>
+
+                                            {wallOpen && (
+                                            <div className="p-4">
                                             <div className="flex justify-between items-center mb-3">
                                                 <div className="flex items-center gap-2 flex-1">
                                                     <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs flex-shrink-0">{i + 1}</span>
@@ -6382,6 +6572,23 @@
                                                 </div>
                                             </div>
                                         )}
+
+                                            {/* Bu malzemeyi tüm duvarlara uygula */}
+                                            {count > 1 && wallData.malzeme && (
+                                                <button
+                                                    onClick={() => applyWallToAll(i, count)}
+                                                    className={`mt-3 w-full px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                                                        theme === 'dark'
+                                                            ? 'bg-indigo-700 text-white hover:bg-indigo-600'
+                                                            : 'bg-indigo-100 text-indigo-800 border-2 border-indigo-300 hover:bg-indigo-200'
+                                                    }`}
+                                                    title="Bu duvarın malzemesini diğer tüm duvarlara kopyala (miktarlar korunur)"
+                                                >
+                                                    📋 Bu malzemeyi tüm duvarlara uygula
+                                                </button>
+                                            )}
+                                            </div>
+                                            )}
                                     </div>
                                 );
                             })}
@@ -8150,6 +8357,8 @@
                                                                                 delete newMat[cat].subGroups[subgroup];
                                                                                 setMaterials(newMat);
                                                                                 localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                                // Ürün fotoğraflarını yeni alt grup adına taşı
+                                                                                renameProductPhotoSubGroup(cat, subgroup, newName.trim());
                                                                             }
                                                                         }}
                                                                         className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-amber-400 text-white rounded-lg text-sm font-semibold hover:from-yellow-500 hover:to-amber-500 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
@@ -8391,6 +8600,8 @@
                                                                                                         
                                                                                                         setMaterials(newMat);
                                                                                                         localStorage.setItem('material_database', JSON.stringify(newMat));
+                                                                                                        // Ürün fotoğraflarını yeni tip adına taşı
+                                                                                                        renameProductPhotoSubGroup2(cat, subgroup, subGroup2, newName.trim());
                                                                                                     }
                                                                                                 }}
                                                                                                 className="px-2 py-1 bg-gradient-to-r from-yellow-400 to-amber-400 text-white rounded text-xs font-semibold hover:from-yellow-500 hover:to-amber-500 shadow-sm transition-all"
