@@ -6276,44 +6276,73 @@
                     baseKeys.forEach(k => { w[k] = Math.round((pdfColumnWidths[k] || 0) * 100 / baseTotal); });
                 }
 
-                let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + proj.name + ' - ' + apt.name + '</title><style>';
-                html += 'body{font-family:Arial;margin:40px}h1{text-align:center;color:#2563eb;border-bottom:3px solid #2563eb;padding-bottom:10px}';
-                html += 'h2{color:#1e40af;margin-top:30px;border-bottom:2px solid #ddd}table{width:100%;border-collapse:collapse;margin:20px 0;table-layout:fixed}';
-                html += 'th,td{border:1px solid #ddd;padding:12px;word-wrap:break-word}th{background:#2563eb;color:white}tr:nth-child(even){background:#f8f9fa}';
-                // Ürün görseli hücresi
+                let html = '<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>' + proj.name + ' - ' + apt.name + '</title><style>';
+                // ---- TEMEL ----
+                html += "body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2937;margin:34px 38px;-webkit-print-color-adjust:exact;print-color-adjust:exact}";
+                html += 'h1{text-align:center;font-size:21px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#0f172a;margin:0 0 6px}';
+                html += '.alt-baslik{text-align:center;color:#64748b;font-size:13px;margin:0 0 30px;line-height:1.7}';
+                html += '.alt-baslik strong{color:#334155;font-weight:600}';
+
+                // ---- ANTET ----
+                html += '.antet{display:flex;align-items:center;gap:18px;padding-bottom:14px;margin-bottom:24px;border-bottom:1px solid #e2e8f0}';
+                html += '.antet img{max-height:64px;max-width:220px;object-fit:contain}';
+                html += '.antet .firma{font-size:19px;font-weight:600;color:#0f172a;letter-spacing:.3px}';
+
+                // ---- TABLO ----
+                html += 'table{width:100%;border-collapse:collapse;margin:0 0 24px;table-layout:fixed;font-size:12.5px}';
+                html += 'td{padding:9px 11px;border-bottom:1px solid #eef2f6;word-wrap:break-word;vertical-align:middle;color:#334155}';
+                html += 'tbody tr:nth-child(even){background:#fbfcfd}';
+                html += 'tbody tr:last-child td{border-bottom:1px solid #cbd5e1}';
+                html += 'th{background:#f8fafc;color:#64748b;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:9px 11px;text-align:left;border-bottom:1.5px solid #cbd5e1;word-wrap:break-word}';
+
+                // Mahal başlığı - ince renk şeridi, ters kontrast yok
+                html += '.mahal-basligi td{background:#eef4ff;color:#1d4ed8;font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;padding:11px 12px;border:none;border-left:4px solid #2563eb;border-bottom:none;width:auto}';
+
+                // ---- ÜRÜN GÖRSELİ ----
                 html += 'td.urun-gorsel{text-align:center;padding:6px}';
-                html += 'td.urun-gorsel img{max-width:100%;max-height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd}';
-                html += 'td.urun-gorsel span{color:#bbb;font-size:11px}';
+                html += 'td.urun-gorsel img{max-width:100%;max-height:88px;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0}';
+                html += 'td.urun-gorsel span{color:#cbd5e1;font-size:11px}';
+
+                // ---- SAYFA SONU DAVRANIŞI ----
                 html += 'tr{page-break-inside:avoid}';
-                // Sayfaya sığmayan tablolarda başlık her sayfada tekrarlansın
                 html += 'thead{display:table-header-group}tfoot{display:table-footer-group}table{page-break-inside:auto}';
-                html += '.mahal-basligi td{background:#1e40af;color:#fff;font-size:17px;font-weight:bold;text-align:left;padding:9px 12px;border:1px solid #1e40af;width:auto}';
                 html += '@media print{thead{display:table-header-group}}';
+
                 // Dinamik sütun genişlikleri
                 html += `th:nth-child(1),td:nth-child(1){width:${w.col1}%}`;
                 html += `th:nth-child(2),td:nth-child(2){width:${w.col2}%}`;
                 html += `th:nth-child(3),td:nth-child(3){width:${w.col3}%}`;
-                html += `th:nth-child(4),td:nth-child(4){width:${w.col4}%}`;
+                html += `th:nth-child(4),td:nth-child(4){width:${w.col4}%;color:#0f172a;font-weight:600}`;
                 html += `th:nth-child(5),td:nth-child(5){width:${w.col5}%;text-align:center}`;
-                html += `th:nth-child(6),td:nth-child(6){width:${w.col6}%;text-align:center}`;
+                html += `th:nth-child(6),td:nth-child(6){width:${w.col6}%;text-align:center;color:#94a3b8;font-size:11px}`;
                 if (withPhotos) {
                     html += `th:nth-child(7),td:nth-child(7){width:${w.col7}%;text-align:center}`;
                 }
-                html += '.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(' + size + 'px,1fr));gap:20px;margin:20px 0}';
-                html += '.photo-item{border:3px solid #ddd;padding:15px;text-align:center;border-radius:8px}';
-                html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:5px}';
-                html += '.antet{display:flex;align-items:center;gap:20px;border-bottom:3px solid #2563eb;padding-bottom:14px;margin-bottom:18px}';
-                html += '.antet img{max-height:80px;max-width:240px;object-fit:contain}';
-                html += '.antet .firma{font-size:24px;font-weight:bold;color:#1e40af;letter-spacing:.5px}';
-                html += '.imza-alani{margin-top:45px;border-top:2px solid #333;padding-top:22px;page-break-inside:avoid}';
-                html += '.imza-tablo{width:100%;border-collapse:collapse;margin-top:18px;table-layout:fixed}';
-                html += '.imza-tablo td{border:1px solid #999;vertical-align:top;padding:0}';
-                html += '.imza-tablo .baslik{background:#f1f5f9;font-size:13px;font-weight:bold;color:#334155;padding:8px 10px;border-bottom:1px solid #999}';
-                html += '.imza-tablo .kutu{height:95px}';
+                // Mahal başlığı satırı yukarıdaki genişlik kuralından etkilenmesin
+                html += '.mahal-basligi td:nth-child(1){width:auto;text-align:left;color:#1d4ed8;font-weight:700;font-size:13px}';
+
+                // ---- FOTOĞRAFLAR ----
+                html += '.foto-baslik{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;margin:0 0 10px}';
+                html += '.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(' + size + 'px,1fr));gap:16px;margin:0 0 26px}';
+                html += '.photo-item{border:1px solid #e2e8f0;border-radius:10px;padding:8px;text-align:center}';
+                html += '.photo-item img{max-width:100%;height:' + size + 'px;object-fit:cover;border-radius:6px;display:block}';
+                html += '.photo-item div{font-size:10px;color:#94a3b8;letter-spacing:.5px;margin-top:6px}';
+
+                // ---- İMZA ----
+                html += '.imza-alani{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;page-break-inside:avoid}';
+                html += '.imza-alani h2{font-size:11px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:#94a3b8;margin:0 0 8px}';
+                html += '.imza-alani p{font-size:13px;color:#475569;margin:0 0 18px}';
+                html += '.imza-tablo{width:100%;border-collapse:separate;border-spacing:12px 0;margin:0;table-layout:fixed}';
+                html += '.imza-tablo td{padding:0;vertical-align:top;border:none}';
+                html += '.imza-tablo .baslik{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;padding:0 0 7px}';
+                html += '.imza-tablo .kutu{height:96px;border:1px solid #cbd5e1;border-radius:8px;background:#fcfdfe}';
                 html += '.imza-tablo td:nth-child(1){width:45%}.imza-tablo td:nth-child(2){width:33%}.imza-tablo td:nth-child(3){width:22%}';
-                html += '.print-btn{position:fixed;top:20px;right:20px;background:#2563eb;color:white;padding:15px 30px;cursor:pointer;border-radius:5px}';
+                html += '.imza-firma{margin-top:16px;font-size:10.5px;color:#94a3b8;letter-spacing:.4px}';
+
+                // ---- YAZDIR DÜĞMESİ ----
+                html += '.print-btn{position:fixed;top:20px;right:20px;background:#0f172a;color:white;padding:12px 24px;cursor:pointer;border-radius:8px;border:none;font-size:13px;font-weight:600;letter-spacing:.3px;box-shadow:0 4px 14px rgba(15,23,42,.25)}';
                 html += '@media print{.print-btn{display:none}}</style></head><body>';
-                html += '<button class="print-btn" onclick="window.print()">Yazdir/PDF</button>';
+                html += '<button class="print-btn" onclick="window.print()">Yazdır / PDF</button>';
 
                 // Firma anteti (logo ve/veya firma adı tanımlıysa)
                 if (companyLogo || companyName) {
@@ -6323,7 +6352,8 @@
                     html += '</div>';
                 }
 
-                html += '<h1>MALZEME ONAY FORMU</h1><div style="text-align:center;font-size:20px;margin-bottom:30px">' + proj.name + ' - ' + apt.name + '<br>Tarih: ' + new Date().toLocaleDateString('tr-TR') + '</div>';
+                html += '<h1>Malzeme Onay Formu</h1>';
+                html += '<div class="alt-baslik"><strong>' + proj.name + '</strong> &nbsp;·&nbsp; ' + apt.name + '<br>' + new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) + '</div>';
                 
                 // Seçilen ürünün görsel hücresini üret
                 let photosFound = 0;
@@ -6346,7 +6376,7 @@
                     html += '<table>';
                     html += '<thead>';
                     html += '<tr class="mahal-basligi"><td colspan="' + kolonSayisi + '">' + room.name + '</td></tr>';
-                    html += '<tr><th>Tur</th><th>Alt Grup</th><th>Tip</th><th>Malzeme</th><th>Miktar/Detay</th><th>Birim</th>' + (withPhotos ? '<th>Gorsel</th>' : '') + '</tr>';
+                    html += '<tr><th>Tür</th><th>Alt Grup</th><th>Tip</th><th>Malzeme</th><th>Miktar</th><th>Birim</th>' + (withPhotos ? '<th>Görsel</th>' : '') + '</tr>';
                     html += '</thead><tbody>';
                     room.fields.forEach(f => {
                         if (f === 'foto') return;
@@ -6416,21 +6446,21 @@
                     });
                     html += '</tbody></table>';
                     if (rd.foto && Object.keys(rd.foto).length > 0) {
-                        html += '<h3>Fotograflar</h3><div class="photo-grid">';
+                        html += '<div class="foto-baslik">' + room.name + ' — Fotoğraflar</div><div class="photo-grid">';
                         Object.values(rd.foto).forEach((p, i) => {
-                            if (p) html += '<div class="photo-item"><img src="' + p + '"><div>Foto ' + (i + 1) + '</div></div>';
+                            if (p) html += '<div class="photo-item"><img src="' + p + '"><div>Fotoğraf ' + (i + 1) + '</div></div>';
                         });
                         html += '</div>';
                     }
                 });
-                html += '<div class="imza-alani"><h2 style="margin-top:0">ONAY</h2>';
-                html += '<p style="font-size:15px">Yukarida belirtilen malzemeleri inceledim ve onayliyorum.</p>';
+                html += '<div class="imza-alani"><h2>Onay</h2>';
+                html += '<p>Yukarıda belirtilen malzemeleri inceledim ve onaylıyorum.</p>';
                 html += '<table class="imza-tablo">';
-                html += '<tr><td class="baslik">DAIRE SAHIBI (Ad Soyad)</td><td class="baslik">IMZA</td><td class="baslik">TARIH</td></tr>';
+                html += '<tr><td class="baslik">Daire Sahibi · Ad Soyad</td><td class="baslik">İmza</td><td class="baslik">Tarih</td></tr>';
                 html += '<tr><td class="kutu"></td><td class="kutu"></td><td class="kutu"></td></tr>';
                 html += '</table>';
                 if (companyName) {
-                    html += '<div style="margin-top:14px;font-size:12px;color:#666">' + companyName + '</div>';
+                    html += '<div class="imza-firma">' + companyName + '</div>';
                 }
                 html += '</div></body></html>';
                 
