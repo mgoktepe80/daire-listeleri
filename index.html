@@ -5658,6 +5658,28 @@
             };
 
             // Seramik listesini süz (seçili olan her zaman kalır)
+            // Filtre açıkken seri ve boyut listeleri de yalnızca fotoğraflı
+            // seramiklerden türetilir (boş seri/boyut hiç görünmesin).
+            const ceramicSeriesFor = (cat, selected) => {
+                const trSort = (a, b) => a.localeCompare(b, 'tr');
+                if (!isOnlyPhotoCat(cat)) return [...(ceramicData.series || [])].sort(trSort);
+                const pool = filterCeramicList(ceramicData.items || [], cat, selected);
+                return [...new Set(pool.map(i => i.serie))].sort(trSort);
+            };
+
+            const ceramicSizesFor = (cat, serie, selected) => {
+                const trSort = (a, b) => a.localeCompare(b, 'tr');
+                const pool = isOnlyPhotoCat(cat)
+                    ? filterCeramicList(ceramicData.items || [], cat, selected)
+                    : (ceramicData.items || []);
+
+                if (serie) {
+                    return [...new Set(pool.filter(i => i.serie === serie).map(i => i.size))].sort(trSort);
+                }
+                if (!isOnlyPhotoCat(cat)) return [...(ceramicData.sizes || [])].sort(trSort);
+                return [...new Set(pool.map(i => i.size))].sort(trSort);
+            };
+
             const filterCeramicList = (items, cat, selected) => {
                 if (!isOnlyPhotoCat(cat)) return items;
                 return items.filter(i => i.fullName === selected || !!productPhotos[makeCeramicKey(i.fullName)]);
@@ -6140,7 +6162,7 @@
                                                                         }}
                                                                     >
                                                                         <option value="">🏷️ Tüm Seriler</option>
-                                                                        {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
+                                                                        {ceramicSeriesFor(fc.category, wallData.malzeme).map(serie => (
                                                                             <option key={serie} value={serie}>{serie}</option>
                                                                         ))}
                                                                     </select>
@@ -6185,25 +6207,9 @@
                                                                         }}
                                                                     >
                                                                         <option value="">📏 Tüm Boyutlar</option>
-                                                                        {(() => {
-                                                                            // Eğer seri seçiliyse, sadece o serideki boyutları göster
-                                                                            if (wallData.ceramicSerie) {
-                                                                                const availableSizes = [...new Set(
-                                                                                    ceramicData.items
-                                                                                        .filter(item => item.serie === wallData.ceramicSerie)
-                                                                                        .map(item => item.size)
-                                                                                )].sort((a, b) => a.localeCompare(b, 'tr'));
-                                                                                
-                                                                                return availableSizes.map(size => (
-                                                                                    <option key={size} value={size}>{size}</option>
-                                                                                ));
-                                                                            } else {
-                                                                                // Seri seçili değilse tüm boyutları göster
-                                                                                return [...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
-                                                                                    <option key={size} value={size}>{size}</option>
-                                                                                ));
-                                                                            }
-                                                                        })()}
+                                                                        {ceramicSizesFor(fc.category, wallData.ceramicSerie || '', wallData.malzeme).map(size => (
+                                                                            <option key={size} value={size}>{size}</option>
+                                                                        ))}
                                                                     </select>
                                                                 </div>
                                                                 
@@ -6636,7 +6642,7 @@
                                                         }}
                                                     >
                                                         <option value="">🏷️ Tüm Seriler</option>
-                                                        {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
+                                                        {ceramicSeriesFor(fc.category, data[f]?.malzeme).map(serie => (
                                                             <option key={serie} value={serie}>{serie}</option>
                                                         ))}
                                                     </select>
@@ -6660,28 +6666,9 @@
                                                         }}
                                                     >
                                                         <option value="">📏 Tüm Boyutlar</option>
-                                                        {(() => {
-                                                            // Kaydedilmiş seriyi al (data'dan)
-                                                            const selectedSerie = data[f]?.ceramicSerie || '';
-                                                            
-                                                            // Eğer seri seçiliyse, sadece o serideki boyutları göster
-                                                            if (selectedSerie) {
-                                                                const availableSizes = [...new Set(
-                                                                    ceramicData.items
-                                                                        .filter(item => item.serie === selectedSerie)
-                                                                        .map(item => item.size)
-                                                                )].sort((a, b) => a.localeCompare(b, 'tr'));
-                                                                
-                                                                return availableSizes.map(size => (
-                                                                    <option key={size} value={size}>{size}</option>
-                                                                ));
-                                                            } else {
-                                                                // Seri seçili değilse tüm boyutları göster
-                                                                return [...ceramicData.sizes].sort((a, b) => a.localeCompare(b, 'tr')).map(size => (
-                                                                    <option key={size} value={size}>{size}</option>
-                                                                ));
-                                                            }
-                                                        })()}
+                                                        {ceramicSizesFor(fc.category, data[f]?.ceramicSerie || '', data[f]?.malzeme).map(size => (
+                                                            <option key={size} value={size}>{size}</option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                                 
