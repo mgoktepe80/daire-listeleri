@@ -6289,14 +6289,16 @@
                 html += '.antet .firma{font-size:19px;font-weight:600;color:#0f172a;letter-spacing:.3px}';
 
                 // ---- TABLO ----
-                html += 'table{width:100%;border-collapse:collapse;margin:0 0 24px;table-layout:fixed;font-size:12.5px}';
-                html += 'td{padding:9px 11px;border-bottom:1px solid #eef2f6;word-wrap:break-word;vertical-align:middle;color:#334155}';
+                html += 'table{width:100%;border-collapse:collapse;margin:0 0 24px;table-layout:fixed;font-size:14px}';
+                html += 'td{padding:10px 12px;border-bottom:1px solid #eef2f6;border-right:1px solid #eef2f6;word-wrap:break-word;vertical-align:middle;color:#0f172a;font-weight:600}';
+                html += 'td:last-child{border-right:none}';
                 html += 'tbody tr:nth-child(even){background:#fbfcfd}';
                 html += 'tbody tr:last-child td{border-bottom:1px solid #cbd5e1}';
-                html += 'th{background:#f8fafc;color:#64748b;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:9px 11px;text-align:left;border-bottom:1.5px solid #cbd5e1;word-wrap:break-word}';
+                html += 'th{background:#f8fafc;color:#64748b;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:10px 12px;text-align:left;border-bottom:1.5px solid #cbd5e1;border-right:1px solid #e6ebf1;word-wrap:break-word}';
+                html += 'th:last-child{border-right:none}';
 
                 // Mahal başlığı - ince renk şeridi, ters kontrast yok
-                html += '.mahal-basligi td{background:#eef4ff;color:#1d4ed8;font-size:13px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;padding:11px 12px;border:none;border-left:4px solid #2563eb;border-bottom:none;width:auto}';
+                html += '.mahal-basligi td{background:#eef4ff;color:#1d4ed8;font-size:16px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;padding:14px 14px;border:none;border-left:5px solid #2563eb;border-bottom:none;width:auto}';
 
                 // ---- ÜRÜN GÖRSELİ ----
                 html += 'td.urun-gorsel{text-align:center;padding:6px}';
@@ -6312,14 +6314,14 @@
                 html += `th:nth-child(1),td:nth-child(1){width:${w.col1}%}`;
                 html += `th:nth-child(2),td:nth-child(2){width:${w.col2}%}`;
                 html += `th:nth-child(3),td:nth-child(3){width:${w.col3}%}`;
-                html += `th:nth-child(4),td:nth-child(4){width:${w.col4}%;color:#0f172a;font-weight:600}`;
+                html += `th:nth-child(4),td:nth-child(4){width:${w.col4}%}`;
                 html += `th:nth-child(5),td:nth-child(5){width:${w.col5}%;text-align:center}`;
-                html += `th:nth-child(6),td:nth-child(6){width:${w.col6}%;text-align:center;color:#94a3b8;font-size:11px}`;
+                html += `th:nth-child(6),td:nth-child(6){width:${w.col6}%;text-align:center;color:#64748b}`;
                 if (withPhotos) {
                     html += `th:nth-child(7),td:nth-child(7){width:${w.col7}%;text-align:center}`;
                 }
                 // Mahal başlığı satırı yukarıdaki genişlik kuralından etkilenmesin
-                html += '.mahal-basligi td:nth-child(1){width:auto;text-align:left;color:#1d4ed8;font-weight:700;font-size:13px}';
+                html += '.mahal-basligi td:nth-child(1){width:auto;text-align:left;color:#1d4ed8;font-weight:700;font-size:16px;border-right:none}';
 
                 // ---- FOTOĞRAFLAR ----
                 html += '.foto-baslik{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;margin:0 0 10px}';
