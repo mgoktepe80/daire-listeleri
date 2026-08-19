@@ -6285,6 +6285,10 @@
                 html += 'td.urun-gorsel img{max-width:100%;max-height:90px;object-fit:cover;border-radius:4px;border:1px solid #ddd}';
                 html += 'td.urun-gorsel span{color:#bbb;font-size:11px}';
                 html += 'tr{page-break-inside:avoid}';
+                // Sayfaya sığmayan tablolarda başlık her sayfada tekrarlansın
+                html += 'thead{display:table-header-group}tfoot{display:table-footer-group}table{page-break-inside:auto}';
+                html += '.mahal-basligi td{background:#1e40af;color:#fff;font-size:17px;font-weight:bold;text-align:left;padding:9px 12px;border:1px solid #1e40af;width:auto}';
+                html += '@media print{thead{display:table-header-group}}';
                 // Dinamik sütun genişlikleri
                 html += `th:nth-child(1),td:nth-child(1){width:${w.col1}%}`;
                 html += `th:nth-child(2),td:nth-child(2){width:${w.col2}%}`;
@@ -6338,7 +6342,12 @@
                 allRooms.forEach(room => {
                     const rd = apt.data[room.id];
                     if (!rd) return;
-                    html += '<h2>' + room.name + '</h2><table><tr><th>Tur</th><th>Alt Grup</th><th>Tip</th><th>Malzeme</th><th>Miktar/Detay</th><th>Birim</th>' + (withPhotos ? '<th>Gorsel</th>' : '') + '</tr>';
+                    const kolonSayisi = withPhotos ? 7 : 6;
+                    html += '<table>';
+                    html += '<thead>';
+                    html += '<tr class="mahal-basligi"><td colspan="' + kolonSayisi + '">' + room.name + '</td></tr>';
+                    html += '<tr><th>Tur</th><th>Alt Grup</th><th>Tip</th><th>Malzeme</th><th>Miktar/Detay</th><th>Birim</th>' + (withPhotos ? '<th>Gorsel</th>' : '') + '</tr>';
+                    html += '</thead><tbody>';
                     room.fields.forEach(f => {
                         if (f === 'foto') return;
                         const fc = fieldLabels[f];
@@ -6405,7 +6414,7 @@
                             html += '<tr><td>' + fc.label + '</td><td>' + subgroup + '</td><td>' + subgroup2 + '</td><td>' + rd[f].malzeme + '</td><td>' + (rd[f].miktar || '-') + '</td><td>' + (fc.unit || '-') + '</td>' + photoCell(fc.category, subgroup, subgroup2, rd[f].malzeme) + '</tr>';
                         }
                     });
-                    html += '</table>';
+                    html += '</tbody></table>';
                     if (rd.foto && Object.keys(rd.foto).length > 0) {
                         html += '<h3>Fotograflar</h3><div class="photo-grid">';
                         Object.values(rd.foto).forEach((p, i) => {
