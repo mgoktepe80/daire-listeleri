@@ -1398,9 +1398,50 @@
             const [newCategoryName, setNewCategoryName] = useState('');
             const [editingCategory, setEditingCategory] = useState(null);
             const [activeDBTab, setActiveDBTab] = useState('Seramik');
+            // Kayıtlı seramikler listesi filtreleri
+            const [ceramicListSearch, setCeramicListSearch] = useState('');
+            const [ceramicListSerie, setCeramicListSerie] = useState('');
+            const [ceramicListSize, setCeramicListSize] = useState('');
+            const [ceramicListPhoto, setCeramicListPhoto] = useState('all'); // all | with | without
             const [draggedTab, setDraggedTab] = useState(null);
             const [searchRoom, setSearchRoom] = useState('');
             const [searchMaterial, setSearchMaterial] = useState('');
+
+            // Kayıtlı seramikler: seri / boyut / metin / fotoğraf durumuna göre filtrele
+            const filteredCeramicItems = useMemo(() => {
+                const norm = (t) => (t || '').toString().toLocaleLowerCase('tr-TR');
+                const q1 = norm(ceramicListSearch).trim();
+                const q2 = norm(searchMaterial).trim();
+
+                return [...(ceramicData.items || [])]
+                    .filter(item => {
+                        if (ceramicListSerie && item.serie !== ceramicListSerie) return false;
+                        if (ceramicListSize && item.size !== ceramicListSize) return false;
+
+                        const hay = norm(item.fullName) + ' ' + norm(item.serie) + ' ' + norm(item.size);
+                        if (q1 && !hay.includes(q1)) return false;
+                        if (q2 && !hay.includes(q2)) return false;
+
+                        if (ceramicListPhoto !== 'all') {
+                            const hasPhoto = !!productPhotos[makeCeramicKey(item.fullName)];
+                            if (ceramicListPhoto === 'with' && !hasPhoto) return false;
+                            if (ceramicListPhoto === 'without' && hasPhoto) return false;
+                        }
+                        return true;
+                    })
+                    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'tr'));
+            }, [ceramicData.items, ceramicListSearch, searchMaterial, ceramicListSerie, ceramicListSize, ceramicListPhoto, productPhotos]);
+
+            // Seçili seriye ait boyutlar (boyut filtresi listesi)
+            const ceramicSizesForFilter = useMemo(() => {
+                if (!ceramicListSerie) {
+                    return [...(ceramicData.sizes || [])].sort((a, b) => a.localeCompare(b, 'tr'));
+                }
+                return [...new Set((ceramicData.items || [])
+                    .filter(i => i.serie === ceramicListSerie)
+                    .map(i => i.size))]
+                    .sort((a, b) => a.localeCompare(b, 'tr'));
+            }, [ceramicListSerie, ceramicData.items, ceramicData.sizes]);
             const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
             const [showMaterialAnalysis, setShowMaterialAnalysis] = useState(false);
             const [activeAnalysisTab, setActiveAnalysisTab] = useState('Tümü');
@@ -7610,15 +7651,133 @@
                                             <div className={`border-2 rounded-lg p-4 ${
                                                 theme === 'dark' ? 'border-gray-700' : 'border-gray-300'
                                             }`}>
-                                                <h4 className={`font-bold mb-3 ${
+                                                <h4 className={`font-bold mb-3 flex items-center gap-2 flex-wrap ${
                                                     theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
                                                 }`}>
-                                                    Kayıtlı Seramikler ({ceramicData.items.length})
+                                                    <span>Kayıtlı Seramikler</span>
+                                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                                        theme === 'dark' ? 'bg-purple-900 text-purple-200' : 'bg-purple-100 text-purple-700'
+                                                    }`}>
+                                                        {filteredCeramicItems.length === ceramicData.items.length
+                                                            ? `${ceramicData.items.length} kayıt`
+                                                            : `${filteredCeramicItems.length} / ${ceramicData.items.length} kayıt`}
+                                                    </span>
                                                 </h4>
-                                                
+
+                                                {/* FİLTRE ÇUBUĞU */}
+                                                <div className={`mb-3 p-3 rounded-lg border-2 ${
+                                                    theme === 'dark' ? 'border-gray-700 bg-gray-800/60' : 'border-purple-200 bg-purple-50'
+                                                }`}>
+                                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                                                        {/* Metin arama */}
+                                                        <div className="relative md:col-span-2">
+                                                            <input
+                                                                type="text"
+                                                                value={ceramicListSearch}
+                                                                onChange={(e) => setCeramicListSearch(e.target.value)}
+                                                                placeholder="Seramik ara... (ad, seri veya boyut)"
+                                                                className={`w-full border-2 rounded-lg pl-9 pr-8 py-2 text-sm transition-all ${
+                                                                    theme === 'dark'
+                                                                        ? 'border-gray-600 bg-gray-700 text-gray-100 placeholder-gray-400 focus:border-purple-400'
+                                                                        : 'border-purple-300 bg-white text-gray-900 placeholder-gray-400 focus:border-purple-500'
+                                                                }`}
+                                                            />
+                                                            <svg className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                                            </svg>
+                                                            {ceramicListSearch && (
+                                                                <button
+                                                                    onClick={() => setCeramicListSearch('')}
+                                                                    className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600 text-lg leading-none"
+                                                                    title="Aramayı temizle"
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Seri filtresi */}
+                                                        <select
+                                                            value={ceramicListSerie}
+                                                            onChange={(e) => { setCeramicListSerie(e.target.value); setCeramicListSize(''); }}
+                                                            className={`border-2 rounded-lg px-2 py-2 text-sm transition-all ${
+                                                                theme === 'dark'
+                                                                    ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                    : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                            }`}
+                                                        >
+                                                            <option value="">🏷️ Tüm Seriler</option>
+                                                            {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
+                                                                <option key={serie} value={serie}>{serie}</option>
+                                                            ))}
+                                                        </select>
+
+                                                        {/* Boyut filtresi */}
+                                                        <select
+                                                            value={ceramicListSize}
+                                                            onChange={(e) => setCeramicListSize(e.target.value)}
+                                                            className={`border-2 rounded-lg px-2 py-2 text-sm transition-all ${
+                                                                theme === 'dark'
+                                                                    ? 'border-gray-600 bg-gray-700 text-gray-100 focus:border-purple-400'
+                                                                    : 'border-purple-300 bg-white text-gray-900 focus:border-purple-500'
+                                                            }`}
+                                                        >
+                                                            <option value="">📏 Tüm Boyutlar</option>
+                                                            {ceramicSizesForFilter.map(size => (
+                                                                <option key={size} value={size}>{size}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                                        {/* Fotoğraf durumu */}
+                                                        {[
+                                                            { key: 'all', label: 'Tümü' },
+                                                            { key: 'with', label: '🖼️ Fotoğraflı' },
+                                                            { key: 'without', label: '📷 Fotoğrafsız' }
+                                                        ].map(({ key, label }) => (
+                                                            <button
+                                                                key={key}
+                                                                onClick={() => setCeramicListPhoto(key)}
+                                                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                                                    ceramicListPhoto === key
+                                                                        ? 'bg-purple-600 text-white shadow'
+                                                                        : (theme === 'dark'
+                                                                            ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                                            : 'bg-white text-gray-600 border border-purple-200 hover:bg-purple-100')
+                                                                }`}
+                                                            >
+                                                                {label}
+                                                            </button>
+                                                        ))}
+
+                                                        {(ceramicListSearch || ceramicListSerie || ceramicListSize || ceramicListPhoto !== 'all') && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setCeramicListSearch('');
+                                                                    setCeramicListSerie('');
+                                                                    setCeramicListSize('');
+                                                                    setCeramicListPhoto('all');
+                                                                }}
+                                                                className="ml-auto px-3 py-1 rounded-full text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-all"
+                                                            >
+                                                                ✕ Filtreleri Temizle
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
                                                 <div className="space-y-2 max-h-96 overflow-auto">
-                                                    {ceramicData.items
-                                                        .sort((a, b) => a.fullName.localeCompare(b.fullName, 'tr'))
+                                                    {filteredCeramicItems.length === 0 && (
+                                                        <div className={`text-center py-8 text-sm ${
+                                                            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                        }`}>
+                                                            {ceramicData.items.length === 0
+                                                                ? 'Henüz seramik eklenmemiş.'
+                                                                : '🔍 Bu filtrelere uyan seramik bulunamadı.'}
+                                                        </div>
+                                                    )}
+                                                    {filteredCeramicItems
                                                         .map((item, idx) => (
                                                         <div key={idx} className={`flex justify-between items-center px-4 py-3 rounded-lg group transition-all ${
                                                             theme === 'dark'
