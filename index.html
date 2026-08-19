@@ -1348,6 +1348,31 @@
             });
             const [uploadingPhotoKey, setUploadingPhotoKey] = useState(null);
             const [previewPhoto, setPreviewPhoto] = useState(null);
+            // Mahal veri girişinde "sadece fotoğraflı ürünler" filtresi - KATEGORİ BAZLI
+            // { 'Zemin': true, 'Boya': false, ... }
+            const [onlyPhotoCats, setOnlyPhotoCats] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('only_photo_categories');
+                    return saved ? JSON.parse(saved) : {};
+                } catch (e) {
+                    return {};
+                }
+            });
+
+            const isOnlyPhotoCat = (cat) => !!onlyPhotoCats[cat];
+
+            const toggleOnlyPhotoCat = (cat) => {
+                setOnlyPhotoCats(prev => {
+                    const next = { ...prev, [cat]: !prev[cat] };
+                    if (!next[cat]) delete next[cat];
+                    try {
+                        localStorage.setItem('only_photo_categories', JSON.stringify(next));
+                    } catch (e) {
+                        console.error('❌ Filtre ayarı kaydedilemedi:', e);
+                    }
+                    return next;
+                });
+            };
             const [showDB, setShowDB] = useState(false);
             const [showExcelImportModal, setShowExcelImportModal] = useState(false);
             const [excelImportText, setExcelImportText] = useState('');
@@ -5594,6 +5619,50 @@
                 return hit ? productPhotos[hit] : '';
             };
 
+            // ---- "Sadece fotoğraflı ürünler" filtresi yardımcıları ----
+
+            const hasProductPhoto = (cat, subgroup, subgroup2, name) =>
+                !!getProductPhoto(cat, subgroup, subgroup2, name);
+
+            // Malzeme listesini süz. Halihazırda seçili olan değer,
+            // fotoğrafı olmasa bile listede kalır (seçim kaybolmasın).
+            const filterMaterialList = (list, cat, subgroup, subgroup2, selected) => {
+                const arr = Array.isArray(list) ? list : [];
+                if (!isOnlyPhotoCat(cat)) return arr;
+                return arr.filter(m => m === selected || hasProductPhoto(cat, subgroup, subgroup2, m));
+            };
+
+            // Seramik kütüphanesinde fotoğraflı ürün var mı?
+            const anyCeramicHasPhoto = () =>
+                (ceramicData.items || []).some(i => !!productPhotos[makeCeramicKey(i.fullName)]);
+
+            // Bir alt grupta fotoğraflı ürün kaldı mı? (boş grupları gizlemek için)
+            const subGroupHasPhoto = (cat, subgroup, sgData, useSubGroup2, selected) => {
+                if (!isOnlyPhotoCat(cat)) return true;
+                if (subgroup === selected) return true;
+                if (subgroup === 'Seramik') return anyCeramicHasPhoto();
+                if (!sgData) return false;
+                if (useSubGroup2) {
+                    const items = sgData.items || {};
+                    return Object.keys(items).some(t =>
+                        (items[t] || []).some(m => hasProductPhoto(cat, subgroup, t, m)));
+                }
+                return (sgData.items || []).some(m => hasProductPhoto(cat, subgroup, '-', m));
+            };
+
+            // Bir tipte (Alt Grup 2) fotoğraflı ürün kaldı mı?
+            const subGroup2HasPhoto = (cat, subgroup, sgData, type, selected) => {
+                if (!isOnlyPhotoCat(cat)) return true;
+                if (type === selected) return true;
+                return ((sgData?.items || {})[type] || []).some(m => hasProductPhoto(cat, subgroup, type, m));
+            };
+
+            // Seramik listesini süz (seçili olan her zaman kalır)
+            const filterCeramicList = (items, cat, selected) => {
+                if (!isOnlyPhotoCat(cat)) return items;
+                return items.filter(i => i.fullName === selected || !!productPhotos[makeCeramicKey(i.fullName)]);
+            };
+
             const saveProductPhotos = (updater) => {
                 setProductPhotos(prev => {
                     const next = updater({ ...prev });
@@ -6016,7 +6085,9 @@
                                                         style={{ width: 'fit-content', minWidth: '100%' }}
                                                     >
                                                         <option value="">🔹 Alt Grup Seçiniz</option>
-                                                        {Object.keys(categoryData).map(sg => (
+                                                        {Object.keys(categoryData)
+                                                            .filter(sg => subGroupHasPhoto(fc.category, sg, categoryData[sg], false, wallData.subgroup))
+                                                            .map(sg => (
                                                             <option key={sg} value={sg}>{sg}</option>
                                                         ))}
                                                     </select>
@@ -6189,7 +6260,7 @@
                                                                         const serieFilter = document.getElementById(`wall-ceramic-filter-serie-${i}`)?.value || '';
                                                                         const sizeFilter = document.getElementById(`wall-ceramic-filter-size-${i}`)?.value || '';
                                                                         
-                                                                        return ceramicData.items
+                                                                        return filterCeramicList(ceramicData.items, fc.category, wallData.malzeme)
                                                                             .filter(item => {
                                                                                 if (serieFilter && item.serie !== serieFilter) return false;
                                                                                 if (sizeFilter && item.size !== sizeFilter) return false;
@@ -6226,7 +6297,10 @@
                                                                 {(() => {
                                                                     const subgroupData = categoryData[wallData.subgroup];
                                                                     // Yeni format: { items: [...] } veya eski format: [...]
-                                                                    const items = subgroupData?.items || subgroupData || [];
+                                                                    const items = filterMaterialList(
+                                                                        subgroupData?.items || subgroupData || [],
+                                                                        fc.category, wallData.subgroup, '-', wallData.malzeme
+                                                                    );
                                                                     return items.map(m => (
                                                                         <option key={m} value={m}>{m}</option>
                                                                     ));
@@ -6276,7 +6350,10 @@
                                                     style={{ width: 'fit-content', minWidth: '100%' }}
                                                 >
                                                     <option value="">Seçiniz...</option>
-                                                    {(Array.isArray(categoryData) ? categoryData : []).map(m => (
+                                                    {filterMaterialList(
+                                                        Array.isArray(categoryData) ? categoryData : [],
+                                                        fc.category, '-', '-', wallData.malzeme
+                                                    ).map(m => (
                                                         <option key={m} value={m}>{m}</option>
                                                     ))}
                                                 </select>
@@ -6448,7 +6525,10 @@
                                                 style={{ width: 'fit-content', minWidth: '100%' }}
                                             >
                                                 <option value="">Seçiniz...</option>
-                                                {(Array.isArray(categoryData) ? categoryData : []).map(m => (
+                                                {filterMaterialList(
+                                                    Array.isArray(categoryData) ? categoryData : [],
+                                                    fc.category, '-', '-', data[f] && data[f].malzeme
+                                                ).map(m => (
                                                     <option key={m} value={m}>{m}</option>
                                                 ))}
                                             </select>
@@ -6492,7 +6572,9 @@
                                             style={{ width: 'fit-content', minWidth: '100%' }}
                                         >
                                             <option value="">🔹 Alt Grup Seçiniz</option>
-                                            {Object.keys(subGroups).map(sg => (
+                                            {Object.keys(subGroups)
+                                                .filter(sg => subGroupHasPhoto(fc.category, sg, subGroups[sg], useSubGroup2, data[f] && data[f].subgroup))
+                                                .map(sg => (
                                                 <option key={sg} value={sg}>{sg}</option>
                                             ))}
                                         </select>
@@ -6515,7 +6597,9 @@
                                                         style={{ width: 'fit-content', minWidth: '100%' }}
                                                     >
                                                         <option value="">🔸 Tip Seçiniz</option>
-                                                        {subGroup2s.map(sg2 => (
+                                                        {subGroup2s
+                                                            .filter(sg2 => subGroup2HasPhoto(fc.category, data[f].subgroup, selectedSubGroup, sg2, data[f].subgroup2))
+                                                            .map(sg2 => (
                                                             <option key={sg2} value={sg2}>{sg2}</option>
                                                         ))}
                                                     </select>
@@ -6631,7 +6715,7 @@
                                                         const serieFilter = data[f]?.ceramicSerie || '';
                                                         const sizeFilter = data[f]?.ceramicSize || '';
                                                         
-                                                        return ceramicData.items
+                                                        return filterCeramicList(ceramicData.items, fc.category, data[f].malzeme)
                                                             .filter(item => {
                                                                 if (serieFilter && item.serie !== serieFilter) return false;
                                                                 if (sizeFilter && item.size !== sizeFilter) return false;
@@ -6681,7 +6765,10 @@
                                                     }
                                                     
                                                     // Alt Grup 2'ye göre malzemeleri getir
-                                                    const items = selectedSubGroup?.items?.[subgroup2Selected] || [];
+                                                    const items = filterMaterialList(
+                                                        selectedSubGroup?.items?.[subgroup2Selected] || [],
+                                                        fc.category, data[f].subgroup, subgroup2Selected, data[f].malzeme
+                                                    );
                                                     
                                                     return (
                                                         <select 
@@ -6702,7 +6789,10 @@
                                                     );
                                                 } else {
                                                     // Alt Grup 2 pasif - eski sistem
-                                                    const items = selectedSubGroup?.items || [];
+                                                    const items = filterMaterialList(
+                                                        selectedSubGroup?.items || [],
+                                                        fc.category, data[f].subgroup, '-', data[f].malzeme
+                                                    );
                                                     
                                                     return (
                                                         <select 
@@ -14080,7 +14170,24 @@
                                                                 <h3 className="text-white font-bold text-lg">
                                                                     {category}
                                                                 </h3>
-                                                                <span className="ml-auto text-white text-sm bg-white bg-opacity-20 px-2.5 py-0.5 rounded-full">
+
+                                                                {/* Kategori bazlı: sadece fotoğraflı ürünleri listele */}
+                                                                <button
+                                                                    onClick={() => toggleOnlyPhotoCat(category)}
+                                                                    title={isOnlyPhotoCat(category)
+                                                                        ? `"${category}" kategorisinde sadece fotoğrafı olan ürünler listeleniyor — tümünü görmek için tıklayın`
+                                                                        : `"${category}" kategorisinde sadece fotoğrafı olan ürünleri listele`}
+                                                                    className={`ml-auto flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                                                                        isOnlyPhotoCat(category)
+                                                                            ? 'bg-white text-indigo-700 shadow-md'
+                                                                            : 'bg-white bg-opacity-20 text-white hover:bg-opacity-30'
+                                                                    }`}
+                                                                >
+                                                                    <span>🖼️</span>
+                                                                    <span>{isOnlyPhotoCat(category) ? 'Sadece Fotoğraflı' : 'Tüm Ürünler'}</span>
+                                                                </button>
+
+                                                                <span className="text-white text-sm bg-white bg-opacity-20 px-2.5 py-0.5 rounded-full">
                                                                     {grouped[category].length} Alan
                                                                 </span>
                                                             </div>
