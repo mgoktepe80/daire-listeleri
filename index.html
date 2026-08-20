@@ -1586,6 +1586,10 @@
             const [lastSyncTime, setLastSyncTime] = useState(null);
             const [firebaseStatus, setFirebaseStatus] = useState({ connected: firebaseEnabled, message: '', type: 'connected' });
             const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+            // Seçimleri temizle
+            const [showClearModal, setShowClearModal] = useState(false);
+            const [clearScope, setClearScope] = useState('apartment'); // apartment | project
+            const [clearOptions, setClearOptions] = useState({ materials: true, amounts: false, photos: false });
             const [selectedApartmentsForDelete, setSelectedApartmentsForDelete] = useState([]);
             const [sessionConflict, setSessionConflict] = useState(null);
             const [showSessionConflictModal, setShowSessionConflictModal] = useState(false);
@@ -4845,9 +4849,14 @@
                                         // Array formatı (yeni)
                                         const copiedWalls = roomData[field].map(wall => {
                                             const newWall = {};
+                                            // Duvar adı yapı bilgisidir - her zaman korunur
+                                            if (wall && wall.name) newWall.name = wall.name;
                                             if (copyOptions.materials) {
                                                 newWall.subgroup = wall.subgroup || '';
+                                                newWall.subgroup2 = wall.subgroup2 || '';
                                                 newWall.malzeme = wall.malzeme || '';
+                                                if (wall.ceramicSerie) newWall.ceramicSerie = wall.ceramicSerie;
+                                                if (wall.ceramicSize) newWall.ceramicSize = wall.ceramicSize;
                                             }
                                             if (copyOptions.amounts) {
                                                 newWall.miktar = wall.miktar || '';
@@ -4855,7 +4864,7 @@
                                             return newWall;
                                         });
                                         // Sadece dolu duvarları kopyala
-                                        if (copiedWalls.some(w => w.subgroup || w.malzeme || w.miktar)) {
+                                        if (copiedWalls.some(w => w.name || w.subgroup || w.malzeme || w.miktar)) {
                                             newData[roomId][field] = copiedWalls;
                                         }
                                     } else if (typeof roomData[field] === 'object') {
@@ -4865,15 +4874,20 @@
                                             const wall = roomData[field][wallIdx];
                                             if (wall && typeof wall === 'object') {
                                                 const newWall = {};
+                                                // Duvar adı yapı bilgisidir - her zaman korunur
+                                                if (wall.name) newWall.name = wall.name;
                                                 if (copyOptions.materials) {
                                                     newWall.subgroup = wall.subgroup || '';
+                                                    newWall.subgroup2 = wall.subgroup2 || '';
                                                     newWall.malzeme = wall.malzeme || '';
+                                                    if (wall.ceramicSerie) newWall.ceramicSerie = wall.ceramicSerie;
+                                                    if (wall.ceramicSize) newWall.ceramicSize = wall.ceramicSize;
                                                 }
                                                 if (copyOptions.amounts) {
                                                     newWall.miktar = wall.miktar || '';
                                                 }
                                                 // Sadece dolu duvarları ekle
-                                                if (newWall.subgroup || newWall.malzeme || newWall.miktar) {
+                                                if (newWall.name || newWall.subgroup || newWall.malzeme || newWall.miktar) {
                                                     copiedWalls[wallIdx] = newWall;
                                                 }
                                             }
@@ -4888,8 +4902,13 @@
                                     
                                     // Eğer copyOptions seçili değilse, sadece ilgili alanları temizle
                                     if (!copyOptions.materials) {
+                                        // Malzemeye ait TÜM alanları temizle; yoksa tip/seri/boyut
+                                        // artıkları kalıp seçim ekranında hayalet filtre oluşturuyor
                                         delete newField.subgroup;
+                                        delete newField.subgroup2;
                                         delete newField.malzeme;
+                                        delete newField.ceramicSerie;
+                                        delete newField.ceramicSize;
                                     }
                                     if (!copyOptions.amounts) {
                                         delete newField.miktar;
@@ -4946,6 +4965,151 @@
             };
             
             // Toplu daire silme
+            // ==========================================
+            // SEÇİMLERİ TEMİZLE
+            // ==========================================
+
+            // Bir dairenin verisini seçeneklere göre temizle.
+            // Mahaller, duvar sayıları ve DUVAR ADLARI her zaman korunur.
+            const daireyiTemizle = (apt, opt) => {
+                const yeniData = {};
+                Object.keys(apt.data || {}).forEach(roomId => {
+                    const rd = apt.data[roomId] || {};
+                    const yeniRd = {};
+
+                    Object.keys(rd).forEach(field => {
+                        const v = rd[field];
+
+                        if (field === 'foto') {
+                            // undefined YAZMA (Firestore kabul etmiyor)
+                            yeniRd.foto = opt.photos ? {} : v;
+                            return;
+                        }
+
+                        if (field === 'duvar_kaplama') {
+                            if (v && typeof v === 'object') {
+                                const yeniDuvarlar = Array.isArray(v) ? [] : {};
+                                Object.keys(v).forEach(idx => {
+                                    const w = v[idx];
+                                    if (!w || typeof w !== 'object') return;
+                                    const nw = {};
+                                    if (w.name) nw.name = w.name; // duvar adı korunur
+                                    if (!opt.materials) {
+                                        if (w.subgroup) nw.subgroup = w.subgroup;
+                                        if (w.subgroup2) nw.subgroup2 = w.subgroup2;
+                                        if (w.malzeme) nw.malzeme = w.malzeme;
+                                        if (w.ceramicSerie) nw.ceramicSerie = w.ceramicSerie;
+                                        if (w.ceramicSize) nw.ceramicSize = w.ceramicSize;
+                                    }
+                                    if (!opt.amounts && w.miktar) nw.miktar = w.miktar;
+                                    yeniDuvarlar[idx] = nw;
+                                });
+                                yeniRd[field] = yeniDuvarlar;
+                            }
+                            return;
+                        }
+
+                        if (v && typeof v === 'object') {
+                            const nf = { ...v };
+                            if (opt.materials) {
+                                delete nf.subgroup;
+                                delete nf.subgroup2;
+                                delete nf.malzeme;
+                                delete nf.ceramicSerie;
+                                delete nf.ceramicSize;
+                            }
+                            if (opt.amounts) delete nf.miktar;
+                            if (Object.keys(nf).length > 0) yeniRd[field] = nf;
+                            return;
+                        }
+
+                        yeniRd[field] = v;
+                    });
+
+                    yeniData[roomId] = yeniRd;
+                });
+                return { ...apt, data: yeniData };
+            };
+
+            // Kaç kalem etkilenecek?
+            const temizlenecekSayisi = (aptListesi, opt) => {
+                let malzeme = 0, miktar = 0, foto = 0;
+                aptListesi.forEach(apt => {
+                    Object.values(apt.data || {}).forEach(rd => {
+                        Object.keys(rd || {}).forEach(field => {
+                            const v = rd[field];
+                            if (field === 'foto') {
+                                foto += Object.keys(v || {}).filter(k => v[k]).length;
+                            } else if (field === 'duvar_kaplama' && v && typeof v === 'object') {
+                                Object.values(v).forEach(w => {
+                                    if (!w || typeof w !== 'object') return;
+                                    if (w.malzeme) malzeme++;
+                                    if (w.miktar) miktar++;
+                                });
+                            } else if (v && typeof v === 'object') {
+                                if (v.malzeme) malzeme++;
+                                if (v.miktar) miktar++;
+                            }
+                        });
+                    });
+                });
+                return {
+                    malzeme: opt.materials ? malzeme : 0,
+                    miktar: opt.amounts ? miktar : 0,
+                    foto: opt.photos ? foto : 0
+                };
+            };
+
+            const secimleriTemizle = () => {
+                const opt = clearOptions;
+                if (!opt.materials && !opt.amounts && !opt.photos) {
+                    alert('⚠️ En az bir temizleme seçeneği işaretleyin!');
+                    return;
+                }
+
+                const hedefler = clearScope === 'project'
+                    ? apartments
+                    : apartments.filter(a => a.id === currentApt);
+
+                const sayim = temizlenecekSayisi(hedefler, opt);
+                const kalemler = [];
+                if (opt.materials) kalemler.push(`${sayim.malzeme} malzeme seçimi`);
+                if (opt.amounts) kalemler.push(`${sayim.miktar} miktar`);
+                if (opt.photos) kalemler.push(`${sayim.foto} fotoğraf`);
+
+                const kapsamMetni = clearScope === 'project'
+                    ? `${getProject().name} projesindeki ${apartments.length} DAİRENİN TAMAMI`
+                    : `"${getApt().name}" dairesi`;
+
+                if (!confirm(
+                    `⚠️ TEMİZLEME ONAYI\n\n` +
+                    `Kapsam: ${kapsamMetni}\n` +
+                    `Silinecek: ${kalemler.join(', ')}\n\n` +
+                    `✅ Mahaller, duvar sayıları ve duvar adları korunur.\n` +
+                    `❌ Bu işlem GERİ ALINAMAZ.\n\n` +
+                    `Devam etmeden önce "Tam Yedek Al" yapmanız önerilir.\n\nDevam edilsin mi?`
+                )) return;
+
+                // Proje geneli için ikinci onay
+                if (clearScope === 'project') {
+                    const cevap = prompt(
+                        `SON ONAY\n\n${apartments.length} dairenin tamamı temizlenecek.\n\n` +
+                        `Onaylıyorsanız aşağıya TEMIZLE yazın:`
+                    );
+                    if (!cevap || cevap.trim().toLocaleUpperCase('tr-TR') !== 'TEMIZLE') {
+                        alert('İşlem iptal edildi, hiçbir veri değiştirilmedi.');
+                        return;
+                    }
+                }
+
+                updateApartments(apartments.map(a =>
+                    (clearScope === 'project' || a.id === currentApt) ? daireyiTemizle(a, opt) : a
+                ));
+
+                setShowClearModal(false);
+                alert(`✅ Temizlendi!\n\n${kalemler.join('\n')}\n\nKalıcı olması için Kaydet'e basın.`);
+            };
+
             const bulkDeleteApartments = () => {
                 if (selectedApartmentsForDelete.length === 0) {
                     alert('Lütfen silmek istediğiniz daireleri seçin!');
@@ -8040,7 +8204,34 @@
                                         <svg className="absolute left-3 top-3 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                         </svg>
+                                        {searchMaterial && (
+                                            <button
+                                                onClick={() => setSearchMaterial('')}
+                                                className="absolute right-3 top-2.5 text-gray-400 hover:text-red-500 text-xl leading-none font-bold"
+                                                title="Aramayı temizle"
+                                            >
+                                                ×
+                                            </button>
+                                        )}
                                     </div>
+
+                                    {/* Arama aktifken uyar: listeler süzülüyor */}
+                                    {searchMaterial && (
+                                        <div className={`mt-2 px-3 py-2 rounded-lg text-xs flex items-center justify-between gap-2 ${
+                                            theme === 'dark' ? 'bg-amber-900 bg-opacity-30 text-amber-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                        }`}>
+                                            <span>
+                                                🔎 <strong>"{searchMaterial}"</strong> araması aktif — listelerde yalnızca eşleşen malzemeler görünüyor.
+                                                Eklediğiniz malzemeyi göremiyorsanız aramayı temizleyin.
+                                            </span>
+                                            <button
+                                                onClick={() => setSearchMaterial('')}
+                                                className="shrink-0 px-2.5 py-1 rounded-full bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-all"
+                                            >
+                                                Temizle
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                                 
                                 {/* Sekmeler */}
@@ -8962,10 +9153,16 @@
                                                                             
                                                                             {/* Malzeme Listesi */}
                                                                             <div className="space-y-2 max-h-64 overflow-auto">
+                                                                                {items.length > 0 && searchMaterial &&
+                                                                                    items.filter(m => m.toLocaleLowerCase('tr-TR').includes(searchMaterial.toLocaleLowerCase('tr-TR'))).length === 0 && (
+                                                                                    <div className="text-center py-3 text-xs rounded-lg border border-dashed border-gray-300 text-gray-500">
+                                                                                        🔎 Bu alt gruptaki {items.length} malzeme aramaya uymadığı için gizlendi
+                                                                                    </div>
+                                                                                )}
                                                                                 {items
                                                                                     .sort((a, b) => a.toLocaleLowerCase('tr-TR').localeCompare(b.toLocaleLowerCase('tr-TR'), 'tr-TR'))
                                                                                     .filter(m => 
-                                                                                        m.toLowerCase().includes(searchMaterial.toLowerCase())
+                                                                                        m.toLocaleLowerCase('tr-TR').includes(searchMaterial.toLocaleLowerCase('tr-TR'))
                                                                                     ).map(m => (
                                                                                     <div key={m} className="flex justify-between items-center bg-white border-2 border-gray-200 px-4 py-3 rounded-lg text-sm group hover:border-blue-400 hover:shadow-md transition-all">
                                                                                         <div className="flex items-center gap-2 min-w-0">
@@ -9046,7 +9243,15 @@
                                                                                             <span className={`text-xs px-2 py-0.5 rounded-full ${
                                                                                                 theme === 'dark' ? 'bg-purple-800 text-purple-200' : 'bg-purple-200 text-purple-700'
                                                                                             }`}>
-                                                                                                {materialsInType.length} malzeme
+                                                                                                {(() => {
+                                                                                                    const q = (searchMaterial || '').toLocaleLowerCase('tr-TR');
+                                                                                                    const gorunen = q
+                                                                                                        ? materialsInType.filter(m => m.toLocaleLowerCase('tr-TR').includes(q)).length
+                                                                                                        : materialsInType.length;
+                                                                                                    return q && gorunen !== materialsInType.length
+                                                                                                        ? `${gorunen} / ${materialsInType.length} malzeme`
+                                                                                                        : `${materialsInType.length} malzeme`;
+                                                                                                })()}
                                                                                             </span>
                                                                                         </div>
                                                                                         
@@ -9220,10 +9425,18 @@
                                                                                     
                                                                                     {/* Malzeme Listesi */}
                                                                                     <div className="space-y-1">
+                                                                                        {materialsInType.length > 0 && searchMaterial &&
+                                                                                            materialsInType.filter(m => m.toLocaleLowerCase('tr-TR').includes(searchMaterial.toLocaleLowerCase('tr-TR'))).length === 0 && (
+                                                                                            <div className={`text-center py-3 text-xs rounded-lg border border-dashed ${
+                                                                                                theme === 'dark' ? 'border-gray-600 text-gray-400' : 'border-gray-300 text-gray-500'
+                                                                                            }`}>
+                                                                                                🔎 Bu tipteki {materialsInType.length} malzeme aramaya uymadığı için gizlendi
+                                                                                            </div>
+                                                                                        )}
                                                                                         {materialsInType
                                                                                             .sort((a, b) => a.toLocaleLowerCase('tr-TR').localeCompare(b.toLocaleLowerCase('tr-TR'), 'tr-TR'))
                                                                                             .filter(m => 
-                                                                                                m.toLowerCase().includes(searchMaterial.toLowerCase())
+                                                                                                m.toLocaleLowerCase('tr-TR').includes(searchMaterial.toLocaleLowerCase('tr-TR'))
                                                                                             ).map(material => (
                                                                                             <div key={material} className={`flex justify-between items-center border rounded px-2 py-1.5 text-xs group transition-all ${
                                                                                                 theme === 'dark'
@@ -9318,7 +9531,7 @@
                                                             })()}
                                                         </div>
                                                         ));  // map closing
-                                                    })()}  // IIFE closing
+                                                    })()}
                                                     
                                                     {/* Yeni Alt Grup Ekle */}
                                                     <button onClick={() => {
@@ -10557,6 +10770,134 @@
                         );
                     })()}
                     
+                    {/* SEÇİMLERİ TEMİZLE MODAL */}
+                    {showClearModal && (() => {
+                        const hedefler = clearScope === 'project'
+                            ? apartments
+                            : apartments.filter(a => a.id === currentApt);
+                        const sayim = temizlenecekSayisi(hedefler, clearOptions);
+                        const hicSecimYok = !clearOptions.materials && !clearOptions.amounts && !clearOptions.photos;
+
+                        return (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+                            <div className={`rounded-2xl shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                <div className="bg-gradient-to-r from-slate-600 to-slate-700 px-4 py-3 flex items-center justify-between">
+                                    <h2 className="text-base font-bold text-white flex items-center gap-2">
+                                        🧹 Seçimleri Temizle
+                                    </h2>
+                                    <button onClick={() => setShowClearModal(false)} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div className="px-4 py-3 overflow-y-auto flex-1">
+                                    {/* KAPSAM */}
+                                    <div className={`text-xs font-bold uppercase tracking-wide mb-2 ${
+                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                    }`}>1. Kapsam</div>
+                                    <div className="space-y-2 mb-4">
+                                        {[
+                                            { key: 'apartment', baslik: `Bu daire — ${getApt().name}`, aciklama: 'Yalnızca açık olan dairenin tüm mahalleri' },
+                                            { key: 'project', baslik: `Tüm proje — ${apartments.length} daire`, aciklama: `${getProject().name} projesindeki bütün daireler` }
+                                        ].map(({ key, baslik, aciklama }) => (
+                                            <label key={key} className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                clearScope === key
+                                                    ? (key === 'project'
+                                                        ? 'border-red-500 bg-red-50 ' + (theme === 'dark' ? 'bg-opacity-10' : '')
+                                                        : 'border-slate-500 ' + (theme === 'dark' ? 'bg-slate-700' : 'bg-slate-50'))
+                                                    : (theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50')
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="clearScope"
+                                                    checked={clearScope === key}
+                                                    onChange={() => setClearScope(key)}
+                                                    className="w-4 h-4"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`font-semibold text-sm ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                        {key === 'project' ? '⚠️ ' : ''}{baslik}
+                                                    </div>
+                                                    <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>{aciklama}</div>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+
+                                    {/* NE SİLİNSİN */}
+                                    <div className={`text-xs font-bold uppercase tracking-wide mb-2 ${
+                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                    }`}>2. Ne silinsin?</div>
+                                    <div className="space-y-2">
+                                        {[
+                                            { key: 'materials', baslik: '🎨 Malzeme seçimleri', aciklama: 'Alt grup, tip, malzeme, seramik seri/boyut', adet: sayim.malzeme },
+                                            { key: 'amounts', baslik: '📏 Miktarlar', aciklama: 'm², adet gibi girilen değerler', adet: sayim.miktar },
+                                            { key: 'photos', baslik: '📷 Mahal fotoğrafları', aciklama: 'Mahallere yüklediğiniz fotoğraflar', adet: sayim.foto }
+                                        ].map(({ key, baslik, aciklama, adet }) => (
+                                            <label key={key} className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                clearOptions[key]
+                                                    ? 'border-slate-500 ' + (theme === 'dark' ? 'bg-slate-700' : 'bg-slate-50')
+                                                    : (theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50')
+                                            }`}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={clearOptions[key]}
+                                                    onChange={(e) => setClearOptions({ ...clearOptions, [key]: e.target.checked })}
+                                                    className="w-5 h-5 rounded"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`font-semibold text-sm ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>{baslik}</div>
+                                                    <div className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>{aciklama}</div>
+                                                </div>
+                                                {clearOptions[key] && (
+                                                    <span className="text-xs font-bold px-2 py-1 rounded-full bg-red-500 text-white shrink-0">
+                                                        {adet}
+                                                    </span>
+                                                )}
+                                            </label>
+                                        ))}
+                                    </div>
+
+                                    <div className={`mt-3 p-3 rounded-lg text-xs ${
+                                        theme === 'dark' ? 'bg-amber-900 bg-opacity-30 text-amber-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                    }`}>
+                                        ✅ Mahaller, duvar sayıları ve duvar adları <strong>korunur</strong>.<br />
+                                        ❌ İşlem <strong>geri alınamaz</strong> — önce "Tam Yedek Al" yapmanız önerilir.
+                                    </div>
+                                </div>
+
+                                <div className={`px-4 py-3 flex items-center gap-2 border-t ${
+                                    theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                                }`}>
+                                    <button
+                                        onClick={() => setShowClearModal(false)}
+                                        className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+                                            theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                                        }`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={secimleriTemizle}
+                                        disabled={hicSecimYok}
+                                        className={`ml-auto px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+                                            hicSecimYok
+                                                ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                : 'bg-gradient-to-r from-red-500 to-rose-600 text-white hover:from-red-600 hover:to-rose-700 shadow'
+                                        }`}
+                                    >
+                                        🧹 Temizle
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
                     {/* DAİRE KOPYALAMA MODAL */}
                     {showCopyModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -14222,7 +14563,19 @@
                                     </svg>
                                     Toplu Miktar
                                 </button>
-                                
+
+                                {/* Seçimleri Temizle */}
+                                <button
+                                    onClick={() => setShowClearModal(true)}
+                                    className="px-3 py-2 bg-gradient-to-r from-slate-500 to-slate-600 text-white rounded-lg text-sm font-semibold hover:from-slate-600 hover:to-slate-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                    title="Malzeme seçimlerini / miktarları topluca temizle"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                    </svg>
+                                    Seçimleri Temizle
+                                </button>
+
                                 {/* Arşiv Dropdown */}
                                         <div className="relative dropdown-container">
                                             <button 
