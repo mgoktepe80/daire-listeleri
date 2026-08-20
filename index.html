@@ -728,12 +728,48 @@
             return value;
         };
 
+        // Gelen veri "boş" mu? (yeni açılmış/temizlenmiş tarayıcı durumu)
+        const veriBosMu = (data) => {
+            const p = (data && data.projects) || [];
+            if (p.length === 0) return true;
+            const doluDaireVar = p.some(pr =>
+                (pr.apartments || []).some(a => a && a.data && Object.keys(a.data).length > 0));
+            const seramikVar = data && data.ceramicData && (data.ceramicData.items || []).length > 0;
+            const fotoVar = data && Array.isArray(data.productPhotos) && data.productPhotos.length > 0;
+            return !doluDaireVar && !seramikVar && !fotoVar;
+        };
+
+        // Buluttaki kayıt doluyken üzerine BOŞ veri yazılmasını engelle
+        const bosVeriKorumasi = async (userId, data) => {
+            if (!veriBosMu(data)) return true; // dolu veri - sorun yok
+            try {
+                const snap = await db.collection('appData').doc(userId).get();
+                if (!snap.exists) return true;
+                const mevcut = snap.data() || {};
+                if (veriBosMu({
+                    projects: mevcut.projects,
+                    ceramicData: mevcut.ceramicData,
+                    productPhotos: mevcut.productPhotos
+                })) return true; // buluttaki de boş - sorun yok
+
+                console.error('🛑 BOŞ VERİ KORUMASI: Buluttaki dolu kaydın üzerine boş veri yazılmak istendi, işlem ENGELLENDİ.');
+                return false;
+            } catch (e) {
+                // Kontrol edilemiyorsa güvenli tarafta kal: yazma
+                console.error('🛑 Boş veri kontrolü yapılamadı, kayıt iptal edildi:', e);
+                return false;
+            }
+        };
+
         const saveToFirebase = async (data) => {
             if (!firebaseEnabled || !db || !auth || !auth.currentUser) return false;
             
             try {
                 const userId = auth.currentUser.uid;
-                
+
+                // GÜVENLİK: Buluttaki dolu kaydın üzerine boş veri yazma
+                if (!(await bosVeriKorumasi(userId, data))) return false;
+
                 // Icon'ları Storage'a migrate et
                 const migratedData = await migrateIconsToStorage(data);
                 
@@ -754,6 +790,12 @@
             if (!firebaseEnabled || !db) return false;
             
             try {
+                // GÜVENLİK: Buluttaki dolu kaydın üzerine boş veri yazma
+                if (!(await bosVeriKorumasi(targetUserId, data))) {
+                    alert('🛑 Kayıt engellendi!\n\nBuluttaki dolu kaydın üzerine boş veri yazılmak istendi.\n\nVerileriniz bulutta güvende. Sayfayı yenileyip tekrar deneyin.');
+                    return false;
+                }
+
                 // Icon'ları Storage'a migrate et
                 const migratedData = await migrateIconsToStorage(data);
                 
@@ -1552,6 +1594,9 @@
             const applyingRemoteRef = React.useRef(false);
             // Son kaydedilen/uygulanan verinin hash'i - aynı veri tekrar işlenmesin
             const lastAppliedDataRef = React.useRef('');
+            // İlk (Firebase) yükleme tamamlanmadan otomatik kayıt YAPILMAZ.
+            // Aksi halde henüz boş olan yerel durum buluttaki veriyi ezebilir.
+            const initialLoadDoneRef = React.useRef(false);
             const [showNewProjectModal, setShowNewProjectModal] = useState(false);
             const [newProjectName, setNewProjectName] = useState('');
             const [selectedTemplate, setSelectedTemplate] = useState('2+1');
@@ -1705,7 +1750,15 @@
             // Materials ve CeramicData değiştiğinde Firebase'e otomatik kaydet
             useEffect(() => {
                 if (authLoading || !user) return; // İlk yükleme tamamlanana kadar bekle
-                
+
+                // ÖNEMLİ: Buluttan ilk yükleme bitmeden ASLA kaydetme.
+                // Yeni/temizlenmiş tarayıcıda yerel durum boş olur ve buluttaki
+                // veriyi ezebilirdi.
+                if (!initialLoadDoneRef.current) {
+                    console.log('⏭️ İlk yükleme tamamlanmadı, autosave atlanıyor');
+                    return;
+                }
+
                 // ÖNEMLİ: Bu state değişikliği Firebase listener'dan geldiyse KAYDETME
                 // NOT: Bayrağı burada SIFIRLAMA! React 17'de listener'daki her setState
                 // ayrı render tetikler, effect birden fazla kez çalışabilir.
@@ -2086,8 +2139,12 @@
                     }
                 };
                 
-                loadData();
-                
+                loadData().finally(() => {
+                    // Yükleme (başarılı ya da başarısız) bitti; artık autosave serbest
+                    initialLoadDoneRef.current = true;
+                    console.log('✅ İlk yükleme tamamlandı, otomatik kayıt aktif');
+                });
+
                 const handleEsc = (e) => { if (e.key === 'Escape') setLightbox(null); };
                 document.addEventListener('keydown', handleEsc);
                 
@@ -2510,45 +2567,6 @@
                     if (!ok && !confirm('⚠️ Buluta kaydedilemedi!\n\nYine de devam edilsin mi?\n(Yerel verileriniz silinmeyecek)')) return;
                 }
 
-                const temiz = window.location.href.split('?')[0].split('#')[0];
-                window.location.replace(temiz + '?v=' + Date.now());
-            };
-
-            // Yerel (tarayıcı) veriyi sıfırla - ÖNCE buluta kaydeder ve doğrular
-            const yereliSifirla = async () => {
-                if (!(firebaseSync && firebaseEnabled && user)) {
-                    alert(
-                        '⛔ Bulut bağlantısı yok!\n\n' +
-                        'Yerel veriyi şimdi silmek verilerinizi kalıcı olarak kaybettirir.\n\n' +
-                        'Önce "Tam Yedek Al" ile bilgisayarınıza yedek alın.'
-                    );
-                    return;
-                }
-
-                if (!confirm(
-                    '🧹 Yerel veriyi sıfırla\n\n' +
-                    'Bu işlem SADECE tarayıcıdaki kopyayı siler; veriler buluttan geri yüklenir.\n\n' +
-                    '1) Her şey önce buluta kaydedilecek\n' +
-                    '2) Kayıt DOĞRULANDIKTAN sonra yerel kopya silinecek\n' +
-                    '3) Sayfa yeniden açılıp veriler buluttan çekilecek\n\n' +
-                    'Güvenlik için önce "Tam Yedek Al" demeniz önerilir.\n\nDevam edilsin mi?'
-                )) return;
-
-                const ok = await guvenliKaydet();
-                if (!ok) {
-                    alert('⛔ Buluta kaydedilemedi!\n\nİşlem İPTAL edildi, hiçbir veri silinmedi.\nİnternet bağlantınızı kontrol edip tekrar deneyin.');
-                    return;
-                }
-
-                // Sadece bu uygulamanın anahtarlarını temizle
-                [
-                    'projects_data', 'custom_rooms', 'base_rooms', 'field_labels',
-                    'room_order', 'material_database', 'ceramic_data', 'product_photos',
-                    'icon_library', 'pdf_column_widths', 'pdf_show_product_photos',
-                    'only_photo_categories', 'company_name', 'company_logo', 'pdf_font_sizes'
-                ].forEach(k => localStorage.removeItem(k));
-
-                alert('✅ Buluta kaydedildi ve yerel kopya temizlendi.\n\nSayfa yeniden açılıyor, veriler buluttan yüklenecek.');
                 const temiz = window.location.href.split('?')[0].split('#')[0];
                 window.location.replace(temiz + '?v=' + Date.now());
             };
@@ -14761,17 +14779,10 @@
                                             Yeni Sürümü Yükle
                                         </button>
 
-                                        <button
-                                            onClick={yereliSifirla}
-                                            className="w-full px-4 py-2 bg-white text-indigo-700 border-2 border-indigo-300 rounded-lg text-sm font-semibold hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
-                                            title="Önce buluta kaydeder, doğrular, sonra tarayıcıdaki kopyayı siler"
-                                        >
-                                            🧹 Yerel Veriyi Sıfırla
-                                        </button>
-
                                         <p className="text-[10px] text-indigo-700 mt-2 leading-snug">
                                             Değişiklikler görünmüyorsa <strong>Yeni Sürümü Yükle</strong>'ye basın.
-                                            Tarayıcı ayarlarından "site verilerini temizle" demeyin — verileriniz silinir.
+                                            Bu düğme veri SİLMEZ; önce buluta kaydeder, sonra sayfayı tazeler.
+                                            Tarayıcı ayarlarından "site verilerini temizle" demeyin.
                                         </p>
                                     </div>
 
