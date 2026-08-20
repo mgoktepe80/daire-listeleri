@@ -36,8 +36,18 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // Yüklü sürümü ekranda göstermek için (yeni dosya yüklediğinizde değiştirin)
-        const APP_VERSION = '2026.08.19';
+        // Yüklü sürüm = index.html dosyasının kendi değiştirilme tarihi.
+        // Elle güncellenmez; yeni dosyayı koyduğunuz an kendiliğinden değişir.
+        const APP_VERSION = (() => {
+            try {
+                const d = new Date(document.lastModified);
+                if (isNaN(d.getTime())) return 'bilinmiyor';
+                const iki = (n) => String(n).padStart(2, '0');
+                return `${d.getFullYear()}.${iki(d.getMonth() + 1)}.${iki(d.getDate())} ${iki(d.getHours())}:${iki(d.getMinutes())}`;
+            } catch (e) {
+                return 'bilinmiyor';
+            }
+        })();
 
         // ==========================================
         // FIREBASE YAPILANDIRMASI
@@ -1509,6 +1519,7 @@
             const [draggedTab, setDraggedTab] = useState(null);
             const [searchRoom, setSearchRoom] = useState('');
             const [searchMaterial, setSearchMaterial] = useState('');
+            const [iconSearch, setIconSearch] = useState('');
 
             // Kayıtlı seramikler: seri / boyut / metin / fotoğraf durumuna göre filtrele
             const filteredCeramicItems = useMemo(() => {
@@ -4203,18 +4214,174 @@
             };
 
             // Icon Kütüphanesi
-            const ROOM_ICONS = {
-                // Temel Ev İkonları (40 adet)
-                'home': '🏠', 'building': '🏢', 'apartment': '🏘️', 'office': '🏢',
-                'kitchen': '🍳', 'bed': '🛏️', 'bath': '🛁', 'toilet': '🚽', 'shower': '🚿',
-                'door': '🚪', 'window': '🪟', 'sofa': '🛋️', 'chair': '🪑', 'wardrobe': '🗄️',
-                'brick': '🧱', 'wall': '🧱', 'roof': '🏠', 'floor': '⬛', 'tile': '⬜',
-                'hammer': '🔨', 'wrench': '🔧', 'screwdriver': '🪛', 'saw': '🪚', 'drill': '⚙️',
-                'paint': '🎨', 'brush': '🖌️', 'roller': '🖌️', 'bucket': '🪣',
-                'light': '💡', 'lamp': '💡', 'chandelier': '💡', 'switch': '💡',
-                'pipe': '🚰', 'faucet': '🚰', 'sink': '🚰', 'radiator': '🔥',
-                'box': '📦', 'ruler': '📏', 'level': '📐', 'measure': '📏'
-            };
+            // İkon kütüphanesi - kategorili. Eski anahtarlar korundu.
+            const ICON_LIBRARY = [
+                { grup: 'Mekânlar', ikonlar: [
+                    { key: 'home', emoji: '🏠', ad: 'Ev' },
+                    { key: 'building', emoji: '🏢', ad: 'Bina' },
+                    { key: 'apartment', emoji: '🏘️', ad: 'Site / Apartman' },
+                    { key: 'villa', emoji: '🏡', ad: 'Villa' },
+                    { key: 'office', emoji: '🏬', ad: 'Ofis' },
+                    { key: 'salon', emoji: '🛋️', ad: 'Salon' },
+                    { key: 'kitchen', emoji: '🍳', ad: 'Mutfak' },
+                    { key: 'bed', emoji: '🛏️', ad: 'Yatak Odası' },
+                    { key: 'kids', emoji: '🧸', ad: 'Çocuk Odası' },
+                    { key: 'bath', emoji: '🛁', ad: 'Banyo' },
+                    { key: 'toilet', emoji: '🚽', ad: 'WC / Tuvalet' },
+                    { key: 'shower', emoji: '🚿', ad: 'Duş' },
+                    { key: 'hall', emoji: '🚪', ad: 'Hol / Antre' },
+                    { key: 'balcony', emoji: '🌇', ad: 'Balkon' },
+                    { key: 'terrace', emoji: '⛱️', ad: 'Teras' },
+                    { key: 'garden', emoji: '🌳', ad: 'Bahçe' },
+                    { key: 'garage', emoji: '🚗', ad: 'Garaj / Otopark' },
+                    { key: 'elevator', emoji: '🛗', ad: 'Asansör' },
+                    { key: 'stairs', emoji: '🪜', ad: 'Merdiven' },
+                    { key: 'storage', emoji: '📦', ad: 'Depo / Kiler' },
+                    { key: 'laundry', emoji: '🧺', ad: 'Çamaşır Odası' },
+                    { key: 'pool', emoji: '🏊', ad: 'Havuz' },
+                    { key: 'gym', emoji: '🏋️', ad: 'Spor Salonu' },
+                    { key: 'cellar', emoji: '🍷', ad: 'Şarap Mahzeni' }
+                ]},
+                { grup: 'Yapı & Kaba İşler', ikonlar: [
+                    { key: 'brick', emoji: '🧱', ad: 'Tuğla' },
+                    { key: 'wall', emoji: '🟫', ad: 'Duvar' },
+                    { key: 'concrete', emoji: '🪨', ad: 'Beton / Taş' },
+                    { key: 'wood', emoji: '🪵', ad: 'Ahşap / Kereste' },
+                    { key: 'steel', emoji: '⛓️', ad: 'Demir / Çelik' },
+                    { key: 'crane', emoji: '🏗️', ad: 'Vinç / Şantiye' },
+                    { key: 'construction', emoji: '🚧', ad: 'İnşaat Alanı' },
+                    { key: 'helmet', emoji: '⛑️', ad: 'Baret' },
+                    { key: 'vest', emoji: '🦺', ad: 'İş Yeleği' },
+                    { key: 'gloves', emoji: '🧤', ad: 'Eldiven' },
+                    { key: 'roof', emoji: '🏠', ad: 'Çatı' },
+                    { key: 'insulation', emoji: '🧊', ad: 'Yalıtım' },
+                    { key: 'blueprint', emoji: '📐', ad: 'Proje / Çizim' },
+                    { key: 'plan', emoji: '🗺️', ad: 'Plan' }
+                ]},
+                { grup: 'Zemin & Kaplama', ikonlar: [
+                    { key: 'floor', emoji: '⬛', ad: 'Zemin' },
+                    { key: 'tile', emoji: '⬜', ad: 'Seramik / Fayans' },
+                    { key: 'marble', emoji: '🪞', ad: 'Mermer' },
+                    { key: 'parquet', emoji: '🟧', ad: 'Parke' },
+                    { key: 'carpet', emoji: '🧶', ad: 'Halı' },
+                    { key: 'mosaic', emoji: '🔲', ad: 'Mozaik' },
+                    { key: 'skirting', emoji: '📏', ad: 'Süpürgelik' },
+                    { key: 'wallpaper', emoji: '🖼️', ad: 'Duvar Kağıdı' },
+                    { key: 'panel', emoji: '🪟', ad: 'Panel' }
+                ]},
+                { grup: 'Boya & Dekorasyon', ikonlar: [
+                    { key: 'paint', emoji: '🎨', ad: 'Boya' },
+                    { key: 'brush', emoji: '🖌️', ad: 'Fırça' },
+                    { key: 'roller', emoji: '🪥', ad: 'Rulo' },
+                    { key: 'bucket', emoji: '🪣', ad: 'Kova' },
+                    { key: 'spray', emoji: '🧴', ad: 'Sprey / Astar' },
+                    { key: 'sponge', emoji: '🧽', ad: 'Sünger' },
+                    { key: 'color', emoji: '🌈', ad: 'Renk Kartelası' },
+                    { key: 'mirror', emoji: '🪞', ad: 'Ayna' },
+                    { key: 'curtain', emoji: '🪟', ad: 'Perde' },
+                    { key: 'frame', emoji: '🖼️', ad: 'Tablo / Çerçeve' },
+                    { key: 'plant', emoji: '🪴', ad: 'Bitki' }
+                ]},
+                { grup: 'El Aletleri & Ölçü', ikonlar: [
+                    { key: 'hammer', emoji: '🔨', ad: 'Çekiç' },
+                    { key: 'wrench', emoji: '🔧', ad: 'İngiliz Anahtarı' },
+                    { key: 'screwdriver', emoji: '🪛', ad: 'Tornavida' },
+                    { key: 'saw', emoji: '🪚', ad: 'Testere' },
+                    { key: 'drill', emoji: '⚙️', ad: 'Matkap' },
+                    { key: 'tools', emoji: '🛠️', ad: 'Alet Takımı' },
+                    { key: 'toolbox', emoji: '🧰', ad: 'Alet Çantası' },
+                    { key: 'bolt', emoji: '🔩', ad: 'Vida / Somun' },
+                    { key: 'pin', emoji: '📌', ad: 'Çivi' },
+                    { key: 'chain', emoji: '🔗', ad: 'Bağlantı' },
+                    { key: 'ladder', emoji: '🪜', ad: 'Merdiven (Alet)' },
+                    { key: 'ruler', emoji: '📏', ad: 'Metre' },
+                    { key: 'level', emoji: '📐', ad: 'Gönye / Su Terazisi' },
+                    { key: 'measure', emoji: '🧮', ad: 'Hesap / Metraj' },
+                    { key: 'pencil', emoji: '✏️', ad: 'Kalem' }
+                ]},
+                { grup: 'Elektrik', ikonlar: [
+                    { key: 'light', emoji: '💡', ad: 'Aydınlatma' },
+                    { key: 'lamp', emoji: '🛋️', ad: 'Abajur' },
+                    { key: 'chandelier', emoji: '✨', ad: 'Avize' },
+                    { key: 'spot', emoji: '🔦', ad: 'Spot' },
+                    { key: 'plug', emoji: '🔌', ad: 'Priz / Fiş' },
+                    { key: 'switch', emoji: '🎚️', ad: 'Anahtar' },
+                    { key: 'electric', emoji: '⚡', ad: 'Elektrik' },
+                    { key: 'battery', emoji: '🔋', ad: 'Batarya / UPS' },
+                    { key: 'panelbox', emoji: '🎛️', ad: 'Pano' },
+                    { key: 'tv', emoji: '📺', ad: 'TV' },
+                    { key: 'wifi', emoji: '📶', ad: 'İnternet / Data' },
+                    { key: 'camera', emoji: '📹', ad: 'Kamera' },
+                    { key: 'bell', emoji: '🔔', ad: 'Zil / Diafon' },
+                    { key: 'sensor', emoji: '🚨', ad: 'Sensör / Alarm' }
+                ]},
+                { grup: 'Tesisat & İklimlendirme', ikonlar: [
+                    { key: 'pipe', emoji: '🚰', ad: 'Tesisat / Boru' },
+                    { key: 'faucet', emoji: '🚿', ad: 'Batarya / Musluk' },
+                    { key: 'water', emoji: '💧', ad: 'Su' },
+                    { key: 'radiator', emoji: '🔥', ad: 'Radyatör / Petek' },
+                    { key: 'boiler', emoji: '♨️', ad: 'Kombi / Kazan' },
+                    { key: 'gas', emoji: '⛽', ad: 'Doğalgaz' },
+                    { key: 'ac', emoji: '❄️', ad: 'Klima' },
+                    { key: 'fan', emoji: '🌀', ad: 'Fan / Aspiratör' },
+                    { key: 'vent', emoji: '💨', ad: 'Havalandırma' },
+                    { key: 'drain', emoji: '🕳️', ad: 'Gider / Süzgeç' },
+                    { key: 'meter', emoji: '⏲️', ad: 'Sayaç' },
+                    { key: 'valve', emoji: '🔘', ad: 'Vana' },
+                    { key: 'thermostat', emoji: '🌡️', ad: 'Termostat' }
+                ]},
+                { grup: 'Mutfak & Banyo Ürünleri', ikonlar: [
+                    { key: 'cabinet', emoji: '🗄️', ad: 'Dolap' },
+                    { key: 'counter', emoji: '🪵', ad: 'Tezgah' },
+                    { key: 'sink', emoji: '🚰', ad: 'Evye' },
+                    { key: 'stove', emoji: '🍳', ad: 'Ocak' },
+                    { key: 'oven', emoji: '🔥', ad: 'Fırın' },
+                    { key: 'hood', emoji: '💨', ad: 'Davlumbaz' },
+                    { key: 'fridge', emoji: '🧊', ad: 'Buzdolabı' },
+                    { key: 'dishwasher', emoji: '🧼', ad: 'Bulaşık Makinesi' },
+                    { key: 'washer', emoji: '🧺', ad: 'Çamaşır Makinesi' },
+                    { key: 'microwave', emoji: '📡', ad: 'Mikrodalga' },
+                    { key: 'washbasin', emoji: '🫧', ad: 'Lavabo' },
+                    { key: 'bathtub', emoji: '🛁', ad: 'Küvet' },
+                    { key: 'wc', emoji: '🚽', ad: 'Klozet' },
+                    { key: 'towel', emoji: '🧻', ad: 'Havluluk' },
+                    { key: 'soap', emoji: '🧴', ad: 'Sabunluk' }
+                ]},
+                { grup: 'Ahşap & Mobilya', ikonlar: [
+                    { key: 'door', emoji: '🚪', ad: 'Kapı' },
+                    { key: 'window', emoji: '🪟', ad: 'Pencere' },
+                    { key: 'sofa', emoji: '🛋️', ad: 'Koltuk' },
+                    { key: 'chair', emoji: '🪑', ad: 'Sandalye' },
+                    { key: 'wardrobe', emoji: '🚪', ad: 'Gardırop' },
+                    { key: 'shelf', emoji: '📚', ad: 'Raf' },
+                    { key: 'drawer', emoji: '🗃️', ad: 'Çekmece' },
+                    { key: 'handle', emoji: '🔑', ad: 'Kulp / Kilit' },
+                    { key: 'lock', emoji: '🔒', ad: 'Kilit' },
+                    { key: 'railing', emoji: '🚧', ad: 'Korkuluk' }
+                ]},
+                { grup: 'Genel', ikonlar: [
+                    { key: 'box', emoji: '📦', ad: 'Kutu / Malzeme' },
+                    { key: 'clipboard', emoji: '📋', ad: 'Liste' },
+                    { key: 'document', emoji: '📄', ad: 'Belge' },
+                    { key: 'money', emoji: '💰', ad: 'Bütçe' },
+                    { key: 'calendar', emoji: '📅', ad: 'Takvim' },
+                    { key: 'clock', emoji: '🕐', ad: 'Süre' },
+                    { key: 'warning', emoji: '⚠️', ad: 'Uyarı' },
+                    { key: 'check', emoji: '✅', ad: 'Onaylı' },
+                    { key: 'star', emoji: '⭐', ad: 'Özel' },
+                    { key: 'location', emoji: '📍', ad: 'Konum' },
+                    { key: 'photo', emoji: '📷', ad: 'Fotoğraf' },
+                    { key: 'sun', emoji: '☀️', ad: 'Güneş / Cephe' }
+                ]}
+            ];
+
+            // Eski koda uyum: anahtar → emoji
+            const ROOM_ICONS = {};
+            const ICON_META = {};
+            ICON_LIBRARY.forEach(g => g.ikonlar.forEach(i => {
+                ROOM_ICONS[i.key] = i.emoji;
+                ICON_META[i.key] = { grup: g.grup, ad: i.ad };
+            }));
 
             // Icon seçme fonksiyonu
             const selectIconForRoom = (roomId) => {
@@ -14279,26 +14446,90 @@
                                     </div>
                                 )}
                                 
-                                <div className="flex-1 overflow-y-auto mt-4" style={{maxHeight: '40vh'}}>
-                                    <h3 className={`text-sm font-bold mb-3 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
-                                        🎨 Hazır İconlar
-                                    </h3>
-                                    <div className="grid grid-cols-8 gap-2">
-                                        {Object.entries(ROOM_ICONS).map(([key, emoji]) => (
-                                            <button
-                                                key={key}
-                                                onClick={() => applyIconToRoom(key)}
-                                                className={`p-3 rounded-lg border-2 transition-all hover:scale-110 hover:shadow-lg ${
+                                <div className="flex-1 overflow-y-auto mt-4" style={{maxHeight: '46vh'}}>
+                                    <div className="flex items-center justify-between gap-2 mb-2 sticky top-0 z-10 py-1"
+                                         style={{ background: theme === 'dark' ? '#1f2937' : '#ffffff' }}>
+                                        <h3 className={`text-sm font-bold whitespace-nowrap ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                            🎨 Hazır İconlar
+                                        </h3>
+                                        <div className="relative flex-1 max-w-xs">
+                                            <input
+                                                type="text"
+                                                value={iconSearch}
+                                                onChange={(e) => setIconSearch(e.target.value)}
+                                                placeholder="İkon ara... (kapı, priz, seramik)"
+                                                className={`w-full border-2 rounded-lg pl-3 pr-7 py-1.5 text-xs transition-all ${
                                                     theme === 'dark'
-                                                        ? 'border-gray-600 bg-gray-700 hover:border-purple-500'
-                                                        : 'border-gray-200 bg-white hover:border-purple-500'
+                                                        ? 'border-gray-600 bg-gray-700 text-gray-100 placeholder-gray-400 focus:border-purple-400'
+                                                        : 'border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-purple-500'
                                                 }`}
-                                                title={key}
-                                            >
-                                                <span className="text-2xl">{emoji}</span>
-                                            </button>
-                                        ))}
+                                            />
+                                            {iconSearch && (
+                                                <button
+                                                    onClick={() => setIconSearch('')}
+                                                    className="absolute right-2 top-1 text-gray-400 hover:text-red-500 text-base font-bold"
+                                                    title="Aramayı temizle"
+                                                >
+                                                    ×
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
+
+                                    {(() => {
+                                        const q = (iconSearch || '').toLocaleLowerCase('tr-TR').trim();
+                                        const gruplar = ICON_LIBRARY
+                                            .map(g => ({
+                                                grup: g.grup,
+                                                ikonlar: q
+                                                    ? g.ikonlar.filter(i =>
+                                                        i.ad.toLocaleLowerCase('tr-TR').includes(q) ||
+                                                        i.key.toLocaleLowerCase('tr-TR').includes(q) ||
+                                                        g.grup.toLocaleLowerCase('tr-TR').includes(q))
+                                                    : g.ikonlar
+                                            }))
+                                            .filter(g => g.ikonlar.length > 0);
+
+                                        if (gruplar.length === 0) {
+                                            return (
+                                                <div className={`text-center py-8 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                    🔎 "{iconSearch}" için ikon bulunamadı
+                                                </div>
+                                            );
+                                        }
+
+                                        return gruplar.map(g => (
+                                            <div key={g.grup} className="mb-4">
+                                                <div className={`text-[11px] font-bold uppercase tracking-wide mb-1.5 ${
+                                                    theme === 'dark' ? 'text-purple-300' : 'text-purple-600'
+                                                }`}>
+                                                    {g.grup}
+                                                    <span className={`ml-2 font-normal normal-case ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                        {g.ikonlar.length}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-8 gap-1.5">
+                                                    {g.ikonlar.map(i => (
+                                                        <button
+                                                            key={i.key}
+                                                            onClick={() => applyIconToRoom(i.key)}
+                                                            className={`py-2 rounded-lg border-2 transition-all hover:scale-110 hover:shadow-lg flex flex-col items-center gap-0.5 ${
+                                                                theme === 'dark'
+                                                                    ? 'border-gray-600 bg-gray-700 hover:border-purple-500'
+                                                                    : 'border-gray-200 bg-white hover:border-purple-500'
+                                                            }`}
+                                                            title={i.ad}
+                                                        >
+                                                            <span className="text-2xl leading-none">{i.emoji}</span>
+                                                            <span className={`text-[8px] leading-tight truncate w-full px-0.5 ${
+                                                                theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                                                            }`}>{i.ad}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ));
+                                    })()}
                                 </div>
                                 
                                 <div className="mt-4 pt-3 border-t">
@@ -15264,7 +15495,10 @@
                                     <div className="bg-indigo-50 rounded-lg p-3 mb-3 border border-indigo-200">
                                         <div className="flex items-center justify-between mb-2">
                                             <p className="text-xs text-indigo-800 font-semibold">🔹 Uygulama</p>
-                                            <span className="text-[10px] text-indigo-600 font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200">
+                                            <span
+                                                className="text-[10px] text-indigo-600 font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200 whitespace-nowrap"
+                                                title="Yüklü index.html dosyasının değiştirilme tarihi"
+                                            >
                                                 v{APP_VERSION}
                                             </span>
                                         </div>
