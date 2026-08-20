@@ -2980,13 +2980,10 @@
                 }
                 
                 const id = 'custom_' + Date.now();
-                const newRoom = { id, name: name.trim(), fields: selectedFields, custom: true };
-                const updated = [...customRooms, newRoom];
-                setCustomRooms(updated);
-                // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
-                setCurrentRoom(id);
-                
-                // Toplu ekleme seçeneği
+                const duvarVar = selectedFields.includes('duvar_kaplama');
+
+                // ÖNCE kapsamı sor. Global listeye ASLA yazma:
+                // global customRooms bütün dairelerde görünür.
                 const applyChoice = prompt(
                     'Bu mekani nereye eklemek istiyorsunuz?\n\n' +
                     '1 = Sadece bu daire\n' +
@@ -2995,41 +2992,56 @@
                     'Seciminiz (1/2/3):',
                     '1'
                 );
-                
-                if (applyChoice === '2') {
-                    // Bu projedeki tüm dairelere ekle
-                    const currentProj = getProject();
-                    const confirmMsg = currentProj.name + ' projesindeki ' + currentProj.apartments.length + ' daireye "' + name.trim() + '" mekani eklensin mi?';
-                    if (confirm(confirmMsg)) {
-                        const updatedApts = currentProj.apartments.map(apt => ({
-                            ...apt,
-                            wallCount: { ...apt.wallCount, [id]: selectedFields.includes('duvar_kaplama') ? 1 : 0 }
-                        }));
-                        updateProjects(projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p));
-                        alert('Eklendi! ' + currentProj.apartments.length + ' daireye "' + name.trim() + '" mekani eklendi.');
-                    }
-                } else if (applyChoice === '3') {
-                    // Tüm projelerdeki tüm dairelere ekle
-                    let totalApts = 0;
-                    projects.forEach(p => { totalApts += p.apartments.length; });
-                    const confirmMsg = 'TUM projelerdeki ' + totalApts + ' daireye "' + name.trim() + '" mekani eklensin mi?';
-                    if (confirm(confirmMsg)) {
-                        const updatedProjects = projects.map(proj => ({
-                            ...proj,
-                            apartments: proj.apartments.map(apt => ({
-                                ...apt,
-                                wallCount: { ...apt.wallCount, [id]: selectedFields.includes('duvar_kaplama') ? 1 : 0 }
-                            }))
-                        }));
-                        setProjects(updatedProjects);
-                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
-                        alert('Eklendi! ' + totalApts + ' daireye "' + name.trim() + '" mekani eklendi.');
-                    }
+                if (applyChoice === null) return; // iptal - hiçbir şey ekleme
+
+                const secim = (applyChoice || '').trim();
+                if (!['1', '2', '3'].includes(secim)) {
+                    alert('Gecersiz secim! Islem iptal edildi, mekan olusturulmadi.');
+                    return;
                 }
-                
+
+                // Mekanı bir dairenin KENDİ listesine ekle
+                const daireyeEkle = (a) => {
+                    // Daire hâlâ eski sistemdeyse (kendi listesi yoksa) önce
+                    // mevcut mekanları kendi listesine taşı ki hiçbiri kaybolmasın
+                    const mevcut = (a.customRooms && a.customRooms.length > 0)
+                        ? a.customRooms
+                        : JSON.parse(JSON.stringify([...baseRooms, ...customRooms]));
+
+                    if (mevcut.some(r => r.id === id)) return a;
+
+                    const kopya = JSON.parse(JSON.stringify({
+                        id, name: name.trim(), fields: selectedFields,
+                        custom: true, editable: true, deletable: true
+                    }));
+
+                    return {
+                        ...a,
+                        customRooms: [...mevcut, kopya],
+                        wallCount: { ...(a.wallCount || {}), [id]: duvarVar ? 1 : 0 },
+                        hiddenRooms: (a.hiddenRooms || []).filter(x => x !== id)
+                    };
+                };
+
+                if (secim === '1') {
+                    updateApartments(apartments.map(a => a.id === currentApt ? daireyeEkle(a) : a));
+                    alert(`✅ "${name.trim()}" mekani SADECE "${getApt().name}" dairesine eklendi.\n\nDiger daireler etkilenmedi.`);
+                } else if (secim === '2') {
+                    const proj = getProject();
+                    if (!confirm(`${proj.name} projesindeki ${apartments.length} daireye "${name.trim()}" mekani eklensin mi?`)) return;
+                    updateApartments(apartments.map(daireyeEkle));
+                    alert(`✅ ${apartments.length} daireye eklendi.`);
+                } else {
+                    let toplam = 0;
+                    projects.forEach(p => { toplam += p.apartments.length; });
+                    if (!confirm(`TUM projelerdeki ${toplam} daireye "${name.trim()}" mekani eklensin mi?`)) return;
+                    updateProjects(projects.map(p => ({ ...p, apartments: p.apartments.map(daireyeEkle) })));
+                    alert(`✅ ${toplam} daireye eklendi.`);
+                }
+
+                setCurrentRoom(id);
                 // Ekranı yenile
                 setRefreshKey(prev => prev + 1);
-                alert('Mekan olusturuldu!\nEklenen alanlar:\n' + selectedFields.map(f => fieldNames[f] || f).join('\n'));
             };
 
             const editRoomName = (roomId) => {
@@ -3347,16 +3359,21 @@
                                 const newWallCount = { ...a.wallCount };
                                 delete newWallCount[roomId];
                                 
-                                // Gizli mekanlar listesine ekle
+                                // Gizli mekanlar listesine ekle (global mekanlar için)
                                 const newHiddenRooms = [...(a.hiddenRooms || [])];
                                 if (!newHiddenRooms.includes(roomId)) {
                                     newHiddenRooms.push(roomId);
                                 }
-                                
+
+                                // Dairenin KENDİ listesindeyse oradan da çıkar
+                                const newCustomRooms = (a.customRooms && a.customRooms.length > 0)
+                                    ? a.customRooms.filter(r => r.id !== roomId)
+                                    : a.customRooms;
+
                                 console.log('Yeni data:', newData);
                                 console.log('Gizli mekanlar:', newHiddenRooms);
-                                
-                                return { ...a, data: newData, wallCount: newWallCount, hiddenRooms: newHiddenRooms };
+
+                                return { ...a, data: newData, wallCount: newWallCount, hiddenRooms: newHiddenRooms, customRooms: newCustomRooms };
                             }
                             return a;
                         });
@@ -3365,7 +3382,7 @@
                         const updatedProjects = projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p);
                         console.log('updatedProjects:', updatedProjects);
                         
-                        setProjects(updatedProjects);
+                        updateProjects(updatedProjects); // localStorage'a da yaz
                         // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         console.log('State guncellendi');
                         
@@ -3395,11 +3412,15 @@
                             if (!newHiddenRooms.includes(roomId)) {
                                 newHiddenRooms.push(roomId);
                             }
-                            
-                            return { ...apt, data: newData, wallCount: newWallCount, hiddenRooms: newHiddenRooms };
+
+                            const newCustomRooms = (apt.customRooms && apt.customRooms.length > 0)
+                                ? apt.customRooms.filter(r => r.id !== roomId)
+                                : apt.customRooms;
+
+                            return { ...apt, data: newData, wallCount: newWallCount, hiddenRooms: newHiddenRooms, customRooms: newCustomRooms };
                         });
                         const updatedProjects = projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p);
-                        setProjects(updatedProjects);
+                        updateProjects(updatedProjects); // localStorage'a da yaz
                         // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         setCurrentRoom('salon');
                         // Ekranı yenile
@@ -3422,7 +3443,7 @@
                                 return { ...apt, data: newData, wallCount: newWallCount };
                             })
                         }));
-                        setProjects(updatedProjects);
+                        updateProjects(updatedProjects); // localStorage'a da yaz
                         // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         
                         // Sonra mekanı tamamen sil
@@ -4389,6 +4410,59 @@
                 setShowIconPicker(true);
             };
 
+            // Bir mekanın ikonunu SEÇİLEN KAPSAMDA uygula.
+            // patch: { icon } veya { customIcon } gibi kısmi güncelleme.
+            const ikonuKapsamaUygula = (roomId, patch) => {
+                const c = prompt(
+                    'Bu ikon nerede gecerli olsun?\n\n' +
+                    '1 = Sadece bu daire\n' +
+                    '2 = Bu projedeki TUM daireler\n' +
+                    '3 = TUM projeler, TUM daireler\n\n' +
+                    'Seciminiz (1/2/3):',
+                    '2'
+                );
+                if (c === null) return false;
+                const sec = (c || '').trim();
+                if (!['1', '2', '3'].includes(sec)) {
+                    alert('Gecersiz secim! Islem iptal edildi.');
+                    return false;
+                }
+
+                const mekaniGuncelle = (a) => {
+                    if (!a.customRooms || a.customRooms.length === 0) return a;
+                    if (!a.customRooms.some(r => r.id === roomId)) return a;
+                    return {
+                        ...a,
+                        customRooms: a.customRooms.map(r => r.id === roomId ? { ...r, ...patch } : r)
+                    };
+                };
+
+                if (sec === '3') {
+                    updateProjects(projects.map(p => ({ ...p, apartments: p.apartments.map(mekaniGuncelle) })));
+                } else if (sec === '2') {
+                    updateApartments(apartments.map(mekaniGuncelle));
+                } else {
+                    updateApartments(apartments.map(a => a.id === currentApt ? mekaniGuncelle(a) : a));
+                }
+
+                // Global listeler yalnızca kapsam bu daireyle sınırlı DEĞİLSE güncellenir
+                // (global liste eski sistemdeki tüm daireleri etkiler)
+                if (sec !== '1') {
+                    const yeniCustom = customRooms.map(r => r.id === roomId ? { ...r, ...patch } : r);
+                    setCustomRooms(yeniCustom);
+                    localStorage.setItem('custom_rooms', JSON.stringify(yeniCustom));
+
+                    const yeniBase = baseRooms.map(r => r.id === roomId ? { ...r, ...patch } : r);
+                    setBaseRooms(yeniBase);
+                    localStorage.setItem('base_rooms', JSON.stringify(yeniBase));
+                }
+
+                setRefreshKey(prev => prev + 1);
+                const nerede = sec === '1' ? 'sadece bu daire' : (sec === '2' ? 'bu projedeki tum daireler' : 'tum projeler');
+                console.log('🎨 İkon uygulandı →', nerede);
+                return true;
+            };
+
             const applyIconToRoom = async (iconKey) => {
                 // Eski icon'u sil (eğer Firebase Storage URL'i ise)
                 if (selectedFieldForIcon) {
@@ -4428,36 +4502,9 @@
                 const room = allRooms.find(r => r.id === selectedRoomForIcon);
                 if (!room) return;
                 
-                if (room.custom) {
-                    const updated = customRooms.map(r => 
-                        r.id === selectedRoomForIcon ? { ...r, icon: iconKey } : r
-                    );
-                    setCustomRooms(updated);
-                    localStorage.setItem('custom_rooms', JSON.stringify(updated));
-                } else {
-                    const updated = baseRooms.map(r => 
-                        r.id === selectedRoomForIcon ? { ...r, icon: iconKey } : r
-                    );
-                    setBaseRooms(updated);
-                    localStorage.setItem('base_rooms', JSON.stringify(updated));
-                    
-                    // Eğer daire bazlı customRooms varsa onu da güncelle
-                    const currentApt = getApt();
-                    if (currentApt && currentApt.customRooms && currentApt.customRooms.length > 0) {
-                        const updatedAptRooms = currentApt.customRooms.map(r =>
-                            r.id === selectedRoomForIcon ? { ...r, icon: iconKey } : r
-                        );
-                        const updatedApt = { ...currentApt, customRooms: updatedAptRooms };
-                        const currentProj = getProject();
-                        const updatedApts = currentProj.apartments.map(apt =>
-                            apt.id === currentApt.id ? updatedApt : apt
-                        );
-                        updateProjects(projects.map(p =>
-                            p.id === currentPrj ? { ...p, apartments: updatedApts } : p
-                        ));
-                    }
-                }
-                
+                // Hazır ikon seçildi: varsa özel görseli temizle
+                if (!ikonuKapsamaUygula(selectedRoomForIcon, { icon: iconKey, customIcon: '' })) return;
+
                 setShowIconPicker(false);
                 setSelectedRoomForIcon(null);
             };
@@ -4577,19 +4624,7 @@
                 const room = allRooms.find(r => r.id === selectedRoomForIcon);
                 if (!room) return;
                 
-                if (room.custom) {
-                    const updated = customRooms.map(r => 
-                        r.id === selectedRoomForIcon ? { ...r, customIcon: iconData } : r
-                    );
-                    setCustomRooms(updated);
-                    localStorage.setItem('custom_rooms', JSON.stringify(updated));
-                } else {
-                    const updated = baseRooms.map(r => 
-                        r.id === selectedRoomForIcon ? { ...r, customIcon: iconData } : r
-                    );
-                    setBaseRooms(updated);
-                    localStorage.setItem('base_rooms', JSON.stringify(updated));
-                }
+                if (!ikonuKapsamaUygula(selectedRoomForIcon, { customIcon: iconData })) return;
                 
                 setShowIconPicker(false);
                 setSelectedRoomForIcon(null);
@@ -14153,19 +14188,7 @@
                                                     const room = allRooms.find(r => r.id === selectedRoomForIcon);
                                                     if (!room) return;
                                                     
-                                                    if (room.custom) {
-                                                        const updated = customRooms.map(r => 
-                                                            r.id === selectedRoomForIcon ? { ...r, customIcon: e.target.value.trim() } : r
-                                                        );
-                                                        setCustomRooms(updated);
-                                                        localStorage.setItem('custom_rooms', JSON.stringify(updated));
-                                                    } else {
-                                                        const updated = baseRooms.map(r => 
-                                                            r.id === selectedRoomForIcon ? { ...r, customIcon: e.target.value.trim() } : r
-                                                        );
-                                                        setBaseRooms(updated);
-                                                        localStorage.setItem('base_rooms', JSON.stringify(updated));
-                                                    }
+                                                    if (!ikonuKapsamaUygula(selectedRoomForIcon, { customIcon: e.target.value.trim() })) return;
                                                     
                                                     setShowIconPicker(false);
                                                     setSelectedRoomForIcon(null);
@@ -14215,19 +14238,7 @@
                                                 const room = allRooms.find(r => r.id === selectedRoomForIcon);
                                                 if (!room) return;
                                                 
-                                                if (room.custom) {
-                                                    const updated = customRooms.map(r => 
-                                                        r.id === selectedRoomForIcon ? { ...r, customIcon: input.value.trim() } : r
-                                                    );
-                                                    setCustomRooms(updated);
-                                                    localStorage.setItem('custom_rooms', JSON.stringify(updated));
-                                                } else {
-                                                    const updated = baseRooms.map(r => 
-                                                        r.id === selectedRoomForIcon ? { ...r, customIcon: input.value.trim() } : r
-                                                    );
-                                                    setBaseRooms(updated);
-                                                    localStorage.setItem('base_rooms', JSON.stringify(updated));
-                                                }
+                                                if (!ikonuKapsamaUygula(selectedRoomForIcon, { customIcon: input.value.trim() })) return;
                                                 
                                                 setShowIconPicker(false);
                                                 setSelectedRoomForIcon(null);
@@ -14330,19 +14341,7 @@
                                                         const room = allRooms.find(r => r.id === selectedRoomForIcon);
                                                         if (!room) return;
                                                         
-                                                        if (room.custom) {
-                                                            const updated = customRooms.map(r => 
-                                                                r.id === selectedRoomForIcon ? { ...r, customIcon: iconURL } : r
-                                                            );
-                                                            setCustomRooms(updated);
-                                                            localStorage.setItem('custom_rooms', JSON.stringify(updated));
-                                                        } else {
-                                                            const updated = baseRooms.map(r => 
-                                                                r.id === selectedRoomForIcon ? { ...r, customIcon: iconURL } : r
-                                                            );
-                                                            setBaseRooms(updated);
-                                                            localStorage.setItem('base_rooms', JSON.stringify(updated));
-                                                        }
+                                                        if (!ikonuKapsamaUygula(selectedRoomForIcon, { customIcon: iconURL })) return;
                                                         
                                                         setShowIconPicker(false);
                                                         setSelectedRoomForIcon(null);
