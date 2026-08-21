@@ -1578,16 +1578,45 @@
                     .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '', 'tr'));
             }, [ceramicData.items, ceramicListSearch, searchMaterial, ceramicListSerie, ceramicListSize, ceramicListPhoto, productPhotos]);
 
-            // Seçili seriye ait boyutlar (boyut filtresi listesi)
+            // Filtre çubuğunun SEÇENEKLERİ de arama ve fotoğraf durumuna göre daralır.
+            // (Eskiden seri/boyut listeleri tüm veriden geliyordu.)
+            const ceramicFilterPool = useMemo(() => {
+                const norm = (t) => (t || '').toString().toLocaleLowerCase('tr-TR');
+                const q1 = norm(ceramicListSearch).trim();
+                const q2 = norm(searchMaterial).trim();
+
+                return (ceramicData.items || []).filter(item => {
+                    const hay = norm(item.fullName) + ' ' + norm(item.serie) + ' ' + norm(item.size);
+                    if (q1 && !hay.includes(q1)) return false;
+                    if (q2 && !hay.includes(q2)) return false;
+                    if (ceramicListPhoto !== 'all') {
+                        const fotoVar = !!productPhotos[makeCeramicKey(item.fullName)];
+                        if (ceramicListPhoto === 'with' && !fotoVar) return false;
+                        if (ceramicListPhoto === 'without' && fotoVar) return false;
+                    }
+                    return true;
+                });
+            }, [ceramicData.items, ceramicListSearch, searchMaterial, ceramicListPhoto, productPhotos]);
+
+            // Seri listesi: seçili boyut varsa ona göre daralt
+            const ceramicSeriesForFilter = useMemo(() => {
+                const base = ceramicListSize
+                    ? ceramicFilterPool.filter(i => i.size === ceramicListSize)
+                    : ceramicFilterPool;
+                const set = new Set(base.map(i => i.serie));
+                if (ceramicListSerie) set.add(ceramicListSerie); // seçili olan kaybolmasın
+                return [...set].sort((a, b) => a.localeCompare(b, 'tr'));
+            }, [ceramicFilterPool, ceramicListSize, ceramicListSerie]);
+
+            // Boyut listesi: seçili seri varsa ona göre daralt
             const ceramicSizesForFilter = useMemo(() => {
-                if (!ceramicListSerie) {
-                    return [...(ceramicData.sizes || [])].sort((a, b) => a.localeCompare(b, 'tr'));
-                }
-                return [...new Set((ceramicData.items || [])
-                    .filter(i => i.serie === ceramicListSerie)
-                    .map(i => i.size))]
-                    .sort((a, b) => a.localeCompare(b, 'tr'));
-            }, [ceramicListSerie, ceramicData.items, ceramicData.sizes]);
+                const base = ceramicListSerie
+                    ? ceramicFilterPool.filter(i => i.serie === ceramicListSerie)
+                    : ceramicFilterPool;
+                const set = new Set(base.map(i => i.size));
+                if (ceramicListSize) set.add(ceramicListSize);
+                return [...set].sort((a, b) => a.localeCompare(b, 'tr'));
+            }, [ceramicFilterPool, ceramicListSerie, ceramicListSize]);
             const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
             const [showMaterialAnalysis, setShowMaterialAnalysis] = useState(false);
             const [activeAnalysisTab, setActiveAnalysisTab] = useState('Tümü');
@@ -9070,7 +9099,7 @@
                                                             }`}
                                                         >
                                                             <option value="">🏷️ Tüm Seriler</option>
-                                                            {[...ceramicData.series].sort((a, b) => a.localeCompare(b, 'tr')).map(serie => (
+                                                            {ceramicSeriesForFilter.map(serie => (
                                                                 <option key={serie} value={serie}>{serie}</option>
                                                             ))}
                                                         </select>
