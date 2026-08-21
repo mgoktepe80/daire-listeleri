@@ -23,6 +23,18 @@
     <!-- Google Drive API -->
     <script src="https://apis.google.com/js/api.js"></script>
     
+    <style>
+        /* Miktar alanlarındaki artır/azalt oklarını kaldır */
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+            appearance: textfield;
+        }
+    </style>
     <style id="theme-style">
         /* Dropdown option'ları için tema stilleri */
         select option {
@@ -569,12 +581,30 @@
         // OTURUM YÖNETİMİ (Session Management)
         // ==========================================
         
-        // Mevcut oturum ID'sini oluştur
+        // Oturum kimliği TARAYICI BAŞINA sabittir.
+        // Eskiden her sayfa yenilemesinde yeniden üretiliyordu; bu yüzden
+        // aynı bilgisayarda yenileme yapmak ya da ikinci sekme açmak
+        // "başka cihazdan giriş" uyarısı veriyordu.
         const generateSessionId = () => {
             return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         };
-        
-        let currentSessionId = generateSessionId();
+
+        const SESSION_STORAGE_KEY = 'app_session_id';
+
+        let currentSessionId = (() => {
+            try {
+                let mevcut = localStorage.getItem(SESSION_STORAGE_KEY);
+                if (!mevcut) {
+                    mevcut = generateSessionId();
+                    localStorage.setItem(SESSION_STORAGE_KEY, mevcut);
+                    console.log('🆕 Bu tarayıcı için oturum kimliği oluşturuldu');
+                }
+                return mevcut;
+            } catch (e) {
+                // localStorage kapalıysa oturum başına üret
+                return generateSessionId();
+            }
+        })();
         
         // Aktif oturum bilgisini Firebase'e kaydet
         const updateSessionInfo = async (user) => {
@@ -605,14 +635,16 @@
         // Başka bir cihazdan oturum açıldığını kontrol et
         const checkSessionConflict = (callback) => {
             if (!firebaseEnabled || !db || !auth || !auth.currentUser) return null;
-            
+
             return db.collection('activeSessions').doc(auth.currentUser.uid).onSnapshot((doc) => {
-                if (doc.exists) {
-                    const data = doc.data();
-                    if (data.sessionId && data.sessionId !== currentSessionId) {
-                        console.log('⚠️ Başka bir cihazdan oturum açıldı!');
-                        callback(data);
-                    }
+                // Kendi yazımızın yankısını dikkate alma
+                if (doc.metadata && doc.metadata.hasPendingWrites) return;
+                if (!doc.exists) return;
+
+                const data = doc.data();
+                if (data.sessionId && data.sessionId !== currentSessionId) {
+                    console.log('⚠️ Başka bir cihazdan oturum açıldı!');
+                    callback(data);
                 }
             }, (error) => {
                 console.error('❌ Oturum kontrolü hatası:', error);
@@ -1683,20 +1715,32 @@
             useEffect(() => {
                 if (!firebaseEnabled || !user) return;
                 
-                const unsubscribe = checkSessionConflict((conflictData) => {
-                    console.log('⚠️ Oturum çakışması tespit edildi:', conflictData);
-                    setSessionConflict(conflictData);
-                    setShowSessionConflictModal(true);
-                });
-                
+                // ÖNEMLİ: Önce bu oturumu yaz, SONRA dinlemeye başla.
+                // Aksi halde dinleyici, henüz güncellenmemiş eski kaydı görüp
+                // sahte çakışma uyarısı veriyordu.
+                let unsubscribe = null;
+                let iptalEdildi = false;
+
+                updateSessionInfo(user)
+                    .catch(e => console.error('❌ Oturum yazılamadı:', e))
+                    .then(() => {
+                        if (iptalEdildi) return;
+                        unsubscribe = checkSessionConflict((conflictData) => {
+                            console.log('⚠️ Oturum çakışması tespit edildi:', conflictData);
+                            setSessionConflict(conflictData);
+                            setShowSessionConflictModal(true);
+                        });
+                    });
+
                 // Her 30 saniyede bir oturum bilgisini güncelle (aktif olduğunu göster)
                 const interval = setInterval(() => {
                     if (user) {
                         updateSessionInfo(user);
                     }
                 }, 30000);
-                
+
                 return () => {
+                    iptalEdildi = true;
                     if (unsubscribe) unsubscribe();
                     clearInterval(interval);
                 };
@@ -2164,13 +2208,16 @@
                 const handleEsc = (e) => { if (e.key === 'Escape') setLightbox(null); };
                 document.addEventListener('keydown', handleEsc);
                 
-                // Number input'larda mouse scroll'u engelle
+                // Miktar alanının üzerinde tekerlek çevrilince:
+                // - değer DEĞİŞMESİN (alanı odaktan çıkararak)
+                // - ama sayfa normal kaysın (preventDefault YOK)
                 const preventNumberScroll = (e) => {
-                    if (e.target.type === 'number') {
-                        e.preventDefault();
+                    const el = e.target;
+                    if (el && el.type === 'number' && document.activeElement === el) {
+                        el.blur();
                     }
                 };
-                document.addEventListener('wheel', preventNumberScroll, { passive: false });
+                document.addEventListener('wheel', preventNumberScroll, { passive: true });
                 
                 return () => {
                     document.removeEventListener('keydown', handleEsc);
