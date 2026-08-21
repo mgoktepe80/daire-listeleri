@@ -3254,61 +3254,53 @@
                 const newFields = [...selectedFieldsForEdit];
                 console.log('newFields (kopyalandı):', newFields);
                 
-                if (room.custom) {
-                    // Özel mekan - customRooms'da güncelle
-                    setCustomRooms(prevRooms => {
-                        const updated = prevRooms.map(r => {
-                            if (r.id === editingRoomId) {
-                                return { 
-                                    ...r, 
-                                    fields: newFields,
-                                    _timestamp: Date.now()
-                                };
-                            }
-                            return r;
-                        });
-                        console.log('✅ customRooms güncellendi:', updated.find(r => r.id === editingRoomId));
-                        return [...updated];
-                    });
-                } else {
-                    // Varsayılan mekan - baseRooms'da güncelle
-                    setBaseRooms(prevRooms => {
-                        const updated = prevRooms.map(r => {
-                            if (r.id === editingRoomId) {
-                                return { 
-                                    ...r, 
-                                    fields: newFields,
-                                    _timestamp: Date.now()
-                                };
-                            }
-                            return r;
-                        });
-                        console.log('✅ baseRooms güncellendi:', updated.find(r => r.id === editingRoomId));
-                        return [...updated];
-                    });
-                    
-                    // AYRICA: Eğer bu mekan apartment'ın customRooms'unda da varsa orayı da güncelle
-                    const currentApt = getApt();
-                    if (currentApt.customRooms && currentApt.customRooms.some(r => r.id === editingRoomId)) {
-                        console.log('⚠️ Bu mekan apartment customRooms\'unda da var, güncelleniyor...');
-                        const updatedApts = apartments.map(a => {
-                            if (a.id === currentApt.id) {
-                                return {
-                                    ...a,
-                                    customRooms: a.customRooms.map(r => 
-                                        r.id === editingRoomId 
-                                            ? { ...r, fields: newFields, _timestamp: Date.now() }
-                                            : r
-                                    )
-                                };
-                            }
-                            return a;
-                        });
-                        updateApartments(updatedApts);
-                        console.log('✅ Apartment customRooms da güncellendi');
+                // ÖNEMLİ: Mekan nerede yaşıyorsa ORAYI güncelle.
+                // Kopyalanan/eklenen mekanlar dairenin KENDİ listesindedir;
+                // global listeyi güncellemek hiçbir şey değiştirmez.
+                const daireninMekani = apartmentCustomRooms.some(r => r.id === editingRoomId);
+
+                if (daireninMekani) {
+                    let tumDaireler = false;
+                    if (apartments.length > 1) {
+                        const secim = prompt(
+                            `"${room.name}" mekaninin alanlari degistirildi.\n\n` +
+                            'Bu degisiklik nerede gecerli olsun?\n\n' +
+                            '1 = Sadece bu daire\n' +
+                            '2 = Bu projedeki TUM daireler\n\n' +
+                            'Seciminiz (1/2):',
+                            '1'
+                        );
+                        if (secim === null) return; // iptal
+                        tumDaireler = secim.trim() === '2';
                     }
+
+                    updateApartments(apartments.map(a => {
+                        if (!tumDaireler && a.id !== currentApt) return a;
+                        if (!a.customRooms || !a.customRooms.some(r => r.id === editingRoomId)) return a;
+                        return {
+                            ...a,
+                            customRooms: a.customRooms.map(r =>
+                                r.id === editingRoomId
+                                    ? { ...r, fields: newFields, _timestamp: Date.now() }
+                                    : r
+                            )
+                        };
+                    }));
+                    console.log('✅ Daire listesindeki mekan güncellendi, tüm daireler:', tumDaireler);
+                } else if (customRooms.some(r => r.id === editingRoomId)) {
+                    // Global özel mekan
+                    setCustomRooms(customRooms.map(r =>
+                        r.id === editingRoomId ? { ...r, fields: newFields, _timestamp: Date.now() } : r
+                    ));
+                    console.log('✅ Global customRooms güncellendi');
+                } else {
+                    // Varsayılan mekan
+                    setBaseRooms(baseRooms.map(r =>
+                        r.id === editingRoomId ? { ...r, fields: newFields, _timestamp: Date.now() } : r
+                    ));
+                    console.log('✅ baseRooms güncellendi');
                 }
-                
+
                 // Modal'ı kapat ve state'leri temizle
                 setShowEditFieldsModal(false);
                 setEditingRoomId(null);
