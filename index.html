@@ -3108,18 +3108,10 @@
                 if (!newName || !newName.trim()) return;
                 
                 const newId = 'custom_' + Date.now();
-                const newRoom = {
-                    id: newId,
-                    name: newName.trim(),
-                    fields: [...room.fields],
-                    custom: true
-                };
-                
-                const updated = [...customRooms, newRoom];
-                setCustomRooms(updated);
-                // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
-                
-                // Toplu ekleme seçeneği
+                const duvarVar = (room.fields || []).includes('duvar_kaplama');
+
+                // ÖNCE kapsamı sor. Global listeye ASLA yazma:
+                // global customRooms bütün dairelerde görünür.
                 const applyChoice = prompt(
                     'Bu mekani nereye eklemek istiyorsunuz?\n\n' +
                     '1 = Sadece bu daire\n' +
@@ -3128,34 +3120,57 @@
                     'Seciminiz (1/2/3):',
                     '1'
                 );
-                
-                if (applyChoice === '2') {
-                    const currentProj = getProject();
-                    if (confirm(currentProj.name + ' projesindeki ' + currentProj.apartments.length + ' daireye "' + newName.trim() + '" mekani eklensin mi?')) {
-                        const updatedApts = currentProj.apartments.map(apt => ({
-                            ...apt,
-                            wallCount: { ...apt.wallCount, [newId]: room.fields.includes('duvar_kaplama') ? 1 : 0 }
-                        }));
-                        updateProjects(projects.map(p => p.id === currentPrj ? { ...p, apartments: updatedApts } : p));
-                        alert('Eklendi! ' + currentProj.apartments.length + ' daireye "' + newName.trim() + '" mekani eklendi.');
-                    }
-                } else if (applyChoice === '3') {
-                    let totalApts = 0;
-                    projects.forEach(p => { totalApts += p.apartments.length; });
-                    if (confirm('TUM projelerdeki ' + totalApts + ' daireye "' + newName.trim() + '" mekani eklensin mi?')) {
-                        const updatedProjects = projects.map(proj => ({
-                            ...proj,
-                            apartments: proj.apartments.map(apt => ({
-                                ...apt,
-                                wallCount: { ...apt.wallCount, [newId]: room.fields.includes('duvar_kaplama') ? 1 : 0 }
-                            }))
-                        }));
-                        setProjects(updatedProjects);
-                        localStorage.setItem('projects_data', JSON.stringify(updatedProjects));
-                        alert('Eklendi! ' + totalApts + ' daireye "' + newName.trim() + '" mekani eklendi.');
-                    }
+                if (applyChoice === null) return; // iptal - hiçbir şey ekleme
+
+                const secim = (applyChoice || '').trim();
+                if (!['1', '2', '3'].includes(secim)) {
+                    alert('Gecersiz secim! Islem iptal edildi, mekan kopyalanmadi.');
+                    return;
                 }
-                
+
+                // Kopyayı bir dairenin KENDİ listesine ekle
+                const daireyeEkle = (a) => {
+                    const mevcut = (a.customRooms && a.customRooms.length > 0)
+                        ? a.customRooms
+                        : JSON.parse(JSON.stringify([...baseRooms, ...customRooms]));
+
+                    if (mevcut.some(r => r.id === newId)) return a;
+
+                    const kopya = JSON.parse(JSON.stringify({
+                        id: newId,
+                        name: newName.trim(),
+                        fields: [...room.fields],
+                        icon: room.icon,
+                        customIcon: room.customIcon,
+                        custom: true,
+                        editable: true,
+                        deletable: true
+                    }));
+
+                    return {
+                        ...a,
+                        customRooms: [...mevcut, kopya],
+                        wallCount: { ...(a.wallCount || {}), [newId]: duvarVar ? 1 : 0 },
+                        hiddenRooms: (a.hiddenRooms || []).filter(x => x !== newId)
+                    };
+                };
+
+                if (secim === '1') {
+                    updateApartments(apartments.map(a => a.id === currentApt ? daireyeEkle(a) : a));
+                    alert(`✅ "${newName.trim()}" mekani SADECE "${getApt().name}" dairesine eklendi.\n\nDiger daireler etkilenmedi.`);
+                } else if (secim === '2') {
+                    const proj = getProject();
+                    if (!confirm(`${proj.name} projesindeki ${apartments.length} daireye "${newName.trim()}" mekani eklensin mi?`)) return;
+                    updateApartments(apartments.map(daireyeEkle));
+                    alert(`✅ ${apartments.length} daireye eklendi.`);
+                } else {
+                    let toplam = 0;
+                    projects.forEach(p => { toplam += p.apartments.length; });
+                    if (!confirm(`TUM projelerdeki ${toplam} daireye "${newName.trim()}" mekani eklensin mi?`)) return;
+                    updateProjects(projects.map(p => ({ ...p, apartments: p.apartments.map(daireyeEkle) })));
+                    alert(`✅ ${toplam} daireye eklendi.`);
+                }
+
                 setCurrentRoom(newId);
                 // Ekranı yenile
                 setRefreshKey(prev => prev + 1);
