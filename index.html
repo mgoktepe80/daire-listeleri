@@ -4198,6 +4198,95 @@
             };
 
             // Bir tipi (Alt Grup 2) tüm malzemeleriyle birlikte kopyala
+            // Bir alt grubu TÜM tipleri ve malzemeleriyle birlikte kopyala
+            const copySubGroup = (cat, sourceSub) => {
+                const cd = materials[cat];
+                const subGroups = (cd && cd.subGroups) ? cd.subGroups : null;
+                if (!subGroups || !subGroups[sourceSub]) {
+                    alert('⚠️ Bu kategori alt grup kopyalamayı desteklemiyor.');
+                    return;
+                }
+
+                const kaynak = subGroups[sourceSub];
+                const useSubGroup2 = cd.useSubGroup2 === true;
+
+                // Malzeme ve tip sayısını çıkar
+                let tipSayisi = 0;
+                let malzemeler = []; // { tip, ad }
+                if (useSubGroup2 && kaynak.items && !Array.isArray(kaynak.items)) {
+                    const tipler = Array.isArray(kaynak.subGroup2s) ? kaynak.subGroup2s : Object.keys(kaynak.items);
+                    tipSayisi = tipler.length;
+                    tipler.forEach(t => (kaynak.items[t] || []).forEach(m => malzemeler.push({ tip: t, ad: m })));
+                } else {
+                    const liste = Array.isArray(kaynak.items) ? kaynak.items : (Array.isArray(kaynak) ? kaynak : []);
+                    liste.forEach(m => malzemeler.push({ tip: '-', ad: m }));
+                }
+
+                const newName = prompt(
+                    `"${sourceSub}" alt grubu kopyalanacak.\n\n` +
+                    (tipSayisi > 0 ? `📁 ${tipSayisi} tip\n` : '') +
+                    `📦 ${malzemeler.length} malzeme\n\n` +
+                    'Yeni alt grubun adı:',
+                    sourceSub + ' (kopya)'
+                );
+                if (!newName || !newName.trim()) return;
+
+                const yeniSub = newName.trim();
+                if (subGroups[yeniSub]) {
+                    alert('⚠️ Bu alt grup adı zaten mevcut!\n\n' + yeniSub);
+                    return;
+                }
+
+                // Fotoğraflar
+                const fotografli = malzemeler.filter(
+                    m => !!productPhotos[makeProductKey(cat, sourceSub, m.tip, m.ad)]
+                );
+                let fotografKopyala = false;
+                if (fotografli.length > 0) {
+                    fotografKopyala = confirm(
+                        `${fotografli.length} malzemenin fotoğrafı var.\n\n` +
+                        `Fotoğraflar da yeni alt gruba kopyalansın mı?\n\n` +
+                        `Tamam = Kopyala\nİptal = Fotoğrafsız başlasın`
+                    );
+                }
+
+                // Alt grubu kaynağın hemen ardına ekleyerek sırayı koru
+                const yeniSubGroups = {};
+                Object.keys(subGroups).forEach(k => {
+                    yeniSubGroups[k] = subGroups[k];
+                    if (k === sourceSub) {
+                        yeniSubGroups[yeniSub] = JSON.parse(JSON.stringify(kaynak));
+                    }
+                });
+
+                const newMat = { ...materials, [cat]: { ...cd, subGroups: yeniSubGroups } };
+                setMaterials(newMat);
+                localStorage.setItem('material_database', JSON.stringify(newMat));
+
+                if (fotografKopyala) {
+                    setProductPhotos(prev => {
+                        const next = { ...prev };
+                        malzemeler.forEach(m => {
+                            const src = prev[makeProductKey(cat, sourceSub, m.tip, m.ad)];
+                            if (src) next[makeProductKey(cat, yeniSub, m.tip, m.ad)] = src;
+                        });
+                        try {
+                            localStorage.setItem('product_photos', JSON.stringify(next));
+                        } catch (e) {
+                            console.error('❌ Ürün fotoğrafı localStorage hatası:', e);
+                        }
+                        return next;
+                    });
+                }
+
+                alert(
+                    `✅ "${sourceSub}" → "${yeniSub}" olarak kopyalandı!\n\n` +
+                    (tipSayisi > 0 ? `📁 ${tipSayisi} tip\n` : '') +
+                    `📦 ${malzemeler.length} malzeme` +
+                    (fotografKopyala ? `\n🖼️ ${fotografli.length} fotoğraf` : '')
+                );
+            };
+
             const copySubGroup2 = (cat, subgroup, sourceType) => {
                 const sg = materials[cat]?.subGroups?.[subgroup];
                 if (!sg) return;
@@ -9333,6 +9422,15 @@
                                                                     theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
                                                                 }`}>{subgroup}</div>
                                                                 <div className="flex gap-2">
+                                                                    <button
+                                                                        onClick={() => copySubGroup(cat, subgroup)}
+                                                                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg text-sm font-semibold hover:from-cyan-600 hover:to-blue-600 shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+                                                                        title={`"${subgroup}" alt grubunu tum tip ve malzemeleriyle kopyala`}
+                                                                    >
+                                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                                                        </svg>
+                                                                    </button>
                                                                     <button
                                                                         onClick={() => {
                                                                             const newName = prompt('Yeni alt grup adı:', subgroup);
