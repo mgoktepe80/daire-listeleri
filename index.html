@@ -1658,6 +1658,11 @@
             const [lastSyncTime, setLastSyncTime] = useState(null);
             const [firebaseStatus, setFirebaseStatus] = useState({ connected: firebaseEnabled, message: '', type: 'connected' });
             const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+            // Mahal sıralaması (düzen grubu bazlı)
+            const [showRoomOrderModal, setShowRoomOrderModal] = useState(false);
+            const [selectedOrderGroup, setSelectedOrderGroup] = useState(null);
+            const [groupRoomOrder, setGroupRoomOrder] = useState([]);
+
             // Seçimleri temizle
             const [showClearModal, setShowClearModal] = useState(false);
             const [clearApartments, setClearApartments] = useState([]);   // seçili daire id'leri
@@ -5492,6 +5497,78 @@
                     miktar: opt.amounts ? miktar : 0,
                     foto: opt.photos ? foto : 0
                 };
+            };
+
+            // ==========================================
+            // MAHAL SIRALAMASI - DÜZEN GRUPLARI
+            // ==========================================
+
+            // Aynı mahal setine sahip daireleri grupla
+            const mahalDuzenGruplari = useMemo(() => {
+                const gruplar = {};
+                apartments.forEach(a => {
+                    const odalar = a.customRooms || [];
+                    const imza = odalar.map(r => r.id).sort().join('|') || '(bos)';
+                    if (!gruplar[imza]) {
+                        gruplar[imza] = { imza, daireler: [], ornekOdalar: odalar };
+                    }
+                    gruplar[imza].daireler.push({ id: a.id, name: a.name });
+                });
+                return Object.values(gruplar).sort((x, y) => y.daireler.length - x.daireler.length);
+            }, [apartments]);
+
+            const grupSec = (imza) => {
+                const grup = mahalDuzenGruplari.find(g => g.imza === imza);
+                setSelectedOrderGroup(imza);
+                setGroupRoomOrder(grup ? grup.ornekOdalar.map(r => r.id) : []);
+            };
+
+            const grupSiraTasi = (index, yon) => {
+                const yeni = [...groupRoomOrder];
+                const hedef = index + yon;
+                if (hedef < 0 || hedef >= yeni.length) return;
+                [yeni[index], yeni[hedef]] = [yeni[hedef], yeni[index]];
+                setGroupRoomOrder(yeni);
+            };
+
+            const grupSiralamasiniUygula = () => {
+                const grup = mahalDuzenGruplari.find(g => g.imza === selectedOrderGroup);
+                if (!grup) return;
+
+                const odaAdi = (id) => {
+                    const r = grup.ornekOdalar.find(x => x.id === id);
+                    return r ? r.name : id;
+                };
+
+                if (!confirm(
+                    `Bu siralama ${grup.daireler.length} daireye uygulanacak:\n\n` +
+                    groupRoomOrder.map((id, i) => `${i + 1}. ${odaAdi(id)}`).join('\n') +
+                    `\n\nDaireler: ${grup.daireler.map(d => d.name).join(', ')}\n\nDevam edilsin mi?`
+                )) return;
+
+                const grupIdleri = grup.daireler.map(d => d.id);
+
+                updateApartments(apartments.map(a => {
+                    if (!grupIdleri.includes(a.id)) return a;
+                    const mevcut = a.customRooms || [];
+                    const sirali = groupRoomOrder.map(id => mevcut.find(r => r.id === id)).filter(Boolean);
+                    const kalan = mevcut.filter(r => !groupRoomOrder.includes(r.id));
+                    return { ...a, customRooms: [...sirali, ...kalan] };
+                }));
+
+                // Global sıralama listesi daire bazlı sırayı ezdiği için temizlenir
+                let globalTemizlendi = false;
+                if (roomOrder.length > 0) {
+                    setRoomOrder([]);
+                    globalTemizlendi = true;
+                }
+
+                setRefreshKey(prev => prev + 1);
+                alert(
+                    `✅ Siralama ${grup.daireler.length} daireye uygulandi!` +
+                    (globalTemizlendi ? '\n\nℹ️ Eski genel siralama listesi temizlendi.' : '') +
+                    `\n\nKalici olmasi icin Kaydet'e basin.`
+                );
             };
 
             const secimleriTemizle = () => {
@@ -11221,6 +11298,157 @@
                         );
                     })()}
                     
+                    {/* MAHAL SIRALAMASI MODAL */}
+                    {showRoomOrderModal && (() => {
+                        const grup = mahalDuzenGruplari.find(g => g.imza === selectedOrderGroup) || mahalDuzenGruplari[0];
+                        const odaAdi = (id) => {
+                            const r = grup ? grup.ornekOdalar.find(x => x.id === id) : null;
+                            return r ? r.name : id;
+                        };
+                        const odaIkon = (id) => {
+                            const r = grup ? grup.ornekOdalar.find(x => x.id === id) : null;
+                            if (!r) return '';
+                            if (r.customIcon) return null;
+                            return (r.icon && ROOM_ICONS[r.icon]) || '';
+                        };
+
+                        return (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+                            <div className={`rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                <div className="bg-gradient-to-r from-violet-600 to-purple-700 px-4 py-3 flex items-center justify-between">
+                                    <h2 className="text-base font-bold text-white">☰ Mahal Sıralaması</h2>
+                                    <button onClick={() => setShowRoomOrderModal(false)} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div className="px-4 py-3 overflow-y-auto flex-1">
+                                    <div className={`text-xs mb-3 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        💡 Daireler <strong>mahal düzenine göre</strong> gruplandı. Bir grubu seçip sırayı düzenleyin;
+                                        değişiklik o gruptaki bütün dairelere birden uygulanır.
+                                    </div>
+
+                                    {/* GRUPLAR */}
+                                    <div className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        1. Düzen grubu ({mahalDuzenGruplari.length})
+                                    </div>
+                                    <div className="space-y-2 mb-4">
+                                        {mahalDuzenGruplari.map((g, gi) => (
+                                            <label key={g.imza} className={`flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                                                (grup && grup.imza === g.imza)
+                                                    ? 'border-violet-500 ' + (theme === 'dark' ? 'bg-violet-900 bg-opacity-25' : 'bg-violet-50')
+                                                    : (theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50')
+                                            }`}>
+                                                <input
+                                                    type="radio"
+                                                    name="orderGroup"
+                                                    checked={!!(grup && grup.imza === g.imza)}
+                                                    onChange={() => grupSec(g.imza)}
+                                                    className="w-4 h-4 mt-0.5"
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`font-semibold text-sm ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                        Düzen {gi + 1}
+                                                        <span className="ml-2 text-xs font-normal px-2 py-0.5 rounded-full bg-violet-600 text-white">
+                                                            {g.daireler.length} daire
+                                                        </span>
+                                                        <span className={`ml-2 text-xs font-normal ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                            {g.ornekOdalar.length} mahal
+                                                        </span>
+                                                    </div>
+                                                    <div className={`text-xs mt-1 truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                                        {g.daireler.map(d => d.name).join(', ')}
+                                                    </div>
+                                                    <div className={`text-[11px] mt-0.5 truncate ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                        {g.ornekOdalar.map(r => r.name).join(' → ')}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+
+                                    {/* SIRALAMA */}
+                                    {grup && (
+                                        <>
+                                            <div className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                2. Sıra ({groupRoomOrder.length} mahal)
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                {groupRoomOrder.map((id, i) => (
+                                                    <div key={id} className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 ${
+                                                        theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50'
+                                                    }`}>
+                                                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                                            theme === 'dark' ? 'bg-violet-800 text-violet-100' : 'bg-violet-600 text-white'
+                                                        }`}>{i + 1}</span>
+                                                        <span className="text-lg leading-none">{odaIkon(id)}</span>
+                                                        <span className={`flex-1 min-w-0 truncate text-sm font-semibold ${
+                                                            theme === 'dark' ? 'text-gray-100' : 'text-gray-900'
+                                                        }`}>{odaAdi(id)}</span>
+                                                        <button
+                                                            onClick={() => grupSiraTasi(i, -1)}
+                                                            disabled={i === 0}
+                                                            className={`px-2 py-1 rounded text-xs font-bold transition-all ${
+                                                                i === 0
+                                                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                                    : 'bg-violet-500 text-white hover:bg-violet-600'
+                                                            }`}
+                                                            title="Yukarı taşı"
+                                                        >
+                                                            ▲
+                                                        </button>
+                                                        <button
+                                                            onClick={() => grupSiraTasi(i, 1)}
+                                                            disabled={i === groupRoomOrder.length - 1}
+                                                            className={`px-2 py-1 rounded text-xs font-bold transition-all ${
+                                                                i === groupRoomOrder.length - 1
+                                                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                                    : 'bg-violet-500 text-white hover:bg-violet-600'
+                                                            }`}
+                                                            title="Aşağı taşı"
+                                                        >
+                                                            ▼
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
+                                <div className={`px-4 py-3 flex items-center gap-2 border-t ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+                                    <span className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                                        {grup ? `${grup.daireler.length} daire etkilenecek` : ''}
+                                    </span>
+                                    <button
+                                        onClick={() => setShowRoomOrderModal(false)}
+                                        className={`ml-auto px-4 py-2 rounded-lg text-sm font-semibold ${
+                                            theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                                        }`}
+                                    >
+                                        İptal
+                                    </button>
+                                    <button
+                                        onClick={grupSiralamasiniUygula}
+                                        disabled={!grup || groupRoomOrder.length === 0}
+                                        className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+                                            (!grup || groupRoomOrder.length === 0)
+                                                ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                : 'bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-600 hover:to-purple-700 shadow'
+                                        }`}
+                                    >
+                                        ☰ Gruba Uygula
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
                     {/* SEÇİMLERİ TEMİZLE MODAL */}
                     {showClearModal && (() => {
                         const hedefler = apartments.filter(a => clearApartments.includes(a.id));
@@ -15115,6 +15343,22 @@
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
                                     </svg>
                                     Toplu Miktar
+                                </button>
+
+                                {/* Mahal Sırası */}
+                                <button
+                                    onClick={() => {
+                                        const ilk = mahalDuzenGruplari[0];
+                                        if (ilk) grupSec(ilk.imza);
+                                        setShowRoomOrderModal(true);
+                                    }}
+                                    className="px-3 py-2 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-lg text-sm font-semibold hover:from-violet-600 hover:to-purple-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                    title="Aynı mahal düzenine sahip daireleri topluca sırala"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7"></path>
+                                    </svg>
+                                    Mahal Sırası
                                 </button>
 
                                 {/* Seçimleri Temizle */}
