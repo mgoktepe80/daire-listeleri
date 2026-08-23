@@ -69,6 +69,22 @@
         
         /* 
         ==========================================
+        🔐 FİREBASE STORAGE KURALLARI  (fotoğraflar için ŞART)
+        ==========================================
+        Firebase Console → Storage → Rules sekmesine yapıştırın.
+        Bu kurallar yoksa yüklenen fotoğraflar 403 "Permission denied" verir:
+
+        rules_version = '2';
+        service firebase.storage {
+          match /b/{bucket}/o {
+            // Kullanıcı yalnızca kendi klasörüne erişir
+            match /users/{userId}/{allPaths=**} {
+              allow read, write: if request.auth != null && request.auth.uid == userId;
+            }
+          }
+        }
+
+        ==========================================
         🔐 FİREBASE GÜVENLİK KURALLARI (FIRESTORE)
         ==========================================
         Firebase Console → Firestore Database → Rules sekmesine aşağıdaki kuralları yapıştırın:
@@ -163,8 +179,12 @@
                 const response = await fetch(base64Data);
                 const blob = await response.blob();
                 
-                // Dosya yolu: users/{userId}/photos/{projectId}/{apartmentId}/{roomId}/{photoIndex}.jpg
-                const path = `users/${userId}/photos/${projectId}/${apartmentId}/${roomId}/${photoIndex}.jpg`;
+                // ÖNEMLİ: Dosya adı BENZERSİZ olmalı.
+                // Eskiden sıra numarası kullanılıyordu; fotoğraf silinip yenisi
+                // eklenince aynı yola yazılıyor, üzerine yazma eski erişim
+                // jetonunu geçersiz kılıyor ve diğer kayıt 403 veriyordu.
+                const benzersiz = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                const path = `users/${userId}/photos/${projectId}/${apartmentId}/${roomId}/${benzersiz}.jpg`;
                 const storageRef = storage.ref(path);
                 
                 // Yükle
@@ -286,6 +306,24 @@
             } catch (error) {
                 console.error('❌ Ürün fotoğrafı yükleme hatası:', error);
                 return base64Data;
+            }
+        };
+
+        // 403 alan bir Storage bağlantısını, oturum açıkken TAZELE.
+        // getDownloadURL yeni ve geçerli bir erişim jetonu üretir.
+        const storageBaglantisiniTazele = async (src) => {
+            if (!storage || !auth || !auth.currentUser) return null;
+            if (typeof src !== 'string' || !src.includes('firebasestorage')) return null;
+            try {
+                const yeni = await storage.refFromURL(src).getDownloadURL();
+                if (yeni && yeni !== src) {
+                    console.log('🔧 Fotoğraf bağlantısı tazelendi');
+                    return yeni;
+                }
+                return null;
+            } catch (e) {
+                console.error('❌ Bağlantı tazelenemedi:', (e && e.code) || '', (e && e.message) || e);
+                return null;
             }
         };
 
@@ -3671,9 +3709,24 @@
                 const photos = { ...getRoomData().foto };
                 const photoURL = photos[idx];
                 
-                // Storage'dan sil (eğer Storage URL'i ise)
+                // Storage'dan sil - ANCAK aynı dosyayı gösteren başka kayıt yoksa.
+                // (Daire kopyalandığında fotoğraf bağlantıları paylaşılır;
+                //  birinden silmek diğerini 403 yapardı.)
                 if (photoURL && photoURL.includes('firebasestorage')) {
-                    await deletePhotoFromStorage(photoURL);
+                    let kullanimSayisi = 0;
+                    projects.forEach(p => (p.apartments || []).forEach(a =>
+                        Object.values(a.data || {}).forEach(rd => {
+                            Object.values((rd && rd.foto) || {}).forEach(u => {
+                                if (u === photoURL) kullanimSayisi++;
+                            });
+                        })
+                    ));
+
+                    if (kullanimSayisi <= 1) {
+                        await deletePhotoFromStorage(photoURL);
+                    } else {
+                        console.log(`ℹ️ Fotoğraf ${kullanimSayisi} yerde kullanılıyor, Storage'dan silinmedi`);
+                    }
                 }
                 
                 delete photos[idx];
@@ -6804,12 +6857,40 @@
             };
 
             // Mahal fotoğrafı - yüklenemezse sebebini gösterir
-            const MahalFotografi = ({ src, index, onSil, onBuyut }) => {
+            const MahalFotografi = ({ src, index, onSil, onBuyut, onDuzelt }) => {
                 const [hata, setHata] = useState(false);
                 const [deneme, setDeneme] = useState(0);
+                const [onariliyor, setOnariliyor] = useState(false);
+                const onarimDenendiRef = React.useRef(false);
 
                 const storageUrlMu = typeof src === 'string' && src.startsWith('http');
                 const base64Mu = typeof src === 'string' && src.startsWith('data:');
+                const jetonVar = storageUrlMu && src.includes('token=');
+
+                const onar = async () => {
+                    setOnariliyor(true);
+                    const yeni = await storageBaglantisiniTazele(src);
+                    setOnariliyor(false);
+                    if (yeni && onDuzelt) {
+                        onDuzelt(yeni);
+                        setHata(false);
+                        setDeneme(d => d + 1);
+                        return true;
+                    }
+                    return false;
+                };
+
+                const hataOldu = async () => {
+                    console.error('❌ Mahal fotoğrafı yüklenemedi. Kaynak:',
+                        typeof src === 'string' ? src.slice(0, 120) : src,
+                        '| jeton:', jetonVar ? 'var' : 'YOK');
+                    // Bir kez otomatik onarmayı dene
+                    if (storageUrlMu && !onarimDenendiRef.current) {
+                        onarimDenendiRef.current = true;
+                        if (await onar()) return;
+                    }
+                    setHata(true);
+                };
 
                 if (hata) {
                     return (
@@ -6818,9 +6899,23 @@
                                 <span className="text-xl">⚠️</span>
                                 <div className="text-[10px] font-semibold text-red-700 mt-1">Görsel yüklenemedi</div>
                                 <div className="text-[9px] text-red-500 mt-0.5">
-                                    {storageUrlMu ? 'Buluttan indirilemedi' : (base64Mu ? 'Kayıt bozuk' : 'Geçersiz kayıt')}
+                                    {storageUrlMu
+                                        ? (jetonVar ? 'Erişim reddedildi (403)' : 'Erişim jetonu yok')
+                                        : (base64Mu ? 'Kayıt bozuk' : 'Geçersiz kayıt')}
                                 </div>
                                 <div className="flex gap-1 mt-1.5">
+                                    {storageUrlMu && (
+                                        <button
+                                            onClick={onar}
+                                            disabled={onariliyor}
+                                            className={`px-2 py-0.5 rounded text-white text-[9px] font-bold ${
+                                                onariliyor ? 'bg-gray-400 cursor-wait' : 'bg-emerald-600 hover:bg-emerald-700'
+                                            }`}
+                                            title="Bağlantıyı tazele (yeni erişim jetonu al)"
+                                        >
+                                            {onariliyor ? '⏳' : '🔧 Onar'}
+                                        </button>
+                                    )}
                                     <button
                                         onClick={() => { setHata(false); setDeneme(d => d + 1); }}
                                         className="px-2 py-0.5 rounded bg-red-500 text-white text-[9px] font-bold hover:bg-red-600"
@@ -6856,11 +6951,7 @@
                             key={deneme}
                             src={src}
                             onClick={onBuyut}
-                            onError={() => {
-                                console.error('❌ Mahal fotoğrafı yüklenemedi. Kaynak:',
-                                    typeof src === 'string' ? src.slice(0, 120) : src);
-                                setHata(true);
-                            }}
+                            onError={hataOldu}
                             className="w-full h-32 object-cover rounded-lg cursor-pointer border-2 border-purple-200 hover:border-purple-400 transition-colors"
                         />
                         <button
@@ -7319,6 +7410,11 @@
                                             index={parseInt(i) + 1}
                                             onSil={() => delPhoto(i)}
                                             onBuyut={() => setLightbox(p)}
+                                            onDuzelt={(yeni) => {
+                                                const guncel = { ...(getRoomData().foto || {}) };
+                                                guncel[i] = yeni;
+                                                updateField('foto', guncel);
+                                            }}
                                         />
                                     ))}
                                 </div>
