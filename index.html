@@ -1703,6 +1703,14 @@
             const [selectedOrderGroup, setSelectedOrderGroup] = useState(null);
             const [groupRoomOrder, setGroupRoomOrder] = useState([]);
 
+            // Toplu fotoğraf ekleme
+            const [showBulkPhotoModal, setShowBulkPhotoModal] = useState(false);
+            const [bulkPhotoApts, setBulkPhotoApts] = useState([]);      // hedef daire id'leri
+            const [bulkPhotoRooms, setBulkPhotoRooms] = useState([]);    // hedef mahal id'leri
+            const [bulkPhotoFiles, setBulkPhotoFiles] = useState([]);    // { ad, base64 }
+            const [bulkPhotoMode, setBulkPhotoMode] = useState('ekle');  // 'ekle' | 'degistir'
+            const [bulkPhotoDurum, setBulkPhotoDurum] = useState({ calisiyor: false, mesaj: '', yuzde: 0 });
+
             // ===== ORTAK STORAGE SİLME KORUMASI =====
             // Storage'daki bir dosya birden fazla yerde kullanılıyor olabilir:
             //   • daire kopyalandığında fotoğraf bağlantıları paylaşılır
@@ -1710,13 +1718,15 @@
             //   • malzeme veri tabanında tip/alt grup kopyalanınca aynı görsel iki anahtarda olur
             // Bu yüzden HİÇBİR yerde doğrudan silme yapılmaz; önce kaç yerde
             // kullanıldığı sayılır, yalnızca son kullanım ise dosya silinir.
-            const storageKullanimSayisi = (url) => {
+            // projeOverride verilirse sayım güncel state yerine o veri üzerinden yapılır
+            // (henüz state'e yazılmamış yeni durumu kontrol etmek için)
+            const storageKullanimSayisi = (url, projeOverride) => {
                 if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return 0;
                 let n = 0;
                 const say = (v) => { if (v && v === url) n++; };
 
                 // Mahal fotoğrafları + daireye özel mahal ikonları
-                (projects || []).forEach(p => (p.apartments || []).forEach(a => {
+                (projeOverride || projects || []).forEach(p => (p.apartments || []).forEach(a => {
                     Object.values(a.data || {}).forEach(rd => {
                         Object.values((rd && rd.foto) || {}).forEach(say);
                     });
@@ -5663,6 +5673,187 @@
                     (globalTemizlendi ? '\n\nℹ️ Eski genel siralama listesi temizlendi.' : '') +
                     `\n\nKalici olmasi icin Kaydet'e basin.`
                 );
+            };
+
+            // ===== TOPLU FOTOĞRAF EKLEME =====
+            // Aynı fotoğrafı birçok dairenin aynı mahaline tek seferde ekler.
+            // Fotoğraf Storage'a YALNIZCA BİR KEZ yüklenir, aynı bağlantı paylaşılır
+            // (silme koruması paylaşılan dosyaları zaten koruyor).
+
+            // Bir dairenin sahip olduğu mahal id'leri
+            const daireninOdaIdleri = (a) => {
+                const gizli = a.hiddenRooms || [];
+                const liste = (a.customRooms && a.customRooms.length > 0)
+                    ? [...a.customRooms, ...(customRooms || [])]
+                    : [...(baseRooms || []), ...(customRooms || [])];
+                return liste.map(r => r.id).filter(id => !gizli.includes(id));
+            };
+
+            const bulkPhotoAc = () => {
+                setBulkPhotoApts([currentApt]);
+                setBulkPhotoRooms([currentRoom]);
+                setBulkPhotoFiles([]);
+                setBulkPhotoMode('ekle');
+                setShowBulkPhotoModal(true);
+            };
+
+            const bulkPhotoDosyaSec = async (e) => {
+                const files = Array.from(e.target.files || []);
+                e.target.value = '';
+                if (!files.length) return;
+
+                const buyuk = files.filter(f => f.size > 5000000);
+                if (buyuk.length) {
+                    alert('⚠️ 5MB üstü dosyalar atlandı:\n\n' + buyuk.map(f => f.name).join('\n'));
+                }
+
+                setBulkPhotoDurum({ calisiyor: true, mesaj: 'Fotoğraflar hazırlanıyor...', yuzde: 0 });
+                const yeniler = [];
+                const uygun = files.filter(f => f.size <= 5000000);
+                for (let i = 0; i < uygun.length; i++) {
+                    const f = uygun[i];
+                    setBulkPhotoDurum({
+                        calisiyor: true,
+                        mesaj: `Hazırlanıyor (${i + 1}/${uygun.length})`,
+                        yuzde: Math.round(((i + 1) / uygun.length) * 100)
+                    });
+                    try {
+                        const base64 = await new Promise((res, rej) => {
+                            const r = new FileReader();
+                            r.onload = ev => res(ev.target.result);
+                            r.onerror = rej;
+                            r.readAsDataURL(f);
+                        });
+                        const kucuk = await compressImage(base64, 1200, 0.7);
+                        yeniler.push({ ad: f.name, base64: kucuk });
+                    } catch (err) {
+                        console.error('❌ Fotoğraf hazırlanamadı:', f.name, err);
+                    }
+                }
+                setBulkPhotoDurum({ calisiyor: false, mesaj: '', yuzde: 0 });
+                setBulkPhotoFiles(prev => [...prev, ...yeniler]);
+            };
+
+            // Kaç (daire × mahal) hedef var
+            const bulkPhotoHedefler = () => {
+                const hedef = [];
+                apartments.forEach(a => {
+                    if (!bulkPhotoApts.includes(a.id)) return;
+                    const odalar = daireninOdaIdleri(a);
+                    bulkPhotoRooms.forEach(rid => {
+                        if (odalar.includes(rid)) hedef.push({ aptId: a.id, roomId: rid });
+                    });
+                });
+                return hedef;
+            };
+
+            const topluFotografUygula = async () => {
+                if (bulkPhotoFiles.length === 0) { alert('⚠️ En az bir fotoğraf seçin!'); return; }
+                if (bulkPhotoApts.length === 0) { alert('⚠️ En az bir daire seçin!'); return; }
+                if (bulkPhotoRooms.length === 0) { alert('⚠️ En az bir mahal seçin!'); return; }
+
+                const hedefler = bulkPhotoHedefler();
+                if (hedefler.length === 0) {
+                    alert('⚠️ Seçtiğiniz dairelerde bu mahaller bulunmuyor.');
+                    return;
+                }
+
+                const odaAdi = (id) => {
+                    const r = allRooms.find(x => x.id === id);
+                    return r ? r.name : id;
+                };
+
+                if (!confirm(
+                    `📷 TOPLU FOTOĞRAF\n\n` +
+                    `${bulkPhotoFiles.length} fotoğraf\n` +
+                    `${bulkPhotoApts.length} daire × ${bulkPhotoRooms.length} mahal = ${hedefler.length} yer\n\n` +
+                    `Mahaller: ${bulkPhotoRooms.map(odaAdi).join(', ')}\n\n` +
+                    (bulkPhotoMode === 'degistir'
+                        ? '⚠️ Bu mahallerdeki MEVCUT fotoğraflar kaldırılacak.\n\n'
+                        : 'ℹ️ Mevcut fotoğrafların üzerine eklenecek.\n\n') +
+                    `Devam edilsin mi?`
+                )) return;
+
+                setBulkPhotoDurum({ calisiyor: true, mesaj: 'Buluta yükleniyor...', yuzde: 0 });
+
+                try {
+                    // 1) Her fotoğrafı BİR KEZ yükle
+                    const urls = [];
+                    for (let i = 0; i < bulkPhotoFiles.length; i++) {
+                        setBulkPhotoDurum({
+                            calisiyor: true,
+                            mesaj: `Yükleniyor (${i + 1}/${bulkPhotoFiles.length})`,
+                            yuzde: Math.round(((i + 1) / bulkPhotoFiles.length) * 90)
+                        });
+                        const f = bulkPhotoFiles[i];
+                        let url = f.base64;
+                        if (user && storage) {
+                            url = await uploadPhotoToStorage(
+                                f.base64, user.uid, currentPrj, 'toplu', 'toplu', i
+                            );
+                        }
+                        urls.push(url);
+                    }
+
+                    setBulkPhotoDurum({ calisiyor: true, mesaj: 'Dairelere işleniyor...', yuzde: 95 });
+
+                    // 2) Seçilen tüm daire/mahallere aynı bağlantıları yaz
+                    const cikarilanlar = [];
+                    const yeniApartments = apartments.map(a => {
+                        if (!bulkPhotoApts.includes(a.id)) return a;
+                        const odalar = daireninOdaIdleri(a);
+                        const newData = { ...(a.data || {}) };
+                        bulkPhotoRooms.forEach(rid => {
+                            if (!odalar.includes(rid)) return;
+                            const rd = { ...(newData[rid] || {}) };
+                            const eski = rd.foto || {};
+                            let foto;
+                            if (bulkPhotoMode === 'degistir') {
+                                Object.values(eski).forEach(u => cikarilanlar.push(u));
+                                foto = {};
+                            } else {
+                                foto = { ...eski };
+                            }
+                            let idx = Object.keys(foto).length;
+                            urls.forEach(u => { foto[idx] = u; idx++; });
+                            rd.foto = foto;
+                            newData[rid] = rd;
+                        });
+                        return { ...a, data: newData };
+                    });
+
+                    const yeniProjeler = projects.map(p =>
+                        p.id === currentPrj ? { ...p, apartments: yeniApartments } : p
+                    );
+                    updateProjects(yeniProjeler);
+
+                    // 3) "Değiştir" modunda artık hiçbir yerde kullanılmayan dosyaları temizle
+                    let silinen = 0;
+                    const benzersizCikan = [...new Set(cikarilanlar)];
+                    for (const u of benzersizCikan) {
+                        if (!u || typeof u !== 'string' || !u.includes('firebasestorage')) continue;
+                        if (storageKullanimSayisi(u, yeniProjeler) === 0) {
+                            await deletePhotoFromStorage(u);
+                            silinen++;
+                        }
+                    }
+
+                    setBulkPhotoDurum({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    setShowBulkPhotoModal(false);
+                    setBulkPhotoFiles([]);
+                    setRefreshKey(prev => prev + 1);
+
+                    alert(
+                        `✅ ${bulkPhotoFiles.length} fotoğraf ${hedefler.length} yere eklendi!\n\n` +
+                        `📦 Buluta yalnızca ${urls.length} dosya yüklendi (aynı dosya paylaşılıyor).` +
+                        (silinen ? `\n🗑️ ${silinen} eski dosya temizlendi.` : '') +
+                        `\n\nKalıcı olması için Kaydet'e basın.`
+                    );
+                } catch (e) {
+                    setBulkPhotoDurum({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    console.error('❌ Toplu fotoğraf hatası:', e);
+                    alert('❌ Toplu fotoğraf eklenemedi!\n\n' + ((e && e.message) || e));
+                }
             };
 
             const secimleriTemizle = () => {
@@ -12023,6 +12214,197 @@
                     })()}
 
                     {/* SEÇİMLERİ TEMİZLE MODAL */}
+                    {showBulkPhotoModal && (() => {
+                        const hedefler = bulkPhotoHedefler();
+                        const kutuStili = (aktif) => aktif
+                            ? 'border-pink-500 ' + (theme === 'dark' ? 'bg-pink-900 bg-opacity-30' : 'bg-pink-50')
+                            : (theme === 'dark' ? 'border-gray-700 bg-gray-750' : 'border-gray-200 bg-gray-50');
+
+                        return (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+                            <div className={`rounded-2xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                <div className="bg-gradient-to-r from-pink-500 to-rose-600 px-4 py-3 flex items-center justify-between">
+                                    <h2 className="text-base font-bold text-white">📷 Toplu Fotoğraf Ekle</h2>
+                                    <button onClick={() => setShowBulkPhotoModal(false)} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div className="px-4 py-3 overflow-y-auto flex-1">
+                                    {/* 1. FOTOĞRAFLAR */}
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className={`text-xs font-bold uppercase tracking-wide ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            1. Fotoğraflar
+                                            <span className="ml-2 normal-case font-semibold text-pink-500">{bulkPhotoFiles.length} seçili</span>
+                                        </div>
+                                        {bulkPhotoFiles.length > 0 && (
+                                            <button onClick={() => setBulkPhotoFiles([])}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-gray-200 text-gray-800 hover:bg-gray-300">Temizle</button>
+                                        )}
+                                    </div>
+                                    <label className={`block mb-2 px-4 py-4 rounded-lg border-2 border-dashed text-center cursor-pointer transition-all ${
+                                        theme === 'dark' ? 'border-pink-700 hover:bg-gray-750 text-gray-300' : 'border-pink-300 hover:bg-pink-50 text-gray-600'
+                                    }`}>
+                                        <input type="file" accept="image/*" multiple onChange={bulkPhotoDosyaSec} className="hidden" />
+                                        <div className="text-2xl mb-1">📁</div>
+                                        <div className="text-sm font-semibold">Fotoğraf seç (birden fazla seçebilirsiniz)</div>
+                                        <div className="text-[11px] opacity-70">Maksimum 5MB / dosya</div>
+                                    </label>
+                                    {bulkPhotoFiles.length > 0 && (
+                                        <div className="flex gap-2 flex-wrap mb-4 max-h-32 overflow-y-auto">
+                                            {bulkPhotoFiles.map((f, i) => (
+                                                <div key={i} className="relative">
+                                                    <img src={f.base64} alt={f.ad} className="w-16 h-16 object-cover rounded-lg border-2 border-pink-300" />
+                                                    <button
+                                                        onClick={() => setBulkPhotoFiles(bulkPhotoFiles.filter((_, x) => x !== i))}
+                                                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold shadow hover:bg-red-600"
+                                                        title="Kaldır"
+                                                    >×</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* 2. MAHALLER */}
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className={`text-xs font-bold uppercase tracking-wide ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            2. Mahaller
+                                            <span className="ml-2 normal-case font-semibold text-pink-500">{bulkPhotoRooms.length} / {allRooms.length} seçili</span>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => setBulkPhotoRooms(allRooms.map(r => r.id))}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-pink-500 text-white hover:bg-pink-600">Tümü</button>
+                                            <button onClick={() => setBulkPhotoRooms([currentRoom])}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-pink-100 text-pink-800 hover:bg-pink-200">Sadece bu mahal</button>
+                                            <button onClick={() => setBulkPhotoRooms([])}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-gray-200 text-gray-800 hover:bg-gray-300">Hiçbiri</button>
+                                        </div>
+                                    </div>
+                                    <div className={`grid grid-cols-2 sm:grid-cols-3 gap-1.5 mb-4 max-h-40 overflow-y-auto p-1 rounded-lg border ${
+                                        theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                                    }`}>
+                                        {allRooms.map(r => (
+                                            <label key={r.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border-2 cursor-pointer text-sm transition-all ${kutuStili(bulkPhotoRooms.includes(r.id))}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={bulkPhotoRooms.includes(r.id)}
+                                                    onChange={(e) => setBulkPhotoRooms(e.target.checked
+                                                        ? [...bulkPhotoRooms, r.id]
+                                                        : bulkPhotoRooms.filter(x => x !== r.id))}
+                                                    className="w-4 h-4 rounded"
+                                                />
+                                                <span className={`truncate ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>{r.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+
+                                    {/* 3. DAİRELER */}
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className={`text-xs font-bold uppercase tracking-wide ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            3. Daireler
+                                            <span className="ml-2 normal-case font-semibold text-pink-500">{bulkPhotoApts.length} / {apartments.length} seçili</span>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => setBulkPhotoApts(apartments.map(a => a.id))}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-pink-500 text-white hover:bg-pink-600">Tümü</button>
+                                            <button onClick={() => setBulkPhotoApts([currentApt])}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-pink-100 text-pink-800 hover:bg-pink-200">Sadece bu daire</button>
+                                            <button onClick={() => setBulkPhotoApts([])}
+                                                className="px-2 py-1 rounded text-xs font-semibold bg-gray-200 text-gray-800 hover:bg-gray-300">Hiçbiri</button>
+                                        </div>
+                                    </div>
+                                    <div className={`grid grid-cols-2 sm:grid-cols-3 gap-1.5 mb-4 max-h-40 overflow-y-auto p-1 rounded-lg border ${
+                                        theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                                    }`}>
+                                        {apartments.map(a => (
+                                            <label key={a.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border-2 cursor-pointer text-sm transition-all ${kutuStili(bulkPhotoApts.includes(a.id))}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={bulkPhotoApts.includes(a.id)}
+                                                    onChange={(e) => setBulkPhotoApts(e.target.checked
+                                                        ? [...bulkPhotoApts, a.id]
+                                                        : bulkPhotoApts.filter(x => x !== a.id))}
+                                                    className="w-4 h-4 rounded"
+                                                />
+                                                <span className={`truncate ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>{a.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+
+                                    {/* 4. MOD */}
+                                    <div className={`text-xs font-bold uppercase tracking-wide mb-2 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        4. Nasıl eklensin?
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                                        <label className={`flex items-start gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${kutuStili(bulkPhotoMode === 'ekle')}`}>
+                                            <input type="radio" checked={bulkPhotoMode === 'ekle'} onChange={() => setBulkPhotoMode('ekle')} className="mt-0.5" />
+                                            <span>
+                                                <span className={`block text-sm font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>Mevcutlara ekle</span>
+                                                <span className={`block text-[11px] ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Var olan fotoğraflar kalır</span>
+                                            </span>
+                                        </label>
+                                        <label className={`flex items-start gap-2 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all ${kutuStili(bulkPhotoMode === 'degistir')}`}>
+                                            <input type="radio" checked={bulkPhotoMode === 'degistir'} onChange={() => setBulkPhotoMode('degistir')} className="mt-0.5" />
+                                            <span>
+                                                <span className={`block text-sm font-semibold ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>Değiştir</span>
+                                                <span className={`block text-[11px] ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Mevcut fotoğraflar kaldırılır</span>
+                                            </span>
+                                        </label>
+                                    </div>
+
+                                    <div className={`rounded-lg p-2.5 text-[11px] leading-snug ${
+                                        theme === 'dark' ? 'bg-gray-750 text-gray-300' : 'bg-pink-50 text-pink-900'
+                                    }`}>
+                                        💡 Fotoğraf buluta <strong>yalnızca bir kez</strong> yüklenir; tüm daireler aynı dosyayı paylaşır.
+                                        Bu sayede hem yer hem süre kazanılır. Bir daireden silseniz bile dosya, başka dairelerde
+                                        kullanıldığı sürece <strong>silinmez</strong>.
+                                    </div>
+
+                                    {bulkPhotoDurum.calisiyor && (
+                                        <div className="mt-3">
+                                            <div className="text-[11px] text-pink-600 font-semibold mb-1">{bulkPhotoDurum.mesaj}</div>
+                                            <div className="w-full h-2 bg-pink-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-gradient-to-r from-pink-500 to-rose-600 transition-all"
+                                                    style={{ width: bulkPhotoDurum.yuzde + '%' }}></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className={`px-4 py-3 border-t flex items-center justify-between gap-3 ${
+                                    theme === 'dark' ? 'border-gray-700 bg-gray-850' : 'border-gray-200 bg-gray-50'
+                                }`}>
+                                    <div className={`text-xs ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+                                        <strong className="text-pink-500">{bulkPhotoFiles.length}</strong> fotoğraf →{' '}
+                                        <strong className="text-pink-500">{hedefler.length}</strong> yere eklenecek
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setShowBulkPhotoModal(false)}
+                                            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+                                                theme === 'dark' ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                            }`}>Vazgeç</button>
+                                        <button
+                                            onClick={topluFotografUygula}
+                                            disabled={bulkPhotoDurum.calisiyor || hedefler.length === 0 || bulkPhotoFiles.length === 0}
+                                            className={`px-5 py-2 rounded-lg text-sm font-bold shadow-md transition-all ${
+                                                (bulkPhotoDurum.calisiyor || hedefler.length === 0 || bulkPhotoFiles.length === 0)
+                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                    : 'bg-gradient-to-r from-pink-500 to-rose-600 text-white hover:from-pink-600 hover:to-rose-700'
+                                            }`}
+                                        >
+                                            {bulkPhotoDurum.calisiyor ? '⏳ İşleniyor...' : '📷 Uygula'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
                     {showClearModal && (() => {
                         const hedefler = apartments.filter(a => clearApartments.includes(a.id));
                         const sayim = temizlenecekSayisi(hedefler, clearOptions, clearFields);
@@ -15932,6 +16314,19 @@
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7"></path>
                                     </svg>
                                     Mahal Sırası
+                                </button>
+
+                                {/* Toplu Fotoğraf */}
+                                <button
+                                    onClick={bulkPhotoAc}
+                                    className="px-3 py-2 bg-gradient-to-r from-pink-500 to-rose-600 text-white rounded-lg text-sm font-semibold hover:from-pink-600 hover:to-rose-700 shadow-md hover:shadow-lg transition-all flex items-center gap-1"
+                                    title="Aynı fotoğrafı birçok daireye tek seferde ekle"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    </svg>
+                                    Toplu Fotoğraf
                                 </button>
 
                                 {/* Seçimleri Temizle */}
