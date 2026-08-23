@@ -12,6 +12,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Firebase SDK -->
@@ -1697,6 +1698,7 @@
             const [firebaseStatus, setFirebaseStatus] = useState({ connected: firebaseEnabled, message: '', type: 'connected' });
             const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
             // Mahal sıralaması (düzen grubu bazlı)
+            const [yedekDurumu, setYedekDurumu] = useState({ calisiyor: false, mesaj: '', yuzde: 0 });
             const [showRoomOrderModal, setShowRoomOrderModal] = useState(false);
             const [selectedOrderGroup, setSelectedOrderGroup] = useState(null);
             const [groupRoomOrder, setGroupRoomOrder] = useState([]);
@@ -6066,6 +6068,258 @@
                     if (a.subgroup !== b.subgroup) return a.subgroup.localeCompare(b.subgroup);
                     return a.material.localeCompare(b.material);
                 });
+            };
+
+            // ==========================================
+            // TAM PAKET YEDEK (veri + Storage görselleri)
+            // ==========================================
+
+            const dosyaAdiTemizle = (t) => (t || '')
+                .toString()
+                .replace(/[^a-zA-Z0-9ğüşıöçĞÜŞİÖÇ ._-]/g, '')
+                .replace(/\s+/g, '-')
+                .slice(0, 60) || 'adsiz';
+
+            // Verideki tüm Storage bağlantılarını, okunabilir adlarıyla topla
+            const tumStorageBaglantilari = () => {
+                const liste = []; // { url, ad }
+                const ekle = (url, ad) => {
+                    if (typeof url !== 'string') return;
+                    if (!url.includes('firebasestorage')) return;
+                    if (liste.some(x => x.url === url)) return;
+                    liste.push({ url, ad });
+                };
+
+                // Mahal fotoğrafları
+                projects.forEach(p => (p.apartments || []).forEach(a => {
+                    const odaAdi = (id) => {
+                        const r = (a.customRooms || []).find(x => x.id === id);
+                        return r ? r.name : id;
+                    };
+                    Object.entries(a.data || {}).forEach(([odaId, rd]) => {
+                        Object.entries((rd && rd.foto) || {}).forEach(([i, u]) => {
+                            ekle(u, `mahal-fotograflari/${dosyaAdiTemizle(p.name)}/${dosyaAdiTemizle(a.name)}/${dosyaAdiTemizle(odaAdi(odaId))}-${parseInt(i) + 1}.jpg`);
+                        });
+                    });
+                    // Mahal ikonları
+                    (a.customRooms || []).forEach(r => ekle(r.customIcon, `ikonlar/mahal/${dosyaAdiTemizle(r.name)}.png`));
+                }));
+
+                // Ürün fotoğrafları
+                Object.entries(productPhotos || {}).forEach(([anahtar, u]) => {
+                    ekle(u, `urun-fotograflari/${dosyaAdiTemizle(anahtar.replace(/\|/g, '_'))}.jpg`);
+                });
+
+                // Firma logosu ve alan ikonları
+                ekle(companyLogo, 'firma/logo.png');
+                Object.entries(fieldLabels || {}).forEach(([k, cfg]) => ekle(cfg && cfg.icon, `ikonlar/alan/${dosyaAdiTemizle(k)}.png`));
+                [...(customRooms || []), ...(baseRooms || [])].forEach(r => ekle(r.customIcon, `ikonlar/mahal/${dosyaAdiTemizle(r.name)}.png`));
+
+                return liste;
+            };
+
+            const tamPaketVerisi = () => ({
+                surum: 3,
+                tarih: new Date().toISOString(),
+                projects, customRooms, baseRooms, fieldLabels, materials, ceramicData,
+                roomOrder: JSON.parse(localStorage.getItem('room_order') || '[]'),
+                iconLibrary: JSON.parse(localStorage.getItem('icon_library') || '[]'),
+                productPhotos,
+                companyName, companyLogo, pdfFonts,
+                pdfColumnWidths,
+                pdfShowProductPhotos
+            });
+
+            const tamPaketYedekAl = async () => {
+                if (typeof JSZip === 'undefined') {
+                    alert('⚠️ ZIP kütüphanesi yüklenemedi.\n\nİnternet bağlantınızı kontrol edip sayfayı yenileyin.');
+                    return;
+                }
+
+                const dosyalar = tumStorageBaglantilari();
+                if (!confirm(
+                    `📦 TAM PAKET YEDEK\n\n` +
+                    `• Tüm sistem verisi (projeler, malzemeler, ayarlar)\n` +
+                    `• ${dosyalar.length} görsel dosyası buluttan indirilecek\n\n` +
+                    `Görsel sayısına göre birkaç dakika sürebilir.\n\nDevam edilsin mi?`
+                )) return;
+
+                setYedekDurumu({ calisiyor: true, mesaj: 'Hazırlanıyor...', yuzde: 0 });
+
+                try {
+                    const zip = new JSZip();
+                    zip.file('veri.json', JSON.stringify(tamPaketVerisi(), null, 2));
+
+                    const harita = [];   // { url, dosya }
+                    const basarisiz = [];
+
+                    for (let i = 0; i < dosyalar.length; i++) {
+                        const { url, ad } = dosyalar[i];
+                        setYedekDurumu({
+                            calisiyor: true,
+                            mesaj: `Görseller indiriliyor (${i + 1}/${dosyalar.length})`,
+                            yuzde: Math.round(((i + 1) / dosyalar.length) * 100)
+                        });
+                        try {
+                            const r = await fetch(url);
+                            if (!r.ok) throw new Error('HTTP ' + r.status);
+                            const blob = await r.blob();
+                            zip.file('dosyalar/' + ad, blob);
+                            harita.push({ url, dosya: ad });
+                        } catch (e) {
+                            basarisiz.push({ ad, sebep: (e && e.message) || 'bilinmiyor' });
+                        }
+                    }
+
+                    zip.file('dosya-haritasi.json', JSON.stringify(harita, null, 2));
+                    if (basarisiz.length) {
+                        zip.file('INDIRILEMEYENLER.txt',
+                            'Bu dosyalar buluttan indirilemedi:\n\n' +
+                            basarisiz.map(b => `${b.ad}  →  ${b.sebep}`).join('\n'));
+                    }
+
+                    setYedekDurumu({ calisiyor: true, mesaj: 'ZIP oluşturuluyor...', yuzde: 100 });
+                    const icerik = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(icerik);
+                    link.download = 'tam-paket-yedek_' + new Date().toISOString().split('T')[0] + '.zip';
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    alert(
+                        `✅ Yedek hazır!\n\n` +
+                        `📦 ${harita.length} görsel indirildi` +
+                        (basarisiz.length
+                            ? `\n⚠️ ${basarisiz.length} görsel indirilemedi (ZIP içindeki INDIRILEMEYENLER.txt dosyasına bakın)\n\n` +
+                              `Not: "Failed to fetch" hatası bucket CORS ayarı gerektirir.`
+                            : '')
+                    );
+                } catch (e) {
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    console.error('❌ Tam paket yedek hatası:', e);
+                    alert('❌ Yedek alınamadı!\n\n' + ((e && e.message) || e));
+                }
+            };
+
+            // Veri içindeki eski bağlantıları yenileriyle değiştir
+            const baglantilariDegistir = (veri, harita) => {
+                const donustur = (v) => {
+                    if (typeof v === 'string') return harita[v] || v;
+                    if (Array.isArray(v)) return v.map(donustur);
+                    if (v && typeof v === 'object') {
+                        const o = {};
+                        Object.keys(v).forEach(k => { o[k] = donustur(v[k]); });
+                        return o;
+                    }
+                    return v;
+                };
+                return donustur(veri);
+            };
+
+            const tamPaketGeriYukle = () => {
+                if (typeof JSZip === 'undefined') {
+                    alert('⚠️ ZIP kütüphanesi yüklenemedi.');
+                    return;
+                }
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.zip';
+                input.onchange = async (e) => {
+                    const dosya = e.target.files && e.target.files[0];
+                    if (!dosya) return;
+
+                    if (!confirm(
+                        '⚠️ TAM PAKET GERİ YÜKLEME\n\n' +
+                        'Mevcut TÜM verileriniz bu yedekle DEĞİŞTİRİLECEK.\n' +
+                        'Görseller buluta yeniden yüklenecek.\n\n' +
+                        'Bu işlem geri alınamaz. Devam edilsin mi?'
+                    )) return;
+
+                    setYedekDurumu({ calisiyor: true, mesaj: 'ZIP okunuyor...', yuzde: 0 });
+
+                    try {
+                        const zip = await JSZip.loadAsync(dosya);
+                        const veriDosyasi = zip.file('veri.json');
+                        if (!veriDosyasi) throw new Error('Gecersiz paket: veri.json bulunamadi');
+
+                        const veri = JSON.parse(await veriDosyasi.async('string'));
+                        const haritaDosyasi = zip.file('dosya-haritasi.json');
+                        const harita = haritaDosyasi ? JSON.parse(await haritaDosyasi.async('string')) : [];
+
+                        // Görselleri yeniden yükle
+                        const urlHarita = {};
+                        const userId = (auth && auth.currentUser) ? auth.currentUser.uid : null;
+                        let yuklenen = 0, atlanan = 0;
+
+                        for (let i = 0; i < harita.length; i++) {
+                            const { url, dosya: ad } = harita[i];
+                            setYedekDurumu({
+                                calisiyor: true,
+                                mesaj: `Görseller yükleniyor (${i + 1}/${harita.length})`,
+                                yuzde: Math.round(((i + 1) / harita.length) * 100)
+                            });
+                            const zf = zip.file('dosyalar/' + ad);
+                            if (!zf || !userId) { atlanan++; continue; }
+                            try {
+                                const blob = await zf.async('blob');
+                                const base64 = await new Promise((res, rej) => {
+                                    const rd = new FileReader();
+                                    rd.onload = () => res(rd.result);
+                                    rd.onerror = rej;
+                                    rd.readAsDataURL(blob);
+                                });
+                                const yeniUrl = await uploadPhotoToStorage(base64, userId, 'geriyukleme', Date.now(), i, i);
+                                if (yeniUrl && yeniUrl !== base64) {
+                                    urlHarita[url] = yeniUrl;
+                                    yuklenen++;
+                                } else {
+                                    urlHarita[url] = base64; // Storage yoksa gömülü kalsın
+                                    yuklenen++;
+                                }
+                            } catch (err) {
+                                console.error('❌ Görsel yüklenemedi:', ad, err);
+                                atlanan++;
+                            }
+                        }
+
+                        setYedekDurumu({ calisiyor: true, mesaj: 'Veriler uygulanıyor...', yuzde: 100 });
+
+                        const y = baglantilariDegistir(veri, urlHarita);
+
+                        if (y.projects) { setProjects(y.projects); localStorage.setItem('projects_data', JSON.stringify(y.projects)); }
+                        if (y.customRooms) { setCustomRooms(y.customRooms); localStorage.setItem('custom_rooms', JSON.stringify(y.customRooms)); }
+                        if (y.baseRooms) { setBaseRooms(y.baseRooms); localStorage.setItem('base_rooms', JSON.stringify(y.baseRooms)); }
+                        if (y.fieldLabels) { setFieldLabels(y.fieldLabels); localStorage.setItem('field_labels', JSON.stringify(y.fieldLabels)); }
+                        if (y.materials) { setMaterials(y.materials); localStorage.setItem('material_database', JSON.stringify(y.materials)); }
+                        if (y.ceramicData) { setCeramicData(y.ceramicData); localStorage.setItem('ceramic_data', JSON.stringify(y.ceramicData)); }
+                        if (y.roomOrder) { setRoomOrder(y.roomOrder); localStorage.setItem('room_order', JSON.stringify(y.roomOrder)); }
+                        if (y.iconLibrary) localStorage.setItem('icon_library', JSON.stringify(y.iconLibrary));
+                        if (y.productPhotos) {
+                            const ph = productPhotosFromAny(y.productPhotos);
+                            setProductPhotos(ph);
+                            localStorage.setItem('product_photos', JSON.stringify(ph));
+                        }
+                        if (typeof y.companyName === 'string') { setCompanyName(y.companyName); localStorage.setItem('company_name', y.companyName); }
+                        if (typeof y.companyLogo === 'string') { setCompanyLogo(y.companyLogo); localStorage.setItem('company_logo', y.companyLogo); }
+                        if (y.pdfFonts) { setPdfFonts({ ...PDF_DEFAULT_FONTS, ...y.pdfFonts }); localStorage.setItem('pdf_font_sizes', JSON.stringify(y.pdfFonts)); }
+                        if (y.pdfColumnWidths) { setPdfColumnWidths(y.pdfColumnWidths); localStorage.setItem('pdf_column_widths', JSON.stringify(y.pdfColumnWidths)); }
+
+                        setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                        alert(
+                            `✅ Geri yükleme tamamlandi!\n\n` +
+                            `📦 ${yuklenen} görsel yüklendi` +
+                            (atlanan ? `\n⚠️ ${atlanan} görsel atlandı` : '') +
+                            `\n\nKalıcı olması için "Kaydet"e basın.`
+                        );
+                    } catch (err) {
+                        setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                        console.error('❌ Geri yükleme hatası:', err);
+                        alert('❌ Geri yüklenemedi!\n\n' + ((err && err.message) || err));
+                    }
+                };
+                input.click();
             };
 
             const exportData = () => {
@@ -16111,6 +16365,62 @@
                                             Değişiklikler görünmüyorsa <strong>Yeni Sürümü Yükle</strong>'ye basın.
                                             Bu düğme veri SİLMEZ; önce buluta kaydeder, sonra sayfayı tazeler.
                                             Tarayıcı ayarlarından "site verilerini temizle" demeyin.
+                                        </p>
+                                    </div>
+
+                                    {/* TAM PAKET (veri + görseller) */}
+                                    <div className="bg-emerald-50 rounded-lg p-3 mb-3 border border-emerald-200">
+                                        <p className="text-xs text-emerald-800 font-semibold mb-2">🔹 Tam Paket (veri + görseller)</p>
+
+                                        <button
+                                            onClick={tamPaketYedekAl}
+                                            disabled={yedekDurumu.calisiyor}
+                                            className={`w-full mb-2 px-4 py-3 rounded-lg font-semibold shadow-md transition-all flex items-center justify-center gap-2 ${
+                                                yedekDurumu.calisiyor
+                                                    ? 'bg-gray-400 text-white cursor-wait'
+                                                    : 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 hover:shadow-lg'
+                                            }`}
+                                            title="Tüm veriyi ve buluttaki görselleri tek ZIP olarak indir"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                            </svg>
+                                            Tam Paket İndir (ZIP)
+                                        </button>
+
+                                        <button
+                                            onClick={tamPaketGeriYukle}
+                                            disabled={yedekDurumu.calisiyor}
+                                            className={`w-full px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                                                yedekDurumu.calisiyor
+                                                    ? 'bg-gray-300 text-gray-500 cursor-wait'
+                                                    : 'bg-white text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-100'
+                                            }`}
+                                            title="ZIP paketinden tüm sistemi ve görselleri geri yükle"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                                            </svg>
+                                            Tam Paket Geri Yükle
+                                        </button>
+
+                                        {yedekDurumu.calisiyor && (
+                                            <div className="mt-2">
+                                                <div className="text-[11px] text-emerald-800 font-semibold mb-1">
+                                                    {yedekDurumu.mesaj}
+                                                </div>
+                                                <div className="w-full h-2 bg-emerald-100 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-600 transition-all"
+                                                        style={{ width: yedekDurumu.yuzde + '%' }}
+                                                    ></div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <p className="text-[10px] text-emerald-700 mt-2 leading-snug">
+                                            Görseller de dosyaya iner; başka bilgisayarda geri yüklerseniz fotoğraflar da gelir.
+                                            Aşağıdaki JSON yedeği yalnızca veriyi içerir.
                                         </p>
                                     </div>
 
