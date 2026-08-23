@@ -6214,7 +6214,26 @@
                     if (basarisiz.length) {
                         zip.file('INDIRILEMEYENLER.txt',
                             'Bu dosyalar buluttan indirilemedi:\n\n' +
-                            basarisiz.map(b => `${b.ad}  →  ${b.sebep}`).join('\n'));
+                            basarisiz.map(b => `${b.ad}  →  ${b.sebep}`).join('\n') +
+                            '\n\nÇOĞU DURUMDA SEBEP: bucket CORS ayarı yapılmamış.\n' +
+                            'Uygulamadaki "🔎 İndirme Testi" düğmesi tam olarak ne yapmanız\n' +
+                            'gerektiğini adım adım söyler.\n\n' +
+                            'Bu ZIP içindeki GORSEL-LINKLERI.html dosyasını tarayıcıda açıp\n' +
+                            'görselleri tek tek elle de indirebilirsiniz.');
+
+                        // CORS olmadan da elle indirilebilsin diye tıklanabilir liste
+                        const satirlar = dosyalar.map(d =>
+                            `<li><a href="${d.url}" target="_blank" download>${d.ad}</a></li>`
+                        ).join('\n');
+                        zip.file('GORSEL-LINKLERI.html',
+                            '<!doctype html><meta charset="utf-8">' +
+                            '<title>Görsel bağlantıları</title>' +
+                            '<style>body{font-family:sans-serif;padding:24px;line-height:1.8}' +
+                            'a{color:#2563eb}</style>' +
+                            '<h2>Bulut görselleri (' + dosyalar.length + ' adet)</h2>' +
+                            '<p>Otomatik indirme başarısız olduysa bağlantılara sağ tıklayıp ' +
+                            '"Bağlantıyı farklı kaydet" diyebilirsiniz.</p><ol>' +
+                            satirlar + '</ol>');
                     }
 
                     setYedekDurumu({ calisiyor: true, mesaj: 'ZIP oluşturuluyor...', yuzde: 100 });
@@ -6240,6 +6259,98 @@
                     console.error('❌ Tam paket yedek hatası:', e);
                     alert('❌ Yedek alınamadı!\n\n' + ((e && e.message) || e));
                 }
+            };
+
+            // ===== İNDİRME / CORS TEŞHİSİ =====
+            // Yedek alırken görseller inmiyorsa sebebini kesin olarak söyler.
+            const indirmeTesti = async () => {
+                const dosyalar = tumStorageBaglantilari();
+                if (!dosyalar.length) {
+                    alert('Test edilecek bulut görseli bulunamadı.');
+                    return;
+                }
+
+                const kaynak = window.location.origin;
+                const dosyaProtokolu = window.location.protocol === 'file:';
+                const { url, ad } = dosyalar[0];
+
+                setYedekDurumu({ calisiyor: true, mesaj: 'İndirme testi yapılıyor...', yuzde: 50 });
+
+                // 1) <img> ile erişim: CORS gerektirmez → dosya gerçekten var mı?
+                const imgVar = await new Promise(res => {
+                    const im = new Image();
+                    im.onload = () => res(true);
+                    im.onerror = () => res(false);
+                    im.src = url;
+                });
+
+                // 2) fetch: CORS gerektirir → yedekleme bunu kullanıyor
+                let fetchTamam = false, fetchHata = '';
+                try {
+                    const r = await fetch(url);
+                    fetchTamam = r.ok;
+                    if (!r.ok) fetchHata = 'HTTP ' + r.status;
+                } catch (e) {
+                    fetchHata = (e && e.message) || String(e);
+                }
+
+                setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+
+                const bucket = (firebaseConfig && firebaseConfig.storageBucket) || 'BUCKET-ADINIZ';
+                const corsJson = JSON.stringify([{
+                    origin: dosyaProtokolu ? ['*'] : [kaynak],
+                    method: ['GET', 'HEAD'],
+                    responseHeader: ['Content-Type', 'Content-Length', 'Content-Disposition'],
+                    maxAgeSeconds: 3600
+                }], null, 2);
+
+                console.log('%c🔎 İNDİRME TESTİ', 'font-size:14px;font-weight:bold');
+                console.log('Sayfa adresi (origin):', dosyaProtokolu ? 'file:// (yerel dosya)' : kaynak);
+                console.log('Bucket:', bucket);
+                console.log('Test dosyası:', ad);
+                console.log('URL:', url);
+                console.log('img ile erişim :', imgVar ? '✅ başarılı' : '❌ başarısız');
+                console.log('fetch ile erişim:', fetchTamam ? '✅ başarılı' : '❌ ' + fetchHata);
+                console.log('\n--- cors.json ---\n' + corsJson);
+                console.log('\n--- Cloud Shell komutu ---\n' +
+                    'gcloud storage buckets update gs://' + bucket + ' --cors-file=cors.json');
+
+                let mesaj;
+                if (fetchTamam) {
+                    mesaj = '✅ İNDİRME ÇALIŞIYOR\n\n' +
+                        'Test dosyası sorunsuz indirildi. Yedekleme şu an görselleri indirebilir.\n\n' +
+                        'Yine de inmiyorsa dosyalar Storage\'da silinmiş olabilir — konsola bakın.';
+                } else if (!imgVar && !fetchTamam) {
+                    mesaj = '❌ DOSYA BULUNAMADI (CORS sorunu DEĞİL)\n\n' +
+                        'Görsel <img> ile de açılmıyor. Yani dosya Storage\'dan silinmiş\n' +
+                        'veya bağlantı geçersiz.\n\n' +
+                        'Hata: ' + fetchHata + '\n\n' +
+                        'Dosya: ' + ad;
+                } else if (dosyaProtokolu) {
+                    mesaj = '⚠️ SAYFA "file://" OLARAK AÇILMIŞ\n\n' +
+                        'Dosya buluttadır (img ile açılıyor) ama sayfayı diskten\n' +
+                        'çift tıklayarak açtığınız için tarayıcı indirmeyi engelliyor.\n\n' +
+                        'ÇÖZÜM: Uygulamayı bir web adresinden açın\n' +
+                        '(Firebase Hosting, Netlify, GitHub Pages vb.)\n' +
+                        've CORS ayarını o adres için yapın.\n\n' +
+                        'Detaylar konsolda (F12).';
+                } else {
+                    mesaj = '❌ CORS AYARI EKSİK\n\n' +
+                        'Dosya buluttadır (img ile açılıyor) ama tarayıcı indirmeyi\n' +
+                        'engelliyor. Hata: ' + fetchHata + '\n\n' +
+                        'YAPILACAKLAR (5 dakika):\n\n' +
+                        '1) console.cloud.google.com adresini açın,\n' +
+                        '   sağ üstteki >_ (Cloud Shell) simgesine basın.\n\n' +
+                        '2) Şunu yapıştırın (konsoldaki cors.json içeriğiyle):\n' +
+                        '   nano cors.json   → içeriği yapıştır → Ctrl+O, Enter, Ctrl+X\n\n' +
+                        '3) Sonra:\n' +
+                        '   gcloud storage buckets update \\\n' +
+                        '     gs://' + bucket + ' --cors-file=cors.json\n\n' +
+                        '4) Bu sayfayı yenileyip yedeği tekrar alın.\n\n' +
+                        'Hazır cors.json ve komut KONSOLA yazıldı (F12 → Console).';
+                }
+
+                alert(mesaj);
             };
 
             // Veri içindeki eski bağlantıları yenileriyle değiştir
@@ -16441,6 +16552,15 @@
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
                                             </svg>
                                             Tam Paket Geri Yükle
+                                        </button>
+
+                                        <button
+                                            onClick={indirmeTesti}
+                                            disabled={yedekDurumu.calisiyor}
+                                            className="w-full mt-2 px-4 py-2 rounded-lg text-sm font-semibold bg-white text-slate-700 border-2 border-slate-300 hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
+                                            title="Görseller inmiyorsa sebebini tespit eder (CORS / silinmiş dosya / yerel dosya)"
+                                        >
+                                            🔎 İndirme Testi
                                         </button>
 
                                         {yedekDurumu.calisiyor && (
