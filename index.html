@@ -1703,6 +1703,57 @@
             const [selectedOrderGroup, setSelectedOrderGroup] = useState(null);
             const [groupRoomOrder, setGroupRoomOrder] = useState([]);
 
+            // ===== ORTAK STORAGE SİLME KORUMASI =====
+            // Storage'daki bir dosya birden fazla yerde kullanılıyor olabilir:
+            //   • daire kopyalandığında fotoğraf bağlantıları paylaşılır
+            //   • ikon "tüm projeye uygula" ile birçok daireye yazılır
+            //   • malzeme veri tabanında tip/alt grup kopyalanınca aynı görsel iki anahtarda olur
+            // Bu yüzden HİÇBİR yerde doğrudan silme yapılmaz; önce kaç yerde
+            // kullanıldığı sayılır, yalnızca son kullanım ise dosya silinir.
+            const storageKullanimSayisi = (url) => {
+                if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return 0;
+                let n = 0;
+                const say = (v) => { if (v && v === url) n++; };
+
+                // Mahal fotoğrafları + daireye özel mahal ikonları
+                (projects || []).forEach(p => (p.apartments || []).forEach(a => {
+                    Object.values(a.data || {}).forEach(rd => {
+                        Object.values((rd && rd.foto) || {}).forEach(say);
+                    });
+                    (a.customRooms || []).forEach(r => say(r && r.customIcon));
+                }));
+
+                // Global mahal listeleri (eski sistem)
+                [...(customRooms || []), ...(baseRooms || [])].forEach(r => say(r && r.customIcon));
+
+                // Alan ikonları
+                Object.values(fieldLabels || {}).forEach(f => say(f && f.icon));
+
+                // Malzeme (ürün) görselleri
+                Object.values(productPhotos || {}).forEach(say);
+
+                // Firma logosu
+                say(companyLogo);
+
+                // İkon kütüphanesi
+                (iconLibrary || []).forEach(i => say(i && i.icon));
+
+                return n;
+            };
+
+            const guvenliStorageSil = async (url, etiket) => {
+                if (!url || typeof url !== 'string' || !url.includes('firebasestorage')) return false;
+                const ad = etiket || 'Dosya';
+                const n = storageKullanimSayisi(url);
+                if (n > 1) {
+                    console.log('ℹ️ ' + ad + ' ' + n + ' yerde kullanılıyor → Storage\'dan SİLİNMEDİ');
+                    return false;
+                }
+                await deletePhotoFromStorage(url);
+                console.log('🗑️ ' + ad + ' Storage\'dan silindi');
+                return true;
+            };
+
             // Seçimleri temizle
             const [showClearModal, setShowClearModal] = useState(false);
             const [clearApartments, setClearApartments] = useState([]);   // seçili daire id'leri
@@ -2979,7 +3030,7 @@
                     // Eski icon'u sil (eğer Firebase Storage URL'i ise)
                     const oldIcon = fieldLabels[fieldId]?.icon;
                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                        await deletePhotoFromStorage(oldIcon);
+                        await guvenliStorageSil(oldIcon, 'İkon');
                         console.log('🗑️ Alan silindi, icon da temizlendi');
                     }
                     
@@ -3447,13 +3498,12 @@
                     return;
                 }
                 
-                // Eski icon'u sil (eğer Firebase Storage URL'i ise)
+                // NOT: İkon dosyası burada SİLİNMEZ. Kullanıcı iptal edebilir veya
+                // mekan yalnızca bir daireden kaldırılabilir; ikon diğer dairelerde
+                // kullanılmaya devam eder. Silme yalnızca 3. seçenekte (tamamen sil)
+                // ve guvenliStorageSil üzerinden yapılır.
                 const oldIcon = room?.customIcon;
-                if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                    await deletePhotoFromStorage(oldIcon);
-                    console.log('🗑️ Mekan silindi, icon da temizlendi');
-                }
-                
+
                 const deleteChoice = prompt(
                     '"' + room.name + '" mekanini nereden silmek istiyorsunuz?\n\n' +
                     '1 = Sadece bu daire (listeden KALKAR + veriler silinir)\n' +
@@ -3585,6 +3635,10 @@
                             // localStorage.setItem kaldırıldı - sadece Kaydet'e basıldığında Firebase'e yazılır
                         }
                         
+                        // Mekan tamamen kalktığına göre ikon dosyası da temizlenebilir
+                        // (başka yerde kullanılmıyorsa)
+                        await guvenliStorageSil(oldIcon, 'Mekan ikonu');
+
                         setCurrentRoom('salon');
                         // Ekranı yenile
                         setRefreshKey(prev => prev + 1);
@@ -3714,23 +3768,8 @@
                 // Storage'dan sil - ANCAK aynı dosyayı gösteren başka kayıt yoksa.
                 // (Daire kopyalandığında fotoğraf bağlantıları paylaşılır;
                 //  birinden silmek diğerini 403 yapardı.)
-                if (photoURL && photoURL.includes('firebasestorage')) {
-                    let kullanimSayisi = 0;
-                    projects.forEach(p => (p.apartments || []).forEach(a =>
-                        Object.values(a.data || {}).forEach(rd => {
-                            Object.values((rd && rd.foto) || {}).forEach(u => {
-                                if (u === photoURL) kullanimSayisi++;
-                            });
-                        })
-                    ));
+                await guvenliStorageSil(photoURL, 'Mahal fotoğrafı');
 
-                    if (kullanimSayisi <= 1) {
-                        await deletePhotoFromStorage(photoURL);
-                    } else {
-                        console.log(`ℹ️ Fotoğraf ${kullanimSayisi} yerde kullanılıyor, Storage'dan silinmedi`);
-                    }
-                }
-                
                 delete photos[idx];
                 // undefined YAZMA: Firestore undefined kabul etmiyor, boş obje kullan
                 updateField('foto', photos);
@@ -4700,14 +4739,14 @@
                 if (selectedFieldForIcon) {
                     const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                        await deletePhotoFromStorage(oldIcon);
+                        await guvenliStorageSil(oldIcon, 'İkon');
                         console.log('🗑️ Eski field icon silindi (hazır icon seçimi)');
                     }
                 } else if (selectedRoomForIcon) {
                     const room = allRooms.find(r => r.id === selectedRoomForIcon);
                     const oldIcon = room?.customIcon;
                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                        await deletePhotoFromStorage(oldIcon);
+                        await guvenliStorageSil(oldIcon, 'İkon');
                         console.log('🗑️ Eski room icon silindi (hazır icon seçimi)');
                     }
                 }
@@ -4809,7 +4848,7 @@
                 
                 // Eğer Firebase Storage URL'i ise sil
                 if (icon.icon && icon.icon.startsWith('http') && icon.icon.includes('firebasestorage')) {
-                    await deletePhotoFromStorage(icon.icon);
+                    await guvenliStorageSil(icon.icon, 'Kütüphane ikonu');
                 }
                 
                 const updatedLibrary = iconLibrary.filter(i => i.id !== iconId);
@@ -4822,14 +4861,14 @@
                 if (selectedFieldForIcon) {
                     const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                        await deletePhotoFromStorage(oldIcon);
+                        await guvenliStorageSil(oldIcon, 'İkon');
                         console.log('🗑️ Eski field icon silindi (kütüphaneden icon seçimi)');
                     }
                 } else if (selectedRoomForIcon) {
                     const room = allRooms.find(r => r.id === selectedRoomForIcon);
                     const oldIcon = room?.customIcon;
                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                        await deletePhotoFromStorage(oldIcon);
+                        await guvenliStorageSil(oldIcon, 'İkon');
                         console.log('🗑️ Eski room icon silindi (kütüphaneden icon seçimi)');
                     }
                 }
@@ -7107,7 +7146,7 @@
                     delete next[productKey];
                     return next;
                 });
-                if (url) await deletePhotoFromStorage(url);
+                if (url) await guvenliStorageSil(url, 'Malzeme görseli');
             };
 
             // Mahal fotoğrafı - yüklenemezse sebebini gösterir
@@ -14987,14 +15026,14 @@
                                                     if (selectedFieldForIcon) {
                                                         const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
                                                         if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                                                            await deletePhotoFromStorage(oldIcon);
+                                                            await guvenliStorageSil(oldIcon, 'İkon');
                                                             console.log('🗑️ Eski field icon silindi (emoji değişimi)');
                                                         }
                                                     } else if (selectedRoomForIcon) {
                                                         const room = allRooms.find(r => r.id === selectedRoomForIcon);
                                                         const oldIcon = room?.customIcon;
                                                         if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                                                            await deletePhotoFromStorage(oldIcon);
+                                                            await guvenliStorageSil(oldIcon, 'İkon');
                                                             console.log('🗑️ Eski room icon silindi (emoji değişimi)');
                                                         }
                                                     }
@@ -15037,14 +15076,14 @@
                                                 if (selectedFieldForIcon) {
                                                     const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
                                                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                                                        await deletePhotoFromStorage(oldIcon);
+                                                        await guvenliStorageSil(oldIcon, 'İkon');
                                                         console.log('🗑️ Eski field icon silindi (Kullan butonu)');
                                                     }
                                                 } else if (selectedRoomForIcon) {
                                                     const room = allRooms.find(r => r.id === selectedRoomForIcon);
                                                     const oldIcon = room?.customIcon;
                                                     if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                                                        await deletePhotoFromStorage(oldIcon);
+                                                        await guvenliStorageSil(oldIcon, 'İkon');
                                                         console.log('🗑️ Eski room icon silindi (Kullan butonu)');
                                                     }
                                                 }
@@ -15111,14 +15150,14 @@
                                                     if (selectedFieldForIcon) {
                                                         const oldIcon = fieldLabels[selectedFieldForIcon]?.icon;
                                                         if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                                                            await deletePhotoFromStorage(oldIcon);
+                                                            await guvenliStorageSil(oldIcon, 'İkon');
                                                             console.log('🗑️ Eski field icon silindi');
                                                         }
                                                     } else if (selectedRoomForIcon) {
                                                         const room = allRooms.find(r => r.id === selectedRoomForIcon);
                                                         const oldIcon = room?.customIcon;
                                                         if (oldIcon && (oldIcon.startsWith('http') && oldIcon.includes('firebasestorage'))) {
-                                                            await deletePhotoFromStorage(oldIcon);
+                                                            await guvenliStorageSil(oldIcon, 'İkon');
                                                             console.log('🗑️ Eski room icon silindi');
                                                         }
                                                     }
