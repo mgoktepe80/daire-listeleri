@@ -165,9 +165,82 @@
         }
 
         // ==========================================
+        // YÜKLEME İLERLEME MERKEZİ
+        // ==========================================
+        // Tüm Storage yüklemeleri buradan raporlanır; ekranın üstündeki
+        // ilerleme çubuğu bu bilgiyi dinler. Tekli yükleme de toplu yükleme de
+        // aynı çubuğu kullanır.
+        const yuklemeMerkezi = {
+            dinleyici: null,   // App tarafından atanır
+            baslik: '',
+            toplam: 0,         // kaç dosya
+            sira: 0,           // kaçıncı dosya (1'den başlar)
+            yayinla(oran) {
+                if (!this.dinleyici) return;
+                const toplam = this.toplam || 1;
+                const tamam = Math.max(0, this.sira - 1) + Math.min(1, Math.max(0, oran || 0));
+                this.dinleyici({
+                    aktif: true,
+                    baslik: this.baslik,
+                    sira: this.sira,
+                    toplam: this.toplam,
+                    yuzde: Math.min(100, Math.round((tamam / toplam) * 100))
+                });
+            }
+        };
+
+        const yuklemeBaslat = (baslik, toplam) => {
+            yuklemeMerkezi.baslik = baslik || 'Yükleniyor';
+            yuklemeMerkezi.toplam = toplam || 1;
+            yuklemeMerkezi.sira = 0;
+            yuklemeMerkezi.yayinla(0);
+        };
+        const yuklemeSonraki = () => { yuklemeMerkezi.sira++; yuklemeMerkezi.yayinla(0); };
+        const yuklemeIlerle = (oran) => yuklemeMerkezi.yayinla(oran);
+        const yuklemeBitir = () => {
+            yuklemeMerkezi.toplam = 0;
+            yuklemeMerkezi.sira = 0;
+            yuklemeMerkezi.baslik = '';
+            if (yuklemeMerkezi.dinleyici) {
+                yuklemeMerkezi.dinleyici({ aktif: false, baslik: '', sira: 0, toplam: 0, yuzde: 0 });
+            }
+        };
+
+        // put() yerine bunu kullan: bayt bayt ilerlemeyi bildirir
+        const ilerlemeliYukle = (storageRef, blob, meta) => new Promise((resolve, reject) => {
+            let gorev;
+            try {
+                gorev = storageRef.put(blob, meta);
+            } catch (e) { reject(e); return; }
+
+            if (!gorev || typeof gorev.on !== 'function') {
+                // Beklenmedik SDK davranışı: yine de bekle
+                Promise.resolve(gorev).then(resolve, reject);
+                return;
+            }
+            gorev.on('state_changed',
+                (anlik) => {
+                    if (anlik && anlik.totalBytes) {
+                        yuklemeIlerle(anlik.bytesTransferred / anlik.totalBytes);
+                    }
+                },
+                (hata) => reject(hata),
+                () => { yuklemeIlerle(1); resolve(); }
+            );
+        });
+
+        // Tek dosyalık yükleme mi, yoksa süren bir toplu işin parçası mı?
+        const yuklemeKapsami = (baslik) => {
+            const tekil = yuklemeMerkezi.toplam === 0;
+            if (tekil) yuklemeBaslat(baslik, 1);
+            yuklemeSonraki();
+            return { tekil, kapat: () => { if (tekil) yuklemeBitir(); } };
+        };
+
+        // ==========================================
         // FIREBASE STORAGE FONKSİYONLARI (FOTOĞRAFLAR İÇİN)
         // ==========================================
-        
+
         // Fotoğrafı Firebase Storage'a yükle
         const uploadPhotoToStorage = async (base64Data, userId, projectId, apartmentId, roomId, photoIndex) => {
             if (!storage || !auth || !auth.currentUser) {
@@ -187,13 +260,18 @@
                 const benzersiz = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 const path = `users/${userId}/photos/${projectId}/${apartmentId}/${roomId}/${benzersiz}.jpg`;
                 const storageRef = storage.ref(path);
-                
-                // Yükle
-                await storageRef.put(blob, {
-                    contentType: 'image/jpeg',
-                    cacheControl: 'public, max-age=31536000'
-                });
-                
+
+                // Yükle (ilerleme çubuğuna raporlayarak)
+                const kapsam = yuklemeKapsami('Fotoğraf yükleniyor');
+                try {
+                    await ilerlemeliYukle(storageRef, blob, {
+                        contentType: 'image/jpeg',
+                        cacheControl: 'public, max-age=31536000'
+                    });
+                } finally {
+                    kapsam.kapat();
+                }
+
                 // URL'yi al
                 const downloadURL = await storageRef.getDownloadURL();
                 console.log('✅ Fotoğraf Storage\'a yüklendi:', path);
@@ -227,11 +305,16 @@
                 const storageRef = storage.ref(path);
                 
                 // Yükle
-                await storageRef.put(blob, {
-                    contentType: mimeType,
-                    cacheControl: 'public, max-age=31536000'
-                });
-                
+                const kapsam = yuklemeKapsami('Görsel yükleniyor');
+                try {
+                    await ilerlemeliYukle(storageRef, blob, {
+                        contentType: mimeType,
+                        cacheControl: 'public, max-age=31536000'
+                    });
+                } finally {
+                    kapsam.kapat();
+                }
+
                 // URL'yi al
                 const downloadURL = await storageRef.getDownloadURL();
                 console.log('✅ İcon Storage\'a yüklendi:', path);
@@ -296,10 +379,15 @@
                 const path = `users/${userId}/productPhotos/${productKeyToFileName(productKey)}_${Date.now()}.jpg`;
                 const storageRef = storage.ref(path);
 
-                await storageRef.put(blob, {
-                    contentType: 'image/jpeg',
-                    cacheControl: 'public, max-age=31536000'
-                });
+                const kapsam = yuklemeKapsami('Malzeme görseli yükleniyor');
+                try {
+                    await ilerlemeliYukle(storageRef, blob, {
+                        contentType: 'image/jpeg',
+                        cacheControl: 'public, max-age=31536000'
+                    });
+                } finally {
+                    kapsam.kapat();
+                }
 
                 const downloadURL = await storageRef.getDownloadURL();
                 console.log('✅ Ürün fotoğrafı Storage\'a yüklendi:', path);
@@ -407,7 +495,9 @@
                 
                 // Storage'a yükle
                 const storageRef = storage.ref(path);
-                await storageRef.put(jsonBlob, {
+                const arsivKapsam = yuklemeKapsami('Arşiv yükleniyor');
+                try {
+                await ilerlemeliYukle(storageRef, jsonBlob, {
                     contentType: 'application/json',
                     customMetadata: {
                         projectName: project.name,
@@ -416,7 +506,10 @@
                         archivedAt: new Date(timestamp).toISOString()
                     }
                 });
-                
+                } finally {
+                    arsivKapsam.kapat();
+                }
+
                 console.log('✅ Proje arşivlendi:', path);
                 return true;
             } catch (error) {
@@ -1702,6 +1795,13 @@
             const [showRoomOrderModal, setShowRoomOrderModal] = useState(false);
             const [selectedOrderGroup, setSelectedOrderGroup] = useState(null);
             const [groupRoomOrder, setGroupRoomOrder] = useState([]);
+
+            // Ekranın üstündeki genel yükleme çubuğu
+            const [yuklemeBilgi, setYuklemeBilgi] = useState({ aktif: false, baslik: '', sira: 0, toplam: 0, yuzde: 0 });
+            useEffect(() => {
+                yuklemeMerkezi.dinleyici = setYuklemeBilgi;
+                return () => { yuklemeMerkezi.dinleyici = null; };
+            }, []);
 
             // Toplu fotoğraf ekleme
             const [showBulkPhotoModal, setShowBulkPhotoModal] = useState(false);
@@ -5775,6 +5875,7 @@
                 )) return;
 
                 setBulkPhotoDurum({ calisiyor: true, mesaj: 'Buluta yükleniyor...', yuzde: 0 });
+                yuklemeBaslat('Fotoğraflar yükleniyor', bulkPhotoFiles.length);
 
                 try {
                     // 1) Her fotoğrafı BİR KEZ yükle
@@ -5794,6 +5895,7 @@
                         }
                         urls.push(url);
                     }
+                    yuklemeBitir();
 
                     setBulkPhotoDurum({ calisiyor: true, mesaj: 'Dairelere işleniyor...', yuzde: 95 });
 
@@ -5850,6 +5952,7 @@
                         `\n\nKalıcı olması için Kaydet'e basın.`
                     );
                 } catch (e) {
+                    yuklemeBitir();
                     setBulkPhotoDurum({ calisiyor: false, mesaj: '', yuzde: 0 });
                     console.error('❌ Toplu fotoğraf hatası:', e);
                     alert('❌ Toplu fotoğraf eklenemedi!\n\n' + ((e && e.message) || e));
@@ -9009,6 +9112,33 @@
                         ? 'bg-gray-900' 
                         : 'bg-gray-100'
                 }`}>
+                    {/* GENEL YÜKLEME İLERLEME ÇUBUĞU */}
+                    {yuklemeBilgi.aktif && (
+                        <div className="fixed top-0 left-0 right-0 z-[70]">
+                            <div className="h-1.5 w-full bg-blue-100">
+                                <div
+                                    className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-600 transition-all duration-200"
+                                    style={{ width: yuklemeBilgi.yuzde + '%' }}
+                                ></div>
+                            </div>
+                            <div className="flex justify-center">
+                                <div className="mt-1 px-3 py-1.5 rounded-b-lg bg-gray-900 bg-opacity-85 text-white text-xs font-semibold shadow-lg flex items-center gap-2">
+                                    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                    </svg>
+                                    <span>{yuklemeBilgi.baslik}</span>
+                                    {yuklemeBilgi.toplam > 1 && (
+                                        <span className="px-1.5 py-0.5 rounded bg-white bg-opacity-20">
+                                            {yuklemeBilgi.sira} / {yuklemeBilgi.toplam}
+                                        </span>
+                                    )}
+                                    <span className="tabular-nums">%{yuklemeBilgi.yuzde}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* VARSAYILAN AYARLAR MODAL */}
                     {showDefaultSettings && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
