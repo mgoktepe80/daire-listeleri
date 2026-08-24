@@ -1843,6 +1843,13 @@
             const [bulkPhotoDurum, setBulkPhotoDurum] = useState({ calisiyor: false, mesaj: '', yuzde: 0 });
             const [bulkPhotoSonIslem, setBulkPhotoSonIslem] = useState(null); // son uygulamanın özeti
 
+            // Eksik görseller paneli
+            const [showMissingPhotoModal, setShowMissingPhotoModal] = useState(false);
+            const [missingPhotoKat, setMissingPhotoKat] = useState('');     // kategori filtresi
+            const [missingPhotoAra, setMissingPhotoAra] = useState('');     // metin araması
+            const [missingPhotoSecili, setMissingPhotoSecili] = useState(null); // aktif ürün anahtarı
+            const [missingPhotoEk, setMissingPhotoEk] = useState('');       // aramaya eklenecek marka vb.
+
             // ===== ORTAK STORAGE SİLME KORUMASI =====
             // Storage'daki bir dosya birden fazla yerde kullanılıyor olabilir:
             //   • daire kopyalandığında fotoğraf bağlantıları paylaşılır
@@ -7551,6 +7558,129 @@
                 input.click();
             };
 
+            // ===== EKSİK GÖRSELLER PANELİ =====
+            // Fotoğrafı olmayan ürünleri listeler; her satırda Google Görseller'i
+            // açan bir düğme ve "kopyaladığın görseli Ctrl+V ile yapıştır" alanı var.
+
+            // Bir görseli (base64 veya File) ürün anahtarına kaydet
+            const urunGorseliKaydet = async (productKey, kaynak) => {
+                setUploadingPhotoKey(productKey);
+                try {
+                    let base64 = kaynak;
+                    if (kaynak instanceof Blob) {
+                        base64 = await new Promise((resolve, reject) => {
+                            const r = new FileReader();
+                            r.onload = ev => resolve(ev.target.result);
+                            r.onerror = reject;
+                            r.readAsDataURL(kaynak);
+                        });
+                    }
+                    yuklemeAsama('Görsel hazırlanıyor', 8);
+                    const compressed = await compressImage(base64, 900, 0.7);
+
+                    let url = compressed;
+                    if (auth && auth.currentUser) {
+                        url = await uploadProductPhotoToStorage(compressed, auth.currentUser.uid, productKey);
+                    }
+                    saveProductPhotos(next => { next[productKey] = url; return next; });
+                    yuklemeBitir();
+                    return true;
+                } catch (err) {
+                    yuklemeBitir();
+                    console.error('❌ Ürün görseli kaydedilemedi:', err);
+                    alert('❌ Görsel kaydedilemedi!\n\n' + ((err && err.message) || err));
+                    return false;
+                } finally {
+                    setUploadingPhotoKey(null);
+                }
+            };
+
+            // Tüm ürünleri dolaş (malzeme veri tabanı + seramikler)
+            const tumUrunler = useMemo(() => {
+                const liste = [];
+                Object.keys(materials || {}).forEach(kategori => {
+                    const kd = materials[kategori] || {};
+                    const altGruplar = kd.subGroups || {};
+                    Object.keys(altGruplar).forEach(altGrup => {
+                        const ag = altGruplar[altGrup] || {};
+                        if (kd.useSubGroup2) {
+                            const tipler = ag.subGroup2s || [];
+                            tipler.forEach(tip => {
+                                (((ag.items || {})[tip]) || []).forEach(ad => {
+                                    liste.push({ key: makeProductKey(kategori, altGrup, tip, ad), kategori, altGrup, tip, ad });
+                                });
+                            });
+                        } else {
+                            (Array.isArray(ag.items) ? ag.items : []).forEach(ad => {
+                                liste.push({ key: makeProductKey(kategori, altGrup, '-', ad), kategori, altGrup, tip: '', ad });
+                            });
+                        }
+                    });
+                });
+                ((ceramicData && ceramicData.items) || []).forEach(i => {
+                    if (!i || !i.fullName) return;
+                    liste.push({ key: makeCeramicKey(i.fullName), kategori: 'Seramik', altGrup: i.serie || '', tip: i.size || '', ad: i.fullName });
+                });
+                return liste;
+            }, [materials, ceramicData]);
+
+            const fotografsizUrunler = useMemo(
+                () => tumUrunler.filter(u => !productPhotos[u.key]),
+                [tumUrunler, productPhotos]
+            );
+
+            // Arama sorgusu: tekrar eden kelimeleri ayıklar (ör. "Seramik Seramik" olmasın)
+            const gorselAramaSorgusu = (u) => {
+                const parcalar = [];
+                const ekle = (t) => {
+                    const metin = (t || '').trim();
+                    if (!metin || metin === '-') return;
+                    const kucuk = metin.toLocaleLowerCase('tr-TR');
+                    if (parcalar.some(p => p.toLocaleLowerCase('tr-TR').includes(kucuk))) return;
+                    parcalar.push(metin);
+                };
+                ekle(u.ad);
+                ekle(u.tip);
+                ekle(u.altGrup);
+                ekle(u.kategori);
+                if (missingPhotoEk.trim()) parcalar.push(missingPhotoEk.trim());
+                return parcalar.join(' ');
+            };
+
+            const gorselAramaAc = (u) => {
+                const q = encodeURIComponent(gorselAramaSorgusu(u));
+                setMissingPhotoSecili(u.key);
+                window.open('https://www.google.com/search?tbm=isch&q=' + q, '_blank', 'noopener');
+            };
+
+            // Panel açıkken Ctrl+V ile yapıştırılan görseli seçili ürüne kaydet
+            useEffect(() => {
+                if (!showMissingPhotoModal) return;
+                const yapistir = async (e) => {
+                    if (!missingPhotoSecili) return;
+                    const ogeler = (e.clipboardData && e.clipboardData.items) || [];
+                    for (let i = 0; i < ogeler.length; i++) {
+                        const o = ogeler[i];
+                        if (o.kind === 'file' && o.type.startsWith('image/')) {
+                            e.preventDefault();
+                            const dosya = o.getAsFile();
+                            if (!dosya) return;
+                            const oncekiKey = missingPhotoSecili;
+                            const ok = await urunGorseliKaydet(oncekiKey, dosya);
+                            if (ok) {
+                                // sıradaki fotoğrafsız ürüne geç
+                                const sira = fotografsizUrunler.findIndex(x => x.key === oncekiKey);
+                                const sonraki = fotografsizUrunler[sira + 1] || fotografsizUrunler[sira - 1];
+                                setMissingPhotoSecili(sonraki ? sonraki.key : null);
+                            }
+                            return;
+                        }
+                    }
+                };
+                window.addEventListener('paste', yapistir);
+                return () => window.removeEventListener('paste', yapistir);
+            }, [showMissingPhotoModal, missingPhotoSecili, fotografsizUrunler, productPhotos]);
+
             // Anahtarı parçalara ayır: Kategori|AltGrup|Tip|Ad (ad içinde "|" olabilir)
             const splitProductKey = (key) => {
                 const p = (key || '').split('|');
@@ -12416,6 +12546,184 @@
                     })()}
 
                     {/* SEÇİMLERİ TEMİZLE MODAL */}
+                    {showMissingPhotoModal && (() => {
+                        const kategoriler = [...new Set(tumUrunler.map(u => u.kategori))].sort((a, b) => a.localeCompare(b, 'tr'));
+                        const ara = missingPhotoAra.toLocaleLowerCase('tr-TR').trim();
+                        const liste = fotografsizUrunler.filter(u => {
+                            if (missingPhotoKat && u.kategori !== missingPhotoKat) return false;
+                            if (!ara) return true;
+                            return [u.ad, u.altGrup, u.tip, u.kategori].join(' ').toLocaleLowerCase('tr-TR').includes(ara);
+                        });
+                        const toplam = tumUrunler.length;
+                        const fotolu = toplam - fotografsizUrunler.length;
+                        const yuzde = toplam ? Math.round((fotolu / toplam) * 100) : 0;
+
+                        return (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+                            <div className={`rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden ${
+                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            }`}>
+                                <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 flex items-center justify-between">
+                                    <h2 className="text-base font-bold text-white">🔍 Eksik Görseller</h2>
+                                    <button onClick={() => { setShowMissingPhotoModal(false); setMissingPhotoSecili(null); }}
+                                        className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                {/* İLERLEME */}
+                                <div className={`px-4 pt-3 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
+                                    <div className="flex items-center justify-between text-xs mb-1">
+                                        <span className={theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}>
+                                            <strong className="text-amber-600">{fotolu}</strong> / {toplam} ürün görselli
+                                        </span>
+                                        <span className={theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}>
+                                            {fotografsizUrunler.length} eksik
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-2 bg-amber-100 rounded-full overflow-hidden mb-3">
+                                        <div className="h-full bg-gradient-to-r from-amber-500 to-orange-600 transition-all"
+                                            style={{ width: yuzde + '%' }}></div>
+                                    </div>
+                                </div>
+
+                                {/* NASIL ÇALIŞIR */}
+                                <div className={`mx-4 mb-3 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${
+                                    theme === 'dark' ? 'bg-gray-750 text-gray-300' : 'bg-amber-50 text-amber-900'
+                                }`}>
+                                    <strong>1.</strong> Ürünün yanındaki <strong>🔍 Ara</strong> düğmesine bas — Google Görseller yeni sekmede açılır.{' '}
+                                    <strong>2.</strong> Beğendiğin görsele <strong>sağ tık → Görüntüyü kopyala</strong>.{' '}
+                                    <strong>3.</strong> Bu ekrana dön ve <strong>Ctrl+V</strong> yap. Görsel seçili ürüne yüklenir ve
+                                    imleç otomatik olarak bir sonraki ürüne geçer. Dosya sürükleyip bırakmak da olur.
+                                </div>
+
+                                {/* FİLTRELER */}
+                                <div className="px-4 pb-2 flex flex-wrap gap-2 items-center">
+                                    <select
+                                        value={missingPhotoKat}
+                                        onChange={(e) => setMissingPhotoKat(e.target.value)}
+                                        className={`px-2 py-1.5 rounded-lg border text-sm ${
+                                            theme === 'dark' ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'
+                                        }`}
+                                    >
+                                        <option value="">Tüm kategoriler</option>
+                                        {kategoriler.map(k => <option key={k} value={k}>{k}</option>)}
+                                    </select>
+                                    <input
+                                        type="text"
+                                        value={missingPhotoAra}
+                                        onChange={(e) => setMissingPhotoAra(e.target.value)}
+                                        placeholder="Ürün ara..."
+                                        className={`flex-1 min-w-[140px] px-2 py-1.5 rounded-lg border text-sm ${
+                                            theme === 'dark' ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'
+                                        }`}
+                                    />
+                                    <input
+                                        type="text"
+                                        value={missingPhotoEk}
+                                        onChange={(e) => setMissingPhotoEk(e.target.value)}
+                                        placeholder="Aramaya ekle (marka vb.)"
+                                        title="Her aramanın sonuna eklenir — örn. firma veya marka adı"
+                                        className={`w-44 px-2 py-1.5 rounded-lg border text-sm ${
+                                            theme === 'dark' ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'
+                                        }`}
+                                    />
+                                </div>
+
+                                {/* LİSTE */}
+                                <div className="px-4 pb-3 overflow-y-auto flex-1">
+                                    {liste.length === 0 && (
+                                        <div className={`text-center py-10 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            {fotografsizUrunler.length === 0
+                                                ? '🎉 Tüm ürünlerin görseli var!'
+                                                : 'Bu filtreye uyan eksik ürün yok.'}
+                                        </div>
+                                    )}
+                                    {liste.map(u => {
+                                        const secili = missingPhotoSecili === u.key;
+                                        const yukleniyor = uploadingPhotoKey === u.key;
+                                        return (
+                                            <div
+                                                key={u.key}
+                                                onClick={() => setMissingPhotoSecili(u.key)}
+                                                onDragOver={(e) => { e.preventDefault(); setMissingPhotoSecili(u.key); }}
+                                                onDrop={async (e) => {
+                                                    e.preventDefault();
+                                                    const dosya = e.dataTransfer.files && e.dataTransfer.files[0];
+                                                    if (dosya && dosya.type.startsWith('image/')) {
+                                                        await urunGorseliKaydet(u.key, dosya);
+                                                    } else {
+                                                        alert('ℹ️ Tarayıcıdan sürüklenen görseller çoğu sitede engellenir.\n\n' +
+                                                            'Görsele sağ tıklayıp "Görüntüyü kopyala" deyip buraya Ctrl+V yapın.');
+                                                    }
+                                                }}
+                                                className={`mb-1.5 px-3 py-2 rounded-lg border-2 cursor-pointer transition-all flex items-center gap-3 ${
+                                                    secili
+                                                        ? 'border-amber-500 ' + (theme === 'dark' ? 'bg-amber-900 bg-opacity-25' : 'bg-amber-50')
+                                                        : (theme === 'dark' ? 'border-gray-700 bg-gray-750 hover:border-gray-600' : 'border-gray-200 bg-gray-50 hover:border-gray-300')
+                                                }`}
+                                            >
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`text-sm font-semibold truncate ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
+                                                        {u.ad}
+                                                    </div>
+                                                    <div className={`text-[11px] truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                        {[u.kategori, u.altGrup, u.tip].filter(x => x && x !== '-').join(' › ')}
+                                                    </div>
+                                                </div>
+
+                                                {secili && !yukleniyor && (
+                                                    <span className="px-2 py-1 rounded bg-amber-500 text-white text-[10px] font-bold whitespace-nowrap">
+                                                        Ctrl+V bekleniyor
+                                                    </span>
+                                                )}
+                                                {yukleniyor && (
+                                                    <span className="px-2 py-1 rounded bg-blue-500 text-white text-[10px] font-bold whitespace-nowrap">
+                                                        ⏳ yükleniyor
+                                                    </span>
+                                                )}
+
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); gorselAramaAc(u); }}
+                                                    className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 text-white text-xs font-bold hover:from-amber-600 hover:to-orange-700 whitespace-nowrap"
+                                                    title={'Google Görseller\'de ara: ' + gorselAramaSorgusu(u)}
+                                                >
+                                                    🔍 Ara
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleProductPhotoUpload(u.key); }}
+                                                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${
+                                                        theme === 'dark' ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                                    }`}
+                                                    title="Bilgisayardan dosya seç"
+                                                >
+                                                    📁
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className={`px-4 py-3 border-t flex items-center justify-between gap-3 ${
+                                    theme === 'dark' ? 'border-gray-700 bg-gray-850' : 'border-gray-200 bg-gray-50'
+                                }`}>
+                                    <div className={`text-[11px] ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                                        {missingPhotoSecili
+                                            ? '✅ Bir ürün seçili — şimdi Ctrl+V yapabilirsin'
+                                            : 'ℹ️ Önce bir ürüne tıkla veya 🔍 Ara düğmesine bas'}
+                                    </div>
+                                    <button onClick={() => { setShowMissingPhotoModal(false); setMissingPhotoSecili(null); }}
+                                        className={`px-4 py-2 rounded-lg text-sm font-semibold ${
+                                            theme === 'dark' ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                        }`}>Kapat</button>
+                                </div>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
                     {showBulkPhotoModal && (() => {
                         const hedefler = bulkPhotoHedefler();
                         const kutuStili = (aktif) => aktif
@@ -17298,6 +17606,12 @@
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
                                         </svg>
                                         Malzeme DB
+                                    </button>
+                                    <button onClick={() => setShowMissingPhotoModal(true)} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-amber-600 hover:to-orange-700 transition-all flex items-center justify-center gap-2" title="Görseli olmayan ürünleri listeler, Google Görseller'den tek tıkla ekleme">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                        </svg>
+                                        Eksik Görseller
                                     </button>
                                     <button onClick={() => setShowDefaultSettings(true)} className="w-full mb-2 px-4 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-lg font-semibold shadow-md hover:shadow-lg hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center justify-center gap-2">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
