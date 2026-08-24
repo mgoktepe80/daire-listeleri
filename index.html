@@ -1552,6 +1552,212 @@
         // MAIN APP COMPONENT
         // ==========================================
 
+        // ==========================================
+        // GÖRSEL KIRPMA EKRANI
+        // ==========================================
+        // Seçim alanı görselin GÖRÜNEN boyutuna göre 0-1 arası oranlarla tutulur;
+        // böylece ekran boyutundan bağımsız çalışır ve çıktı tam çözünürlükte olur.
+        function GorselKirpici({ src, baslik, onTamam, onIptal }) {
+            const [alan, setAlan] = React.useState({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+            const [oran, setOran] = React.useState(0);   // 0 = serbest
+            const [hata, setHata] = React.useState('');
+            const [hazir, setHazir] = React.useState(false);
+            const imgRef = React.useRef(null);
+            const islemRef = React.useRef(null);         // {tur, baslangic...}
+
+            const sinirla = (v) => Math.max(0, Math.min(1, v));
+
+            const olculer = () => {
+                const el = imgRef.current;
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { sol: r.left, ust: r.top, en: r.width, boy: r.height };
+            };
+
+            // Oran uygulanacaksa yüksekliği genişliğe göre düzelt
+            const oranUygula = (a) => {
+                if (!oran) return a;
+                const o = olculer();
+                if (!o || !o.en || !o.boy) return a;
+                const pikselEn = a.w * o.en;
+                const pikselBoy = pikselEn / oran;
+                let h = pikselBoy / o.boy;
+                if (a.y + h > 1) h = 1 - a.y;
+                return { ...a, h: Math.max(0.02, h) };
+            };
+
+            React.useEffect(() => { setAlan(a => oranUygula(a)); }, [oran]);
+
+            const konum = (e) => {
+                const o = olculer();
+                if (!o) return null;
+                return { x: sinirla((e.clientX - o.sol) / o.en), y: sinirla((e.clientY - o.ust) / o.boy) };
+            };
+
+            const basla = (tur) => (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const p = konum(e);
+                if (!p) return;
+                islemRef.current = { tur, p0: p, alan0: { ...alan } };
+                try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+            };
+
+            const hareket = (e) => {
+                const is = islemRef.current;
+                if (!is) return;
+                const p = konum(e);
+                if (!p) return;
+                const dx = p.x - is.p0.x, dy = p.y - is.p0.y;
+                const a0 = is.alan0;
+
+                if (is.tur === 'tasi') {
+                    const x = sinirla(Math.min(a0.x + dx, 1 - a0.w));
+                    const y = sinirla(Math.min(a0.y + dy, 1 - a0.h));
+                    setAlan({ ...a0, x, y });
+                    return;
+                }
+                if (is.tur === 'yeni') {
+                    const x = Math.min(is.p0.x, p.x), y = Math.min(is.p0.y, p.y);
+                    const w = Math.abs(p.x - is.p0.x), h = Math.abs(p.y - is.p0.y);
+                    setAlan(oranUygula({ x, y, w: Math.max(0.02, w), h: Math.max(0.02, h) }));
+                    return;
+                }
+                // köşeler
+                let { x, y, w, h } = a0;
+                if (is.tur.includes('s')) { h = a0.h + dy; }
+                if (is.tur.includes('k')) { y = a0.y + dy; h = a0.h - dy; }
+                if (is.tur.includes('d')) { w = a0.w + dx; }
+                if (is.tur.includes('b')) { x = a0.x + dx; w = a0.w - dx; }
+                if (w < 0.02) w = 0.02;
+                if (h < 0.02) h = 0.02;
+                x = sinirla(x); y = sinirla(y);
+                if (x + w > 1) w = 1 - x;
+                if (y + h > 1) h = 1 - y;
+                setAlan(oranUygula({ x, y, w, h }));
+            };
+
+            const bitir = (e) => {
+                islemRef.current = null;
+                try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+            };
+
+            const kirp = () => {
+                const el = imgRef.current;
+                if (!el) return;
+                const nw = el.naturalWidth, nh = el.naturalHeight;
+                const sx = Math.round(alan.x * nw), sy = Math.round(alan.y * nh);
+                const sw = Math.max(1, Math.round(alan.w * nw)), sh = Math.max(1, Math.round(alan.h * nh));
+
+                // Çıktıyı makul boyutta tut
+                const enBuyuk = 1200;
+                const olcek = Math.min(1, enBuyuk / Math.max(sw, sh));
+                const cw = Math.max(1, Math.round(sw * olcek)), ch = Math.max(1, Math.round(sh * olcek));
+
+                const tuval = document.createElement('canvas');
+                tuval.width = cw; tuval.height = ch;
+                const ctx = tuval.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, cw, ch);
+                ctx.drawImage(el, sx, sy, sw, sh, 0, 0, cw, ch);
+                try {
+                    onTamam(tuval.toDataURL('image/jpeg', 0.85));
+                } catch (err) {
+                    console.error('❌ Kırpma hatası:', err);
+                    setHata('Bu görsel başka bir siteden geldiği için kırpılamıyor. ' +
+                        'Görseli önce bilgisayarına kaydedip 📁 ile yükle.');
+                }
+            };
+
+            const kutu = {
+                left: (alan.x * 100) + '%', top: (alan.y * 100) + '%',
+                width: (alan.w * 100) + '%', height: (alan.h * 100) + '%'
+            };
+            const tutamak = 'absolute w-3.5 h-3.5 bg-white border-2 border-amber-500 rounded-sm';
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-3">
+                    <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[94vh] flex flex-col overflow-hidden">
+                        <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 flex items-center justify-between">
+                            <h2 className="text-base font-bold text-white truncate">✂️ Görseli Kırp{baslik ? ' — ' + baslik : ''}</h2>
+                            <button onClick={onIptal} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="px-4 py-2 flex flex-wrap items-center gap-2 border-b border-gray-200">
+                            <span className="text-xs font-bold uppercase tracking-wide text-gray-500">Oran</span>
+                            {[{ e: 'Serbest', v: 0 }, { e: '1:1', v: 1 }, { e: '4:3', v: 4 / 3 }, { e: '3:4', v: 3 / 4 }, { e: '16:9', v: 16 / 9 }].map(o => (
+                                <button key={o.e} onClick={() => setOran(o.v)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                                        oran === o.v ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
+                                    }`}>{o.e}</button>
+                            ))}
+                            <button onClick={() => setAlan(oranUygula({ x: 0, y: 0, w: 1, h: 1 }))}
+                                className="ml-auto px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-200 text-gray-800 hover:bg-gray-300">
+                                Tümünü seç
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-auto bg-gray-800 flex items-center justify-center p-3 select-none">
+                            <div className="relative inline-block leading-none"
+                                onPointerDown={basla('yeni')} onPointerMove={hareket}
+                                onPointerUp={bitir} onPointerCancel={bitir}
+                                style={{ touchAction: 'none' }}>
+                                <img
+                                    ref={imgRef}
+                                    src={src}
+                                    crossOrigin="anonymous"
+                                    alt=""
+                                    draggable={false}
+                                    onLoad={() => setHazir(true)}
+                                    className="block max-w-full max-h-[58vh] pointer-events-none"
+                                />
+                                {hazir && (
+                                    <>
+                                        {/* karartma */}
+                                        <div className="absolute inset-0 bg-black bg-opacity-50 pointer-events-none"
+                                            style={{ clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 ${alan.y * 100}%, ${alan.x * 100}% ${alan.y * 100}%, ${alan.x * 100}% ${(alan.y + alan.h) * 100}%, ${(alan.x + alan.w) * 100}% ${(alan.y + alan.h) * 100}%, ${(alan.x + alan.w) * 100}% ${alan.y * 100}%, 0 ${alan.y * 100}%)` }}
+                                        ></div>
+                                        <div className="absolute border-2 border-amber-400 cursor-move"
+                                            style={kutu} onPointerDown={basla('tasi')}>
+                                            <div className={tutamak} style={{ left: -8, top: -8, cursor: 'nwse-resize' }} onPointerDown={basla('kb')}></div>
+                                            <div className={tutamak} style={{ right: -8, top: -8, cursor: 'nesw-resize' }} onPointerDown={basla('kd')}></div>
+                                            <div className={tutamak} style={{ left: -8, bottom: -8, cursor: 'nesw-resize' }} onPointerDown={basla('sb')}></div>
+                                            <div className={tutamak} style={{ right: -8, bottom: -8, cursor: 'nwse-resize' }} onPointerDown={basla('sd')}></div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {hata && (
+                            <div className="px-4 py-2 bg-red-50 text-red-700 text-xs font-semibold">{hata}</div>
+                        )}
+
+                        <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-between gap-3">
+                            <div className="text-[11px] text-gray-500">
+                                Kutuyu sürükleyerek taşı, köşelerden boyutlandır. Görselin boş yerine basıp
+                                sürüklersen yeni bir alan seçersin.
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={onIptal}
+                                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-200 text-gray-800 hover:bg-gray-300">
+                                    Vazgeç
+                                </button>
+                                <button onClick={kirp}
+                                    className="px-5 py-2 rounded-lg text-sm font-bold bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-600 hover:to-orange-700 shadow-md">
+                                    ✂️ Kırp ve Kaydet
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
@@ -1849,6 +2055,17 @@
             const [missingPhotoAra, setMissingPhotoAra] = useState('');     // metin araması
             const [missingPhotoSecili, setMissingPhotoSecili] = useState(null); // aktif ürün anahtarı
             const [missingPhotoEk, setMissingPhotoEk] = useState('');       // aramaya eklenecek marka vb.
+            const [missingPhotoHepsi, setMissingPhotoHepsi] = useState(false); // görselli ürünler de görünsün
+
+            // Kırpma
+            const [kirpmaIstek, setKirpmaIstek] = useState(null); // { src, key, baslik, sonrakiKey }
+            const [kirpmaAcik, setKirpmaAcik] = useState(() => {
+                try { return localStorage.getItem('kirpma_modu') === '1'; } catch (e) { return false; }
+            });
+            const kirpmaModuDegistir = (deger) => {
+                setKirpmaAcik(deger);
+                try { localStorage.setItem('kirpma_modu', deger ? '1' : '0'); } catch (e) {}
+            };
 
             // ===== ORTAK STORAGE SİLME KORUMASI =====
             // Storage'daki bir dosya birden fazla yerde kullanılıyor olabilir:
@@ -7595,6 +7812,40 @@
                 }
             };
 
+            const blobBase64Yap = (b) => new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = ev => resolve(ev.target.result);
+                r.onerror = reject;
+                r.readAsDataURL(b);
+            });
+
+            // Görseli al: kırpma modu açıksa önce kırpma ekranını gösterir
+            const urunGorseliAl = async (productKey, kaynak, baslik, sonrakiKey) => {
+                let base64 = kaynak;
+                if (kaynak instanceof Blob) base64 = await blobBase64Yap(kaynak);
+                if (kirpmaAcik) {
+                    setKirpmaIstek({ src: base64, key: productKey, baslik: baslik || '', sonrakiKey: sonrakiKey || null });
+                    return 'kirpma';
+                }
+                const ok = await urunGorseliKaydet(productKey, base64);
+                return ok ? 'kaydedildi' : 'hata';
+            };
+
+            // Var olan bir ürün görselini yeniden kırp
+            const gorseliYenidenKirp = (productKey, baslik) => {
+                const src = productPhotos[productKey];
+                if (!src) return;
+                setKirpmaIstek({ src, key: productKey, baslik: baslik || '', sonrakiKey: null });
+            };
+
+            const kirpmayiTamamla = async (base64) => {
+                const istek = kirpmaIstek;
+                setKirpmaIstek(null);
+                if (!istek) return;
+                const ok = await urunGorseliKaydet(istek.key, base64);
+                if (ok && istek.sonrakiKey) setMissingPhotoSecili(istek.sonrakiKey);
+            };
+
             // Tüm ürünleri dolaş (malzeme veri tabanı + seramikler)
             const tumUrunler = useMemo(() => {
                 const liste = [];
@@ -7666,20 +7917,33 @@
                             const dosya = o.getAsFile();
                             if (!dosya) return;
                             const oncekiKey = missingPhotoSecili;
-                            const ok = await urunGorseliKaydet(oncekiKey, dosya);
-                            if (ok) {
-                                // sıradaki fotoğrafsız ürüne geç
-                                const sira = fotografsizUrunler.findIndex(x => x.key === oncekiKey);
-                                const sonraki = fotografsizUrunler[sira + 1] || fotografsizUrunler[sira - 1];
-                                setMissingPhotoSecili(sonraki ? sonraki.key : null);
-                            }
+                            // sıradaki fotoğrafsız ürün
+                            const sira = fotografsizUrunler.findIndex(x => x.key === oncekiKey);
+                            const urun = fotografsizUrunler[sira];
+                            const sonraki = fotografsizUrunler[sira + 1] || fotografsizUrunler[sira - 1];
+                            const sonrakiKey = sonraki ? sonraki.key : null;
+
+                            const sonuc = await urunGorseliAl(oncekiKey, dosya, urun ? urun.ad : '', sonrakiKey);
+                            if (sonuc === 'kaydedildi') setMissingPhotoSecili(sonrakiKey);
                             return;
                         }
                     }
                 };
                 window.addEventListener('paste', yapistir);
                 return () => window.removeEventListener('paste', yapistir);
-            }, [showMissingPhotoModal, missingPhotoSecili, fotografsizUrunler, productPhotos]);
+            }, [showMissingPhotoModal, missingPhotoSecili, fotografsizUrunler, productPhotos, kirpmaAcik]);
+
+            // Dosyadan seç (kırpma moduna saygı duyar)
+            const urunGorseliDosyadanSec = (productKey, baslik) => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.onchange = async (e) => {
+                    const dosya = e.target.files && e.target.files[0];
+                    if (dosya) await urunGorseliAl(productKey, dosya, baslik, null);
+                };
+                input.click();
+            };
 
             // Anahtarı parçalara ayır: Kategori|AltGrup|Tip|Ad (ad içinde "|" olabilir)
             const splitProductKey = (key) => {
@@ -12546,10 +12810,20 @@
                     })()}
 
                     {/* SEÇİMLERİ TEMİZLE MODAL */}
+                    {kirpmaIstek && (
+                        <GorselKirpici
+                            src={kirpmaIstek.src}
+                            baslik={kirpmaIstek.baslik}
+                            onTamam={kirpmayiTamamla}
+                            onIptal={() => setKirpmaIstek(null)}
+                        />
+                    )}
+
                     {showMissingPhotoModal && (() => {
                         const kategoriler = [...new Set(tumUrunler.map(u => u.kategori))].sort((a, b) => a.localeCompare(b, 'tr'));
                         const ara = missingPhotoAra.toLocaleLowerCase('tr-TR').trim();
-                        const liste = fotografsizUrunler.filter(u => {
+                        const kaynakListe = missingPhotoHepsi ? tumUrunler : fotografsizUrunler;
+                        const liste = kaynakListe.filter(u => {
                             if (missingPhotoKat && u.kategori !== missingPhotoKat) return false;
                             if (!ara) return true;
                             return [u.ad, u.altGrup, u.tip, u.kategori].join(' ').toLocaleLowerCase('tr-TR').includes(ara);
@@ -12632,6 +12906,26 @@
                                     />
                                 </div>
 
+                                {/* SEÇENEKLER */}
+                                <div className="px-4 pb-2 flex flex-wrap gap-3 items-center">
+                                    <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
+                                        theme === 'dark' ? 'text-gray-200' : 'text-gray-700'
+                                    }`}>
+                                        <input type="checkbox" checked={kirpmaAcik}
+                                            onChange={(e) => kirpmaModuDegistir(e.target.checked)}
+                                            className="w-4 h-4 rounded" />
+                                        ✂️ Yükledikten sonra kırpma ekranı açılsın
+                                    </label>
+                                    <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${
+                                        theme === 'dark' ? 'text-gray-200' : 'text-gray-700'
+                                    }`}>
+                                        <input type="checkbox" checked={missingPhotoHepsi}
+                                            onChange={(e) => setMissingPhotoHepsi(e.target.checked)}
+                                            className="w-4 h-4 rounded" />
+                                        Görselli ürünleri de göster
+                                    </label>
+                                </div>
+
                                 {/* LİSTE */}
                                 <div className="px-4 pb-3 overflow-y-auto flex-1">
                                     {liste.length === 0 && (
@@ -12644,6 +12938,7 @@
                                     {liste.map(u => {
                                         const secili = missingPhotoSecili === u.key;
                                         const yukleniyor = uploadingPhotoKey === u.key;
+                                        const mevcutGorsel = productPhotos[u.key];
                                         return (
                                             <div
                                                 key={u.key}
@@ -12653,7 +12948,7 @@
                                                     e.preventDefault();
                                                     const dosya = e.dataTransfer.files && e.dataTransfer.files[0];
                                                     if (dosya && dosya.type.startsWith('image/')) {
-                                                        await urunGorseliKaydet(u.key, dosya);
+                                                        await urunGorseliAl(u.key, dosya, u.ad, null);
                                                     } else {
                                                         alert('ℹ️ Tarayıcıdan sürüklenen görseller çoğu sitede engellenir.\n\n' +
                                                             'Görsele sağ tıklayıp "Görüntüyü kopyala" deyip buraya Ctrl+V yapın.');
@@ -12665,6 +12960,11 @@
                                                         : (theme === 'dark' ? 'border-gray-700 bg-gray-750 hover:border-gray-600' : 'border-gray-200 bg-gray-50 hover:border-gray-300')
                                                 }`}
                                             >
+                                                {mevcutGorsel && (
+                                                    <img src={mevcutGorsel} alt=""
+                                                        onClick={(e) => { e.stopPropagation(); setPreviewPhoto(mevcutGorsel); }}
+                                                        className="w-11 h-11 object-cover rounded-lg border-2 border-emerald-400 flex-shrink-0 cursor-zoom-in" />
+                                                )}
                                                 <div className="flex-1 min-w-0">
                                                     <div className={`text-sm font-semibold truncate ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
                                                         {u.ad}
@@ -12678,6 +12978,15 @@
                                                     <span className="px-2 py-1 rounded bg-amber-500 text-white text-[10px] font-bold whitespace-nowrap">
                                                         Ctrl+V bekleniyor
                                                     </span>
+                                                )}
+                                                {mevcutGorsel && !yukleniyor && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); gorseliYenidenKirp(u.key, u.ad); }}
+                                                        className="px-2.5 py-1.5 rounded-lg bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 whitespace-nowrap"
+                                                        title="Bu görseli kırp"
+                                                    >
+                                                        ✂️
+                                                    </button>
                                                 )}
                                                 {yukleniyor && (
                                                     <span className="px-2 py-1 rounded bg-blue-500 text-white text-[10px] font-bold whitespace-nowrap">
@@ -12693,7 +13002,7 @@
                                                     🔍 Ara
                                                 </button>
                                                 <button
-                                                    onClick={(e) => { e.stopPropagation(); handleProductPhotoUpload(u.key); }}
+                                                    onClick={(e) => { e.stopPropagation(); urunGorseliDosyadanSec(u.key, u.ad); }}
                                                     className={`px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${
                                                         theme === 'dark' ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
                                                     }`}
