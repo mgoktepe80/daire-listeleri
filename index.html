@@ -189,7 +189,14 @@
             }
         };
 
+        // Çubuk göz kırpıp kaybolmasın: bittikten sonra kısa süre ekranda kalır
+        let yuklemeKapatmaZamani = null;
+        const yuklemeZamaniniIptalEt = () => {
+            if (yuklemeKapatmaZamani) { clearTimeout(yuklemeKapatmaZamani); yuklemeKapatmaZamani = null; }
+        };
+
         const yuklemeBaslat = (baslik, toplam) => {
+            yuklemeZamaniniIptalEt();
             yuklemeMerkezi.baslik = baslik || 'Yükleniyor';
             yuklemeMerkezi.toplam = toplam || 1;
             yuklemeMerkezi.sira = 0;
@@ -197,13 +204,37 @@
         };
         const yuklemeSonraki = () => { yuklemeMerkezi.sira++; yuklemeMerkezi.yayinla(0); };
         const yuklemeIlerle = (oran) => yuklemeMerkezi.yayinla(oran);
+
+        // Yükleme dışı aşamalar (sıkıştırma, indirme, paketleme) için serbest bildirim
+        const yuklemeAsama = (baslik, yuzde) => {
+            yuklemeZamaniniIptalEt();
+            yuklemeMerkezi.baslik = baslik || 'İşleniyor';
+            if (yuklemeMerkezi.dinleyici) {
+                yuklemeMerkezi.dinleyici({
+                    aktif: true,
+                    baslik: yuklemeMerkezi.baslik,
+                    sira: 0, toplam: 0,
+                    yuzde: Math.min(100, Math.max(0, Math.round(yuzde || 0)))
+                });
+            }
+        };
+
         const yuklemeBitir = () => {
+            const sonBaslik = yuklemeMerkezi.baslik;
             yuklemeMerkezi.toplam = 0;
             yuklemeMerkezi.sira = 0;
             yuklemeMerkezi.baslik = '';
-            if (yuklemeMerkezi.dinleyici) {
-                yuklemeMerkezi.dinleyici({ aktif: false, baslik: '', sira: 0, toplam: 0, yuzde: 0 });
-            }
+            if (!yuklemeMerkezi.dinleyici) return;
+
+            // Önce %100 göster, sonra kapat (aksi halde hızlı yüklemelerde hiç görünmüyor)
+            yuklemeMerkezi.dinleyici({ aktif: true, baslik: sonBaslik || 'Tamamlandı', sira: 0, toplam: 0, yuzde: 100 });
+            yuklemeZamaniniIptalEt();
+            yuklemeKapatmaZamani = setTimeout(() => {
+                yuklemeKapatmaZamani = null;
+                if (yuklemeMerkezi.dinleyici) {
+                    yuklemeMerkezi.dinleyici({ aktif: false, baslik: '', sira: 0, toplam: 0, yuzde: 0 });
+                }
+            }, 900);
         };
 
         // put() yerine bunu kullan: bayt bayt ilerlemeyi bildirir
@@ -1810,6 +1841,7 @@
             const [bulkPhotoFiles, setBulkPhotoFiles] = useState([]);    // { ad, base64 }
             const [bulkPhotoMode, setBulkPhotoMode] = useState('ekle');  // 'ekle' | 'degistir'
             const [bulkPhotoDurum, setBulkPhotoDurum] = useState({ calisiyor: false, mesaj: '', yuzde: 0 });
+            const [bulkPhotoSonIslem, setBulkPhotoSonIslem] = useState(null); // son uygulamanın özeti
 
             // ===== ORTAK STORAGE SİLME KORUMASI =====
             // Storage'daki bir dosya birden fazla yerde kullanılıyor olabilir:
@@ -3839,6 +3871,7 @@
                 reader.onload = async (ev) => {
                     try {
                         // 1. Fotoğrafı sıkıştır
+                        yuklemeAsama('Fotoğraf hazırlanıyor', 8);
                         const compressed = await compressImage(ev.target.result, 1200, 0.7);
                         
                         // 2. Storage'a yükle (kullanıcı giriş yapmışsa)
@@ -3862,7 +3895,9 @@
                         updateField('foto', { ...photos, [Object.keys(photos).length]: photoURL });
                         
                         console.log('✅ Fotoğraf yüklendi:', photoURL.substring(0, 50) + '...');
+                        yuklemeBitir();
                     } catch (error) {
+                        yuklemeBitir();
                         console.error('❌ Fotoğraf yükleme hatası:', error);
                         alert('Fotoğraf yüklenemedi!');
                     }
@@ -5790,10 +5825,10 @@
             };
 
             const bulkPhotoAc = () => {
-                setBulkPhotoApts([currentApt]);
-                setBulkPhotoRooms([currentRoom]);
-                setBulkPhotoFiles([]);
-                setBulkPhotoMode('ekle');
+                // Önceki seçimler KORUNUR; yalnızca ilk açılışta varsayılan atanır.
+                // (Aynı daire listesiyle farklı mahallere fotoğraf eklemek için)
+                setBulkPhotoApts(onceki => onceki.length > 0 ? onceki : [currentApt]);
+                setBulkPhotoRooms(onceki => onceki.length > 0 ? onceki : [currentRoom]);
                 setShowBulkPhotoModal(true);
             };
 
@@ -5817,6 +5852,8 @@
                         mesaj: `Hazırlanıyor (${i + 1}/${uygun.length})`,
                         yuzde: Math.round(((i + 1) / uygun.length) * 100)
                     });
+                    yuklemeAsama(`Fotoğraflar hazırlanıyor (${i + 1}/${uygun.length})`,
+                        Math.round(((i + 1) / uygun.length) * 100));
                     try {
                         const base64 = await new Promise((res, rej) => {
                             const r = new FileReader();
@@ -5830,6 +5867,7 @@
                         console.error('❌ Fotoğraf hazırlanamadı:', f.name, err);
                     }
                 }
+                yuklemeBitir();
                 setBulkPhotoDurum({ calisiyor: false, mesaj: '', yuzde: 0 });
                 setBulkPhotoFiles(prev => [...prev, ...yeniler]);
             };
@@ -5874,27 +5912,37 @@
                     `Devam edilsin mi?`
                 )) return;
 
+                // Daha önce yüklenmiş fotoğraflar TEKRAR yüklenmez; aynı bağlantı kullanılır.
+                // (Aynı listeyle farklı mahallere ekleme yapıldığında kopya dosya oluşmasın)
+                const yuklenecek = bulkPhotoFiles.filter(f => !f.yuklenenUrl);
                 setBulkPhotoDurum({ calisiyor: true, mesaj: 'Buluta yükleniyor...', yuzde: 0 });
-                yuklemeBaslat('Fotoğraflar yükleniyor', bulkPhotoFiles.length);
+                if (yuklenecek.length > 0) yuklemeBaslat('Fotoğraflar yükleniyor', yuklenecek.length);
 
                 try {
                     // 1) Her fotoğrafı BİR KEZ yükle
                     const urls = [];
-                    for (let i = 0; i < bulkPhotoFiles.length; i++) {
+                    const guncelDosyalar = [...bulkPhotoFiles];
+                    let yeniYuklenen = 0;
+                    for (let i = 0; i < guncelDosyalar.length; i++) {
+                        const f = guncelDosyalar[i];
+                        if (f.yuklenenUrl) { urls.push(f.yuklenenUrl); continue; }
+
+                        yeniYuklenen++;
                         setBulkPhotoDurum({
                             calisiyor: true,
-                            mesaj: `Yükleniyor (${i + 1}/${bulkPhotoFiles.length})`,
-                            yuzde: Math.round(((i + 1) / bulkPhotoFiles.length) * 90)
+                            mesaj: `Yükleniyor (${yeniYuklenen}/${yuklenecek.length})`,
+                            yuzde: Math.round((yeniYuklenen / yuklenecek.length) * 90)
                         });
-                        const f = bulkPhotoFiles[i];
                         let url = f.base64;
                         if (user && storage) {
                             url = await uploadPhotoToStorage(
                                 f.base64, user.uid, currentPrj, 'toplu', 'toplu', i
                             );
                         }
+                        guncelDosyalar[i] = { ...f, yuklenenUrl: url };
                         urls.push(url);
                     }
+                    setBulkPhotoFiles(guncelDosyalar);
                     yuklemeBitir();
 
                     setBulkPhotoDurum({ calisiyor: true, mesaj: 'Dairelere işleniyor...', yuzde: 95 });
@@ -5916,8 +5964,15 @@
                             } else {
                                 foto = { ...eski };
                             }
+                            // Aynı bağlantı bu mahalde zaten varsa ikinci kez eklenmesin
+                            const mevcutBaglantilar = new Set(Object.values(foto));
                             let idx = Object.keys(foto).length;
-                            urls.forEach(u => { foto[idx] = u; idx++; });
+                            urls.forEach(u => {
+                                if (mevcutBaglantilar.has(u)) return;
+                                foto[idx] = u;
+                                mevcutBaglantilar.add(u);
+                                idx++;
+                            });
                             rd.foto = foto;
                             newData[rid] = rd;
                         });
@@ -5941,15 +5996,27 @@
                     }
 
                     setBulkPhotoDurum({ calisiyor: false, mesaj: '', yuzde: 0 });
-                    setShowBulkPhotoModal(false);
-                    setBulkPhotoFiles([]);
                     setRefreshKey(prev => prev + 1);
+
+                    // Ekran AÇIK kalır ve seçimler korunur: aynı listeyle başka
+                    // mahallere de ekleyebilmek için.
+                    setBulkPhotoSonIslem({
+                        fotograf: bulkPhotoFiles.length,
+                        yer: hedefler.length,
+                        mahaller: bulkPhotoRooms.map(odaAdi).join(', '),
+                        daire: bulkPhotoApts.length
+                    });
 
                     alert(
                         `✅ ${bulkPhotoFiles.length} fotoğraf ${hedefler.length} yere eklendi!\n\n` +
-                        `📦 Buluta yalnızca ${urls.length} dosya yüklendi (aynı dosya paylaşılıyor).` +
+                        `📦 Buluta ${yeniYuklenen} yeni dosya yüklendi` +
+                        (yeniYuklenen < urls.length
+                            ? ` (${urls.length - yeniYuklenen} tanesi zaten yüklüydü, tekrar yüklenmedi).`
+                            : ' (aynı dosya tüm dairelerde paylaşılıyor).') +
                         (silinen ? `\n🗑️ ${silinen} eski dosya temizlendi.` : '') +
-                        `\n\nKalıcı olması için Kaydet'e basın.`
+                        `\n\n👉 Ekran açık kaldı: mahal seçimini değiştirip aynı fotoğrafları\n` +
+                        `başka mahallere de ekleyebilirsiniz.\n\n` +
+                        `Kalıcı olması için Kaydet'e basın.`
                     );
                 } catch (e) {
                     yuklemeBitir();
@@ -6493,6 +6560,8 @@
                             mesaj: `Görseller indiriliyor (${i + 1}/${dosyalar.length})`,
                             yuzde: Math.round(((i + 1) / dosyalar.length) * 100)
                         });
+                        yuklemeAsama(`Görseller indiriliyor (${i + 1}/${dosyalar.length})`,
+                            Math.round(((i + 1) / dosyalar.length) * 100));
                         try {
                             const r = await fetch(url);
                             if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -6531,6 +6600,7 @@
                     }
 
                     setYedekDurumu({ calisiyor: true, mesaj: 'ZIP oluşturuluyor...', yuzde: 100 });
+                    yuklemeAsama('ZIP oluşturuluyor...', 100);
                     const icerik = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 
                     const link = document.createElement('a');
@@ -6539,6 +6609,7 @@
                     link.click();
                     setTimeout(() => URL.revokeObjectURL(link.href), 5000);
 
+                    yuklemeBitir();
                     setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
                     alert(
                         `✅ Yedek hazır!\n\n` +
@@ -6549,6 +6620,7 @@
                             : '')
                     );
                 } catch (e) {
+                    yuklemeBitir();
                     setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
                     console.error('❌ Tam paket yedek hatası:', e);
                     alert('❌ Yedek alınamadı!\n\n' + ((e && e.message) || e));
@@ -9115,7 +9187,7 @@
                     {/* GENEL YÜKLEME İLERLEME ÇUBUĞU */}
                     {yuklemeBilgi.aktif && (
                         <div className="fixed top-0 left-0 right-0 z-[70]">
-                            <div className="h-1.5 w-full bg-blue-100">
+                            <div className="h-2 w-full bg-blue-100 shadow">
                                 <div
                                     className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-600 transition-all duration-200"
                                     style={{ width: yuklemeBilgi.yuzde + '%' }}
@@ -12357,7 +12429,7 @@
                             }`}>
                                 <div className="bg-gradient-to-r from-pink-500 to-rose-600 px-4 py-3 flex items-center justify-between">
                                     <h2 className="text-base font-bold text-white">📷 Toplu Fotoğraf Ekle</h2>
-                                    <button onClick={() => setShowBulkPhotoModal(false)} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
+                                    <button onClick={() => { setShowBulkPhotoModal(false); setBulkPhotoSonIslem(null); }} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                                         </svg>
@@ -12365,11 +12437,35 @@
                                 </div>
 
                                 <div className="px-4 py-3 overflow-y-auto flex-1">
+                                    {/* SON İŞLEM ÖZETİ — seçimler korunur */}
+                                    {bulkPhotoSonIslem && (
+                                        <div className="mb-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 px-3 py-2 flex items-start gap-2">
+                                            <span className="text-lg leading-none">✅</span>
+                                            <div className="flex-1 text-[11px] leading-snug text-emerald-900">
+                                                <strong>{bulkPhotoSonIslem.fotograf} fotoğraf</strong>,{' '}
+                                                <strong>{bulkPhotoSonIslem.daire} daire</strong> ×{' '}
+                                                <strong>{bulkPhotoSonIslem.mahaller}</strong> →{' '}
+                                                {bulkPhotoSonIslem.yer} yere eklendi.
+                                                <div className="mt-0.5 opacity-80">
+                                                    Seçimleriniz duruyor — <strong>mahali değiştirip tekrar Uygula</strong> diyebilirsiniz.
+                                                    Fotoğraflar yeniden yüklenmez.
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setBulkPhotoSonIslem(null)}
+                                                className="text-emerald-700 hover:text-emerald-900 text-sm font-bold">×</button>
+                                        </div>
+                                    )}
+
                                     {/* 1. FOTOĞRAFLAR */}
                                     <div className="flex items-center justify-between mb-2">
                                         <div className={`text-xs font-bold uppercase tracking-wide ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                                             1. Fotoğraflar
                                             <span className="ml-2 normal-case font-semibold text-pink-500">{bulkPhotoFiles.length} seçili</span>
+                                            {bulkPhotoFiles.some(f => f.yuklenenUrl) && (
+                                                <span className="ml-2 normal-case font-semibold text-emerald-600">
+                                                    ({bulkPhotoFiles.filter(f => f.yuklenenUrl).length} yüklendi)
+                                                </span>
+                                            )}
                                         </div>
                                         {bulkPhotoFiles.length > 0 && (
                                             <button onClick={() => setBulkPhotoFiles([])}
@@ -12388,7 +12484,13 @@
                                         <div className="flex gap-2 flex-wrap mb-4 max-h-32 overflow-y-auto">
                                             {bulkPhotoFiles.map((f, i) => (
                                                 <div key={i} className="relative">
-                                                    <img src={f.base64} alt={f.ad} className="w-16 h-16 object-cover rounded-lg border-2 border-pink-300" />
+                                                    <img src={f.base64} alt={f.ad}
+                                                        className={`w-16 h-16 object-cover rounded-lg border-2 ${f.yuklenenUrl ? 'border-emerald-400' : 'border-pink-300'}`} />
+                                                    {f.yuklenenUrl && (
+                                                        <span className="absolute bottom-0 left-0 right-0 bg-emerald-500 text-white text-[9px] text-center rounded-b-lg py-0.5">
+                                                            yüklendi
+                                                        </span>
+                                                    )}
                                                     <button
                                                         onClick={() => setBulkPhotoFiles(bulkPhotoFiles.filter((_, x) => x !== i))}
                                                         className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold shadow hover:bg-red-600"
@@ -12513,10 +12615,10 @@
                                         <strong className="text-pink-500">{hedefler.length}</strong> yere eklenecek
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => setShowBulkPhotoModal(false)}
+                                        <button onClick={() => { setShowBulkPhotoModal(false); setBulkPhotoSonIslem(null); }}
                                             className={`px-4 py-2 rounded-lg text-sm font-semibold ${
                                                 theme === 'dark' ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
-                                            }`}>Vazgeç</button>
+                                            }`}>Kapat</button>
                                         <button
                                             onClick={topluFotografUygula}
                                             disabled={bulkPhotoDurum.calisiyor || hedefler.length === 0 || bulkPhotoFiles.length === 0}
