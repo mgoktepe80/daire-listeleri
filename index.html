@@ -6704,6 +6704,72 @@
                 .replace(/\s+/g, '-')
                 .slice(0, 60) || 'adsiz';
 
+            // Bir Storage dosyasını indir. Üç kademeli:
+            //  1) Tarayıcı ÖNBELLEĞİNİ ATLAYARAK indir.
+            //     ÇOK ÖNEMLİ: Görsel daha önce <img> ile gösterildiyse tarayıcı onu
+            //     CORS başlığı OLMADAN önbelleğe alır. fetch() bu kopyayı kullanınca
+            //     "No 'Access-Control-Allow-Origin' header" hatası verir — dosya
+            //     aslında erişilebilir olduğu hâlde. cache:'reload' bunu çözer.
+            //  2) Olmazsa bağlantıyı (jetonu) tazeleyip tekrar dene.
+            //  3) Yine olmazsa gerçek sebebi öğren (dosya yok / yetki / ağ).
+            const storageDosyasiniIndir = async (url) => {
+                const dene = async (adres, secenek) => {
+                    const r = await fetch(adres, secenek);
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return await r.blob();
+                };
+
+                // 1) önbelleği atlayarak
+                try {
+                    return { blob: await dene(url, { cache: 'reload' }) };
+                } catch (e1) { /* devam */ }
+
+                // 2) adrese benzersiz bir parametre ekleyerek
+                //    (cache:'reload' bazı tarayıcılarda/servis worker'larda yok sayılır;
+                //     adres farklı olunca önbellekteki CORS'suz kopya HİÇ kullanılamaz.
+                //     Firebase bilinmeyen parametreleri yok sayar.)
+                try {
+                    const ayirac = url.includes('?') ? '&' : '?';
+                    const tazeAdres = url + ayirac + '_cb=' + Date.now();
+                    return { blob: await dene(tazeAdres, { cache: 'no-store' }) };
+                } catch (e2) { /* devam */ }
+
+                // 3) normal deneme
+                try {
+                    return { blob: await dene(url, {}) };
+                } catch (e3) { /* devam */ }
+
+                // 3) bağlantıyı tazele
+                if (storage && auth && auth.currentUser) {
+                    try {
+                        const yeni = await storage.refFromURL(url).getDownloadURL();
+                        if (yeni) {
+                            const blob = await dene(yeni, { cache: 'reload' });
+                            return { blob, yeniUrl: yeni !== url ? yeni : null };
+                        }
+                    } catch (e3) {
+                        const kod = (e3 && e3.code) || '';
+                        if (kod === 'storage/object-not-found') return { sebep: 'Dosya Storage\'da yok (silinmiş)' };
+                        if (kod === 'storage/unauthorized') return { sebep: 'Yetki yok (Storage kuralları)' };
+                        if (kod) return { sebep: kod };
+                    }
+                }
+
+                // 4) son çare: dosya var mı diye bak
+                if (storage && auth && auth.currentUser) {
+                    try {
+                        await storage.refFromURL(url).getMetadata();
+                        return { sebep: 'Dosya var ama indirilemedi (CORS / ağ)' };
+                    } catch (e4) {
+                        const kod = (e4 && e4.code) || '';
+                        if (kod === 'storage/object-not-found') return { sebep: 'Dosya Storage\'da yok (silinmiş)' };
+                        if (kod === 'storage/unauthorized') return { sebep: 'Yetki yok (Storage kuralları)' };
+                        return { sebep: kod || 'Bilinmeyen hata' };
+                    }
+                }
+                return { sebep: 'İndirilemedi (oturum yok)' };
+            };
+
             // Verideki tüm Storage bağlantılarını, okunabilir adlarıyla topla
             const tumStorageBaglantilari = () => {
                 const liste = []; // { url, ad }
@@ -6776,6 +6842,7 @@
 
                     const harita = [];   // { url, dosya }
                     const basarisiz = [];
+                    const tazelenenler = {};  // eskiUrl -> yeniUrl (bağlantı onarımı)
 
                     for (let i = 0; i < dosyalar.length; i++) {
                         const { url, ad } = dosyalar[i];
@@ -6786,25 +6853,48 @@
                         });
                         yuklemeAsama(`Görseller indiriliyor (${i + 1}/${dosyalar.length})`,
                             Math.round(((i + 1) / dosyalar.length) * 100));
-                        try {
-                            const r = await fetch(url);
-                            if (!r.ok) throw new Error('HTTP ' + r.status);
-                            const blob = await r.blob();
-                            zip.file('dosyalar/' + ad, blob);
-                            harita.push({ url, dosya: ad });
-                        } catch (e) {
-                            basarisiz.push({ ad, sebep: (e && e.message) || 'bilinmiyor' });
+
+                        const sonuc = await storageDosyasiniIndir(url);
+                        if (sonuc.blob) {
+                            zip.file('dosyalar/' + ad, sonuc.blob);
+                            harita.push({ url: sonuc.yeniUrl || url, dosya: ad });
+                            if (sonuc.yeniUrl) tazelenenler[url] = sonuc.yeniUrl;
+                        } else {
+                            basarisiz.push({ ad, sebep: sonuc.sebep, url });
                         }
                     }
+
+                    // Bağlantısı tazelenenleri veriye işle (bir daha kırık görünmesin)
+                    const tazelenenSayi = Object.keys(tazelenenler).length;
+                    if (tazelenenSayi > 0) {
+                        updateProjects(baglantilariDegistir(projects, tazelenenler));
+                        saveProductPhotos(next => {
+                            Object.keys(next).forEach(k => {
+                                if (tazelenenler[next[k]]) next[k] = tazelenenler[next[k]];
+                            });
+                            return next;
+                        });
+                        console.log(`🔧 ${tazelenenSayi} görsel bağlantısı tazelendi ve veriye işlendi`);
+                    }
+
+                    // Hataları sebebe göre grupla
+                    const sebepSayaci = {};
+                    basarisiz.forEach(b => { sebepSayaci[b.sebep] = (sebepSayaci[b.sebep] || 0) + 1; });
 
                     zip.file('dosya-haritasi.json', JSON.stringify(harita, null, 2));
                     if (basarisiz.length) {
                         zip.file('INDIRILEMEYENLER.txt',
-                            'Bu dosyalar buluttan indirilemedi:\n\n' +
-                            basarisiz.map(b => `${b.ad}  →  ${b.sebep}`).join('\n') +
-                            '\n\nÇOĞU DURUMDA SEBEP: bucket CORS ayarı yapılmamış.\n' +
-                            'Uygulamadaki "🔎 İndirme Testi" düğmesi tam olarak ne yapmanız\n' +
-                            'gerektiğini adım adım söyler.\n\n' +
+                            'İNDİRİLEMEYEN DOSYALAR\n' +
+                            '======================\n\n' +
+                            'SEBEP ÖZETİ:\n' +
+                            Object.entries(sebepSayaci)
+                                .sort((a, b) => b[1] - a[1])
+                                .map(([s, n]) => `  ${n} dosya  →  ${s}`).join('\n') +
+                            '\n\nDETAY:\n\n' +
+                            basarisiz.map(b => `${b.ad}\n   sebep: ${b.sebep}\n   url  : ${b.url}`).join('\n\n') +
+                            '\n\n' +
+                            '"Dosya Storage\'da yok" yazanlar gerçekten silinmiş dosyalardır;\n' +
+                            'bunlar geri getirilemez, ilgili ürün/mahal için görseli yeniden yükleyin.\n\n' +
                             'Bu ZIP içindeki GORSEL-LINKLERI.html dosyasını tarayıcıda açıp\n' +
                             'görselleri tek tek elle de indirebilirsiniz.');
 
@@ -6838,9 +6928,13 @@
                     alert(
                         `✅ Yedek hazır!\n\n` +
                         `📦 ${harita.length} görsel indirildi` +
+                        (tazelenenSayi ? `\n🔧 ${tazelenenSayi} kırık bağlantı onarıldı` : '') +
                         (basarisiz.length
-                            ? `\n⚠️ ${basarisiz.length} görsel indirilemedi (ZIP içindeki INDIRILEMEYENLER.txt dosyasına bakın)\n\n` +
-                              `Not: "Failed to fetch" hatası bucket CORS ayarı gerektirir.`
+                            ? `\n⚠️ ${basarisiz.length} görsel indirilemedi:\n\n` +
+                              Object.entries(sebepSayaci)
+                                  .sort((a, b) => b[1] - a[1])
+                                  .map(([s, n]) => `   • ${n} × ${s}`).join('\n') +
+                              `\n\nAyrıntı için ZIP içindeki INDIRILEMEYENLER.txt`
                             : '')
                     );
                 } catch (e) {
@@ -6874,10 +6968,20 @@
                     im.src = url;
                 });
 
-                // 2) fetch: CORS gerektirir → yedekleme bunu kullanıyor
-                let fetchTamam = false, fetchHata = '';
+                // 2) fetch — ÖNBELLEKLİ (eski davranış)
+                let onbellekliTamam = false, onbellekliHata = '';
                 try {
                     const r = await fetch(url);
+                    onbellekliTamam = r.ok;
+                    if (!r.ok) onbellekliHata = 'HTTP ' + r.status;
+                } catch (e) {
+                    onbellekliHata = (e && e.message) || String(e);
+                }
+
+                // 3) fetch — ÖNBELLEĞİ ATLAYARAK (yedekleme artık bunu kullanıyor)
+                let fetchTamam = false, fetchHata = '';
+                try {
+                    const r = await fetch(url, { cache: 'reload' });
                     fetchTamam = r.ok;
                     if (!r.ok) fetchHata = 'HTTP ' + r.status;
                 } catch (e) {
@@ -6899,17 +7003,27 @@
                 console.log('Bucket:', bucket);
                 console.log('Test dosyası:', ad);
                 console.log('URL:', url);
-                console.log('img ile erişim :', imgVar ? '✅ başarılı' : '❌ başarısız');
-                console.log('fetch ile erişim:', fetchTamam ? '✅ başarılı' : '❌ ' + fetchHata);
+                console.log('img ile erişim          :', imgVar ? '✅ başarılı' : '❌ başarısız');
+                console.log('fetch (önbellekli)      :', onbellekliTamam ? '✅ başarılı' : '❌ ' + onbellekliHata);
+                console.log('fetch (önbellek atlanır):', fetchTamam ? '✅ başarılı' : '❌ ' + fetchHata);
                 console.log('\n--- cors.json ---\n' + corsJson);
                 console.log('\n--- Cloud Shell komutu ---\n' +
                     'gcloud storage buckets update gs://' + bucket + ' --cors-file=cors.json');
 
                 let mesaj;
-                if (fetchTamam) {
+                if (fetchTamam && !onbellekliTamam) {
+                    mesaj = '✅ SORUN BULUNDU VE ÇÖZÜLDÜ\n\n' +
+                        'Dosya, tarayıcı ÖNBELLEĞİ atlandığında iniyor; önbellekten\n' +
+                        'okunduğunda inmiyor.\n\n' +
+                        'SEBEP: Görsel daha önce ekranda <img> olarak gösterildiği için\n' +
+                        'tarayıcı onu CORS başlığı OLMADAN önbelleğe almış. Yedekleme\n' +
+                        'artık önbelleği atlayarak indiriyor.\n\n' +
+                        'CORS ayarınız DOĞRU — değiştirmenize gerek yok.\n\n' +
+                        'Yedeği tekrar alın, bu dosyalar artık inecektir.';
+                } else if (fetchTamam) {
                     mesaj = '✅ İNDİRME ÇALIŞIYOR\n\n' +
                         'Test dosyası sorunsuz indirildi. Yedekleme şu an görselleri indirebilir.\n\n' +
-                        'Yine de inmiyorsa dosyalar Storage\'da silinmiş olabilir — konsola bakın.';
+                        'Yine de inmiyorsa o dosyalar Storage\'da silinmiş olabilir — konsola bakın.';
                 } else if (!imgVar && !fetchTamam) {
                     mesaj = '❌ DOSYA BULUNAMADI (CORS sorunu DEĞİL)\n\n' +
                         'Görsel <img> ile de açılmıyor. Yani dosya Storage\'dan silinmiş\n' +
