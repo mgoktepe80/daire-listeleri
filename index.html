@@ -2054,6 +2054,8 @@
             const [bulkPhotoSonIslem, setBulkPhotoSonIslem] = useState(null); // son uygulamanın özeti
 
             // Eksik görseller paneli
+            // Malzeme veri tabanında "tıkla → Ctrl+V" ile görsel yapıştırma hedefi
+            const [dbYapistirHedef, setDbYapistirHedef] = useState(null);
             const [showNoteModal, setShowNoteModal] = useState(false);
             const [showMissingPhotoModal, setShowMissingPhotoModal] = useState(false);
             const [missingPhotoKat, setMissingPhotoKat] = useState('');     // kategori filtresi
@@ -2326,10 +2328,14 @@
                 
                 // ÖNEMLİ: İçerik gerçekten değişti mi kontrol et
                 // Referans değişse bile içerik aynıysa (sunucu yankısı) kaydetme
+                // ÖNEMLİ: Firma adı/logosu ve PDF ayarları da hash'e dahil.
+                // Eskiden dahil DEĞİLDİ: sadece logoyu değiştirince "içerik değişmedi"
+                // denip kayıt atlanıyordu, logo buluta hiç gitmiyordu.
                 const currentHash = stableStringify({
                     p: projects, c: customRooms, b: baseRooms,
                     f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData,
-                    pp: productPhotos
+                    pp: productPhotos,
+                    cn: companyName, cl: companyLogo, pf: pdfFonts
                 });
                 if (currentHash === lastAppliedDataRef.current) {
                     console.log('⏭️ İçerik değişmedi, autosave gereksiz');
@@ -2358,7 +2364,9 @@
 
                     return () => clearTimeout(saveTimeout);
                 }
-            }, [materials, ceramicData, productPhotos, firebaseSync, user]);
+                // NOT: companyName/companyLogo/pdfFonts da bağımlılıklara eklendi;
+                // yoksa yalnızca logo değişince effect hiç çalışmıyor ve kayıt olmuyordu.
+            }, [materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts, firebaseSync, user]);
 
             // Tema yüklendiğinde CSS güncelle
             useEffect(() => {
@@ -2522,13 +2530,22 @@
                                     setProductPhotos(cleanPhotos);
                                     localStorage.setItem('product_photos', JSON.stringify(cleanPhotos));
                                 }
-                                if (typeof firebaseData.companyName === 'string') {
+                                // ÖNEMLİ: Buluttaki BOŞ değer, yereldeki DOLU değeri EZMEZ.
+                                // Eski hata: typeof '' === 'string' olduğu için buluttaki boş
+                                // firma adı/logosu her yüklemede yereldekini siliyordu.
+                                if (typeof firebaseData.companyName === 'string'
+                                    && (firebaseData.companyName || !(localStorage.getItem('company_name') || ''))) {
                                     setCompanyName(firebaseData.companyName);
                                     localStorage.setItem('company_name', firebaseData.companyName);
+                                } else if (!firebaseData.companyName && (localStorage.getItem('company_name') || '')) {
+                                    console.log('🛡️ Buluttaki firma adı boş, yereldeki korundu');
                                 }
-                                if (typeof firebaseData.companyLogo === 'string') {
+                                if (typeof firebaseData.companyLogo === 'string'
+                                    && (firebaseData.companyLogo || !(localStorage.getItem('company_logo') || ''))) {
                                     setCompanyLogo(firebaseData.companyLogo);
                                     localStorage.setItem('company_logo', firebaseData.companyLogo);
+                                } else if (!firebaseData.companyLogo && (localStorage.getItem('company_logo') || '')) {
+                                    console.log('🛡️ Buluttaki firma logosu boş, yereldeki korundu');
                                 }
                                 if (firebaseData.pdfFonts && typeof firebaseData.pdfFonts === 'object') {
                                     const f = { ...PDF_DEFAULT_FONTS, ...JSON.parse(JSON.stringify(firebaseData.pdfFonts)) };
@@ -7969,7 +7986,10 @@
                 setKirpmaIstek(null);
                 if (!istek) return;
                 const ok = await urunGorseliKaydet(istek.key, base64);
-                if (ok && istek.sonrakiKey) setMissingPhotoSecili(istek.sonrakiKey);
+                if (ok) {
+                    if (istek.sonrakiKey) setMissingPhotoSecili(istek.sonrakiKey);
+                    setDbYapistirHedef(prev => (prev === istek.key ? null : prev));
+                }
             };
 
             // Tüm ürünleri dolaş (malzeme veri tabanı + seramikler)
@@ -8058,6 +8078,35 @@
                 window.addEventListener('paste', yapistir);
                 return () => window.removeEventListener('paste', yapistir);
             }, [showMissingPhotoModal, missingPhotoSecili, fotografsizUrunler, productPhotos, kirpmaAcik]);
+
+            // Malzeme veri tabanı ekranında Ctrl+V ile görsel yapıştırma.
+            // "Eksik Görseller" paneli açıkken devre dışı kalır (orada kendi dinleyicisi var).
+            useEffect(() => {
+                if (!dbYapistirHedef || showMissingPhotoModal) return;
+                const yapistir = async (e) => {
+                    const ogeler = (e.clipboardData && e.clipboardData.items) || [];
+                    for (let i = 0; i < ogeler.length; i++) {
+                        const o = ogeler[i];
+                        if (o.kind === 'file' && o.type.startsWith('image/')) {
+                            e.preventDefault();
+                            const dosya = o.getAsFile();
+                            if (!dosya) return;
+                            const hedef = dbYapistirHedef;
+                            const ad = splitProductKey(hedef).name;
+                            const sonuc = await urunGorseliAl(hedef, dosya, ad, null);
+                            if (sonuc === 'kaydedildi') setDbYapistirHedef(null);
+                            return;
+                        }
+                    }
+                };
+                const kacis = (e) => { if (e.key === 'Escape') setDbYapistirHedef(null); };
+                window.addEventListener('paste', yapistir);
+                window.addEventListener('keydown', kacis);
+                return () => {
+                    window.removeEventListener('paste', yapistir);
+                    window.removeEventListener('keydown', kacis);
+                };
+            }, [dbYapistirHedef, showMissingPhotoModal, kirpmaAcik, productPhotos]);
 
             // Dosyadan seç (kırpma moduna saygı duyar)
             const urunGorseliDosyadanSec = (productKey, baslik) => {
@@ -8262,9 +8311,24 @@
                 const url = productPhotos[resolvedKey];
                 const busy = uploadingPhotoKey === productKey;
                 const box = size === 'lg' ? 'w-12 h-12' : 'w-9 h-9';
+                const secili = dbYapistirHedef === productKey;
+                const p = splitProductKey(productKey);
+                const urun = { ad: p.name, tip: p.sub2, altGrup: p.sub, kategori: p.cat };
 
                 return (
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div
+                        className={`flex items-center gap-1 shrink-0 rounded-lg transition-all ${
+                            secili ? 'ring-2 ring-amber-500 bg-amber-50 px-1 py-0.5' : ''
+                        }`}
+                        onDragOver={(e) => { e.preventDefault(); setDbYapistirHedef(productKey); }}
+                        onDrop={async (e) => {
+                            e.preventDefault();
+                            const dosya = e.dataTransfer.files && e.dataTransfer.files[0];
+                            if (dosya && dosya.type.startsWith('image/')) {
+                                await urunGorseliAl(productKey, dosya, p.name, null);
+                            }
+                        }}
+                    >
                         {url ? (
                             <img
                                 src={url}
@@ -8276,16 +8340,22 @@
                                 }`}
                             />
                         ) : (
-                            <div className={`${box} rounded border-2 border-dashed flex items-center justify-center text-[9px] ${
-                                theme === 'dark' ? 'border-gray-600 text-gray-500' : 'border-gray-300 text-gray-400'
-                            }`}>
-                                Foto
+                            <div
+                                onClick={() => setDbYapistirHedef(secili ? null : productKey)}
+                                title="Tıkla, sonra Ctrl+V ile görsel yapıştır"
+                                className={`${box} rounded border-2 border-dashed flex items-center justify-center text-[9px] cursor-pointer ${
+                                    secili
+                                        ? 'border-amber-500 text-amber-700 bg-amber-100 font-bold'
+                                        : (theme === 'dark' ? 'border-gray-600 text-gray-500' : 'border-gray-300 text-gray-400')
+                                }`}
+                            >
+                                {secili ? 'Ctrl+V' : 'Foto'}
                             </div>
                         )}
-                        <div className="flex flex-col gap-0.5">
+                        <div className="grid grid-cols-2 gap-0.5">
                             <button
                                 type="button"
-                                onClick={() => handleProductPhotoUpload(productKey)}
+                                onClick={() => urunGorseliDosyadanSec(productKey, p.name)}
                                 disabled={busy}
                                 title={url ? 'Fotoğrafı değiştir' : 'Fotoğraf yükle'}
                                 className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
@@ -8296,17 +8366,35 @@
                             >
                                 {busy ? '⏳' : (url ? '🔄' : '📷')}
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => { setDbYapistirHedef(productKey); gorselAramaAc(urun); }}
+                                title={'Google Görseller\'de ara: ' + gorselAramaSorgusu(urun)}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gradient-to-r from-amber-500 to-orange-600 text-white hover:from-amber-600 hover:to-orange-700 transition-all"
+                            >
+                                🔍
+                            </button>
                             {url && !busy && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (confirm('Bu ürünün fotoğrafı silinsin mi?')) removeProductPhoto(resolvedKey);
-                                    }}
-                                    title="Fotoğrafı sil"
-                                    className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500 text-white hover:bg-red-600 transition-all"
-                                >
-                                    ✕
-                                </button>
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => gorseliYenidenKirp(resolvedKey, p.name)}
+                                        title="Görseli kırp"
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500 text-white hover:bg-emerald-600 transition-all"
+                                    >
+                                        ✂️
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (confirm('Bu ürünün fotoğrafı silinsin mi?')) removeProductPhoto(resolvedKey);
+                                        }}
+                                        title="Fotoğrafı sil"
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500 text-white hover:bg-red-600 transition-all"
+                                    >
+                                        ✕
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>
@@ -8785,6 +8873,24 @@
                                     }`}>
                                         {filledWallCount(count)}/{count} dolu
                                     </span>
+                                    {/* Fotoğraflı ürün filtresi — kategori başlığındakiyle AYNI ayar,
+                                        buraya da konuldu ki 9 duvarla çalışırken yukarı kaymak gerekmesin */}
+                                    <button
+                                        onClick={() => toggleOnlyPhotoCat(fc.category)}
+                                        title={isOnlyPhotoCat(fc.category)
+                                            ? `"${fc.category}" kategorisinde sadece fotoğraflı ürünler listeleniyor — tümünü görmek için tıklayın`
+                                            : `"${fc.category}" kategorisinde sadece fotoğrafı olan ürünleri listele`}
+                                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                            isOnlyPhotoCat(fc.category)
+                                                ? 'bg-indigo-600 text-white shadow-md'
+                                                : (theme === 'dark'
+                                                    ? 'bg-gray-600 text-gray-200 hover:bg-gray-500'
+                                                    : 'bg-white text-orange-700 border-2 border-orange-300 hover:bg-orange-100')
+                                        }`}
+                                    >
+                                        <span>🖼️</span>
+                                        <span>{isOnlyPhotoCat(fc.category) ? 'Sadece Fotoğraflı' : 'Tüm Ürünler'}</span>
+                                    </button>
                                     {count > 1 && (
                                         <button
                                             onClick={() => setAllWallsOpen(count, !allWallsOpen(count))}
@@ -9766,6 +9872,26 @@
                                     <span className="tabular-nums">%{yuklemeBilgi.yuzde}</span>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* MALZEME DB — YAPIŞTIRMA HEDEFİ BİLGİSİ */}
+                    {dbYapistirHedef && !showMissingPhotoModal && (
+                        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[65] px-4 py-2.5 rounded-xl bg-amber-500 text-white shadow-2xl flex items-center gap-3 max-w-[92vw]">
+                            <span className="text-lg">📋</span>
+                            <div className="text-xs leading-snug">
+                                <div className="font-bold truncate max-w-[60vw]">
+                                    {splitProductKey(dbYapistirHedef).name}
+                                </div>
+                                <div className="opacity-90">
+                                    Görseli kopyalayıp <strong>Ctrl+V</strong> yap — bu ürüne yüklenir
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setDbYapistirHedef(null)}
+                                className="ml-1 px-2 py-1 rounded-lg bg-white bg-opacity-25 hover:bg-opacity-40 text-xs font-bold"
+                                title="Vazgeç (Esc)"
+                            >Vazgeç</button>
                         </div>
                     )}
 
