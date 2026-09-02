@@ -754,6 +754,10 @@
 
         const SESSION_STORAGE_KEY = 'app_session_id';
 
+        // Hakkında zaten uyarı gösterdiğimiz yabancı oturum kimliği.
+        // Aynı cihaz için ikinci kez uyarı çıkarmamak için tutulur.
+        let sonUyarilanSession = null;
+
         let currentSessionId = (() => {
             try {
                 let mevcut = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -769,27 +773,38 @@
             }
         })();
         
-        // Aktif oturum bilgisini Firebase'e kaydet
-        const updateSessionInfo = async (user) => {
+        // Aktif oturum bilgisini Firebase'e kaydet.
+        // ÇOK ÖNEMLİ: sessionId YALNIZCA "sahiplen" (claim) çağrılarında yazılır.
+        // 30 saniyelik canlılık sinyali sahiplenme YAPMAZ; eskiden yapıyordu ve
+        // iki bilgisayar sırayla birbirini sahiplenip sonsuz uyarı döngüsü kuruyordu.
+        const updateSessionInfo = async (user, secenek) => {
             if (!firebaseEnabled || !db || !user) return;
-            
+            const sahiplen = !!(secenek && secenek.sahiplen);
+
             try {
-                // activeSessions'a kaydet
-                await db.collection('activeSessions').doc(user.uid).set({
-                    sessionId: currentSessionId,
+                const veri = {
                     email: user.email,
                     userEmail: user.email, // Admin için ekstra
                     lastActive: firebase.firestore.FieldValue.serverTimestamp(),
                     userAgent: navigator.userAgent,
                     platform: navigator.platform
-                });
+                };
+                if (sahiplen) {
+                    veri.sessionId = currentSessionId;
+                    sonUyarilanSession = null; // artık sahip biziz
+                }
+
+                // merge: sahiplenmediğimizde mevcut sessionId'ye DOKUNMA
+                await db.collection('activeSessions').doc(user.uid).set(veri, { merge: true });
                 
                 // userSettings'e de email'i kaydet (admin için)
                 await db.collection('userSettings').doc(user.uid).set({
                     email: user.email
                 }, { merge: true }); // merge: mevcut ayarları korur
                 
-                console.log('📝 Oturum bilgisi güncellendi:', currentSessionId);
+                console.log(sahiplen
+                    ? '📝 Oturum bu cihaz adına sahiplenildi: ' + currentSessionId
+                    : '💓 Oturum canlılık sinyali gönderildi');
             } catch (error) {
                 console.error('❌ Oturum bilgisi güncelleme hatası:', error);
             }
@@ -805,10 +820,22 @@
                 if (!doc.exists) return;
 
                 const data = doc.data();
-                if (data.sessionId && data.sessionId !== currentSessionId) {
-                    console.log('⚠️ Başka bir cihazdan oturum açıldı!');
-                    callback(data);
+                if (!data.sessionId) return;
+
+                // Sahip biziz → uyarı durumunu sıfırla
+                if (data.sessionId === currentSessionId) {
+                    sonUyarilanSession = null;
+                    return;
                 }
+
+                // ÖNEMLİ: Aynı yabancı oturum için TEKRAR uyarma.
+                // Diğer cihazın 30 saniyelik canlılık sinyali de bu dinleyiciyi
+                // tetikliyor; eskiden her seferinde uyarı penceresi açılıyordu.
+                if (data.sessionId === sonUyarilanSession) return;
+
+                sonUyarilanSession = data.sessionId;
+                console.log('⚠️ Başka bir cihazdan oturum açıldı!');
+                callback(data);
             }, (error) => {
                 console.error('❌ Oturum kontrolü hatası:', error);
             });
@@ -2134,6 +2161,7 @@
             const [clearOptions, setClearOptions] = useState({ materials: true, amounts: false, photos: false });
             const [selectedApartmentsForDelete, setSelectedApartmentsForDelete] = useState([]);
             const [sessionConflict, setSessionConflict] = useState(null);
+            const [sessionKapanisSaniye, setSessionKapanisSaniye] = useState(10);
             const [showSessionConflictModal, setShowSessionConflictModal] = useState(false);
             const [refreshKey, setRefreshKey] = useState(0); // Form yenileme için - ayarlar değiştiğinde formu günceller
             // ÖNEMLİ: Sonsuz döngü koruması - listener'dan gelen güncellemelerde autosave'i atla
@@ -2209,6 +2237,61 @@
                 return () => unsubscribe();
             }, []);
             
+            // ===== TEK OTURUM: DEVRALINAN CİHAZ KENDİNİ KAPATIR =====
+            // Başka bir cihaz oturumu sahiplendiğinde bu cihaz önce verisini
+            // buluta yazar, sonra çıkış yapar. Böylece aynı hesapla aynı anda
+            // yalnızca tek bilgisayarda çalışılır.
+            const devretmeCalisiyorRef = React.useRef(false);
+
+            const oturumuDevret = async () => {
+                if (devretmeCalisiyorRef.current) return;
+                devretmeCalisiyorRef.current = true;
+                try {
+                    // Yerel kopya her hâlükârda dursun
+                    try {
+                        localStorage.setItem('projects_data', JSON.stringify(projects));
+                        localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
+                        localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
+                        localStorage.setItem('room_order', JSON.stringify(roomOrder));
+                        localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
+                        localStorage.setItem('material_database', JSON.stringify(materials));
+                    } catch (e) {
+                        console.error('❌ Yerel kayıt hatası:', e);
+                    }
+
+                    if (navigator.onLine && firebaseSync && firebaseEnabled && user) {
+                        await saveToFirebase({
+                            projects, customRooms, baseRooms, roomOrder,
+                            fieldLabels, materials, ceramicData,
+                            productPhotos: productPhotosToArray(productPhotos),
+                            companyName, companyLogo, pdfFonts
+                        });
+                        console.log('💾 Devretmeden önce veriler buluta kaydedildi');
+                    }
+                } catch (e) {
+                    console.error('❌ Devretme kaydı başarısız:', e);
+                } finally {
+                    setShowSessionConflictModal(false);
+                    setSessionConflict(null);
+                    await signOut();
+                    devretmeCalisiyorRef.current = false;
+                }
+            };
+
+            // Uyarı görünürken geri sayım; bitince otomatik çıkış
+            useEffect(() => {
+                if (!showSessionConflictModal) {
+                    setSessionKapanisSaniye(10);
+                    return;
+                }
+                if (sessionKapanisSaniye <= 0) {
+                    oturumuDevret();
+                    return;
+                }
+                const t = setTimeout(() => setSessionKapanisSaniye(s => s - 1), 1000);
+                return () => clearTimeout(t);
+            }, [showSessionConflictModal, sessionKapanisSaniye]);
+
             // Oturum çakışmasını kontrol et
             useEffect(() => {
                 if (!firebaseEnabled || !user) return;
@@ -2219,7 +2302,8 @@
                 let unsubscribe = null;
                 let iptalEdildi = false;
 
-                updateSessionInfo(user)
+                // Giriş yaparken oturumu sahiplen
+                updateSessionInfo(user, { sahiplen: true })
                     .catch(e => console.error('❌ Oturum yazılamadı:', e))
                     .then(() => {
                         if (iptalEdildi) return;
@@ -2230,7 +2314,9 @@
                         });
                     });
 
-                // Her 30 saniyede bir oturum bilgisini güncelle (aktif olduğunu göster)
+                // Her 30 saniyede bir SADECE canlılık sinyali gönder.
+                // Sahiplenme YOK: yoksa iki cihaz sırayla birbirini sahiplenip
+                // sonsuz "başka cihazdan giriş yapıldı" uyarısı üretiyordu.
                 const interval = setInterval(() => {
                     if (user) {
                         updateSessionInfo(user);
@@ -14306,74 +14392,43 @@
                                     </div>
                                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Başka Bir Cihazdan Giriş Yapıldı</h2>
                                     <p className="text-gray-600 mb-4">
-                                        Hesabınıza başka bir cihazdan giriş yapılmış. Güvenlik nedeniyle bu oturumu kapatmanız gerekiyor.
+                                        Hesabınız başka bir cihazda açıldı. Aynı hesapla aynı anda tek cihazda
+                                        çalışılabildiği için <strong>bu oturum kapatılıyor.</strong>
                                     </p>
-                                    
+
                                     <div className="bg-gray-100 rounded-lg p-4 mb-4 text-left">
                                         <p className="text-sm text-gray-700 mb-2">
                                             <strong>Email:</strong> {sessionConflict.email}
                                         </p>
                                         <p className="text-sm text-gray-700 mb-2">
-                                            <strong>Platform:</strong> {sessionConflict.platform}
+                                            <strong>Yeni cihaz:</strong> {sessionConflict.platform}
                                         </p>
                                         <p className="text-xs text-gray-500 mt-2">
-                                            💡 Aynı hesapla aynı anda birden fazla cihazdan çalışamazsınız.
+                                            💾 Verileriniz çıkış öncesi buluta kaydediliyor — kayıp olmaz.
                                         </p>
                                     </div>
+
+                                    <div className="text-sm font-semibold text-red-700">
+                                        {sessionKapanisSaniye > 0
+                                            ? `${sessionKapanisSaniye} saniye içinde çıkış yapılacak...`
+                                            : 'Çıkış yapılıyor...'}
+                                    </div>
                                 </div>
-                                
+
                                 <div className="space-y-3">
                                     <button
-                                        onClick={async () => {
-                                            // Verileri kaydet
-                                            if (!navigator.onLine) {
-                                                localStorage.setItem('projects_data', JSON.stringify(projects));
-                                                localStorage.setItem('custom_rooms', JSON.stringify(customRooms));
-                                                localStorage.setItem('base_rooms', JSON.stringify(baseRooms));
-                                                localStorage.setItem('room_order', JSON.stringify(roomOrder));
-                                                localStorage.setItem('field_labels', JSON.stringify(fieldLabels));
-                                                localStorage.setItem('material_database', JSON.stringify(materials));
-                                            } else if (firebaseSync && firebaseEnabled && user) {
-                                                await saveToFirebase({
-                                                    projects,
-                                                    customRooms,
-                                                    baseRooms,
-                                                    roomOrder,
-                                                    fieldLabels,
-                                                    materials,
-                                                    ceramicData
-                                                });
-                                            }
-                                            
-                                            // Çıkış yap
-                                            await signOut();
-                                            setShowSessionConflictModal(false);
-                                        }}
+                                        onClick={() => oturumuDevret()}
                                         className="w-full px-4 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
                                     >
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
                                         </svg>
-                                        Verileri Kaydet ve Çıkış Yap
+                                        Kaydet ve Hemen Çıkış Yap
                                     </button>
-                                    
-                                    <button
-                                        onClick={() => {
-                                            // Bu oturumu geçerli yap
-                                            updateSessionInfo(user);
-                                            setShowSessionConflictModal(false);
-                                            setSessionConflict(null);
-                                        }}
-                                        className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                        </svg>
-                                        Bu Cihazda Devam Et
-                                    </button>
-                                    
+
                                     <p className="text-xs text-center text-gray-500 mt-2">
-                                        ⚠️ "Bu Cihazda Devam Et" seçeneği diğer cihazı çıkış yapmaya zorlayacaktır.
+                                        Bu bilgisayarda çalışmaya devam etmek için tekrar giriş yapın —
+                                        o zaman diğer cihazın oturumu kapanır.
                                     </p>
                                 </div>
                             </div>
