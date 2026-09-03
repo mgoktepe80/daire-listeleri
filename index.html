@@ -2271,6 +2271,8 @@
             const [showNoteModal, setShowNoteModal] = useState(false);
             // Daire durum panosu (tamamlanan / eksik / devam eden oranları)
             const [showDurumModal, setShowDurumModal] = useState(false);
+            // Mahaller listesinde yalnızca eksik seçimi olanları göster
+            const [sadeceEksikMahal, setSadeceEksikMahal] = useState(false);
             const [showMissingPhotoModal, setShowMissingPhotoModal] = useState(false);
             const [missingPhotoKat, setMissingPhotoKat] = useState('');     // kategori filtresi
             const [missingPhotoAra, setMissingPhotoAra] = useState('');     // metin araması
@@ -6550,30 +6552,58 @@
 
             const daireDurumu = (a) => (a && DURUM_TANIM[a.durum]) ? a.durum : 'devam';
 
-            // Dairedeki seçim alanlarını sayar: kaç alan var, kaçı doldurulmuş.
+            const sayimSonucu = (toplam, dolu) => ({
+                toplam, dolu, eksik: Math.max(0, toplam - dolu),
+                yuzde: toplam ? Math.round((dolu / toplam) * 100) : 0,
+                tam: toplam > 0 && dolu === toplam
+            });
+
+            // Tek bir mahaldeki seçim alanlarını sayar.
             // (Fotoğraf alanı seçim sayılmaz; duvar kaplaması her duvar için ayrı sayılır.)
+            const odaSayimi = (a, room) => {
+                let toplam = 0, dolu = 0;
+                if (!a || !room) return sayimSonucu(0, 0);
+                const rd = (a.data || {})[room.id] || {};
+                (room.fields || []).forEach(f => {
+                    if (f === 'foto') return;
+                    if (f === 'duvar_kaplama') {
+                        const adet = (a.wallCount && a.wallCount[room.id]) ? a.wallCount[room.id] : 1;
+                        const duvarlar = rd[f] || {};
+                        for (let i = 0; i < adet; i++) {
+                            toplam++;
+                            if (duvarlar[i] && duvarlar[i].malzeme) dolu++;
+                        }
+                    } else {
+                        toplam++;
+                        if (rd[f] && rd[f].malzeme) dolu++;
+                    }
+                });
+                return sayimSonucu(toplam, dolu);
+            };
+
+            // Dairedeki tüm mahallerin toplamı
             const daireSayimi = (a) => {
                 let toplam = 0, dolu = 0;
                 daireninOdalari(a).forEach(room => {
-                    const rd = (a.data || {})[room.id] || {};
-                    (room.fields || []).forEach(f => {
-                        if (f === 'foto') return;
-                        if (f === 'duvar_kaplama') {
-                            const adet = (a.wallCount && a.wallCount[room.id]) ? a.wallCount[room.id] : 1;
-                            const duvarlar = rd[f] || {};
-                            for (let i = 0; i < adet; i++) {
-                                toplam++;
-                                if (duvarlar[i] && duvarlar[i].malzeme) dolu++;
-                            }
-                        } else {
-                            toplam++;
-                            if (rd[f] && rd[f].malzeme) dolu++;
-                        }
-                    });
+                    const s = odaSayimi(a, room);
+                    toplam += s.toplam; dolu += s.dolu;
                 });
-                return { toplam, dolu, eksik: Math.max(0, toplam - dolu),
-                         yuzde: toplam ? Math.round((dolu / toplam) * 100) : 0 };
+                return sayimSonucu(toplam, dolu);
             };
+
+            // Açık dairenin mahal mahal ilerlemesi (Mahaller panelindeki çubuklar)
+            const odaIlerlemesi = useMemo(() => {
+                const a = getApt();
+                const harita = {};
+                let toplam = 0, dolu = 0, eksikOda = 0, tamOda = 0;
+                (visibleRooms || []).forEach(r => {
+                    const s = odaSayimi(a, r);
+                    harita[r.id] = s;
+                    toplam += s.toplam; dolu += s.dolu;
+                    if (s.toplam > 0) { if (s.tam) tamOda++; else eksikOda++; }
+                });
+                return { harita, genel: sayimSonucu(toplam, dolu), eksikOda, tamOda };
+            }, [apartments, currentApt, visibleRooms]);
 
             // Verilere bakarak durumu önerir (elle işaretleme her zaman önceliklidir)
             const otomatikDurum = (a) => {
@@ -18277,6 +18307,38 @@
                                         <option key={apt.id} value={apt.id} className={theme === 'dark' ? 'bg-gray-700 text-gray-100' : 'bg-white text-gray-900'}>{apt.name}</option>
                                     ))}
                                 </select>
+                                    {/* Daire durumu — göz önünde, tek tıkla işaretlenir */}
+                                    <div className={`ml-2 flex items-center gap-1 px-1.5 py-1 rounded-lg border ${
+                                        theme === 'dark' ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'
+                                    }`}>
+                                        {DURUM_SIRA.map(k => {
+                                            const t = DURUM_TANIM[k];
+                                            const secili = daireDurumu(getApt()) === k;
+                                            return (
+                                                <button key={k}
+                                                    onClick={() => daireDurumunuAyarla(currentApt, k)}
+                                                    title={'Bu daire: ' + t.ad}
+                                                    className={`w-8 h-8 rounded-md flex items-center justify-center border-2 transition-all ${
+                                                        secili ? 'text-white shadow-sm'
+                                                               : (theme === 'dark' ? 'border-transparent text-gray-500 hover:bg-gray-600' : 'border-transparent text-gray-300 hover:bg-gray-200')
+                                                    }`}
+                                                    style={secili ? { background: t.renk, borderColor: t.renk } : {}}
+                                                >
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" d={t.ikon}></path>
+                                                    </svg>
+                                                </button>
+                                            );
+                                        })}
+                                        <button
+                                            onClick={() => setShowDurumModal(true)}
+                                            title="Durum panosunu aç"
+                                            className={`px-2 h-8 rounded-md text-xs font-bold ${
+                                                theme === 'dark' ? 'text-gray-300 hover:bg-gray-600' : 'text-gray-600 hover:bg-gray-200'
+                                            }`}
+                                        >%{daireSayimi(getApt() || {}).yuzde}</button>
+                                    </div>
+
                                     {/* Kaydet — her zaman görünür, sağa yaslı */}
                                     <button
                                         onClick={save}
@@ -18325,33 +18387,6 @@
                                             {menuOgesi('Miktar Kopyala', 'Başka daireden miktarları al', 'text-cyan-600', () => setShowCopyAmountsModal(true), 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4')}
                                             {menuOgesi('Daire Notu', notVar ? 'Not yazılı' : 'Onay formuna basılır', 'text-amber-600', () => setShowNoteModal(true), 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z', notVar)}
                                             {menuAyirici()}
-                                            {menuBaslik('Daire durumu')}
-                                            {DURUM_SIRA.map(k => {
-                                                const t = DURUM_TANIM[k];
-                                                const secili = daireDurumu(getApt()) === k;
-                                                const s = daireSayimi(getApt() || {});
-                                                const aciklama = k === otomatikDurum(getApt() || {})
-                                                    ? `Verilere göre uygun (${s.dolu}/${s.toplam} seçim)` : '';
-                                                return (
-                                                    <button key={k}
-                                                        onClick={() => { setAcikMenu(null); daireDurumunuAyarla(currentApt, k); }}
-                                                        className={`w-full px-3 py-2 text-left flex items-center gap-2.5 transition-colors ${
-                                                            theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-50'
-                                                        } ${secili ? (theme === 'dark' ? 'bg-gray-700/60' : 'bg-blue-50') : ''}`}
-                                                    >
-                                                        <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: t.renk }}></span>
-                                                        <span className="flex-1 min-w-0">
-                                                            <span className={`block text-sm font-semibold truncate ${theme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>{t.ad}</span>
-                                                            {aciklama && <span className={`block text-[11px] truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>{aciklama}</span>}
-                                                        </span>
-                                                        {secili && (
-                                                            <svg className="w-4 h-4 flex-shrink-0 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
-                                                            </svg>
-                                                        )}
-                                                    </button>
-                                                );
-                                            })}
                                             {menuOgesi('Durum Panosu', 'Grafik ve tüm daireler', 'text-emerald-600', () => setShowDurumModal(true), 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z M20.488 9A9.004 9.004 0 0015 3.512V9h5.488z')}
                                             {menuAyirici()}
                                             {menuOgesi('Daire Adını Değiştir', '', 'text-gray-500', () => {
@@ -18740,6 +18775,47 @@
                                     </div>
                                 </div>
                                 
+                                {/* İlerleme — bu dairede kaç seçim tamam */}
+                                {(() => {
+                                    const g = odaIlerlemesi.genel;
+                                    const renk = g.tam ? DURUM_TANIM.tamam.renk : (g.dolu ? DURUM_TANIM.eksik.renk : DURUM_TANIM.devam.renk);
+                                    return (
+                                        <div className={`mb-3 px-3 py-2.5 rounded-lg border ${
+                                            theme === 'dark' ? 'bg-gray-900/40 border-gray-700' : 'bg-gray-50 border-gray-200'
+                                        }`}>
+                                            <div className="flex items-baseline gap-2 mb-1.5">
+                                                <span className="text-lg font-extrabold leading-none" style={{ color: renk }}>%{g.yuzde}</span>
+                                                <span className={`text-xs font-semibold ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
+                                                    {g.dolu}/{g.toplam} seçim
+                                                </span>
+                                                <span className={`ml-auto text-[11px] font-semibold ${
+                                                    odaIlerlemesi.eksikOda ? 'text-amber-600' : 'text-green-600'
+                                                }`}>
+                                                    {odaIlerlemesi.eksikOda
+                                                        ? odaIlerlemesi.eksikOda + ' mahalde eksik var'
+                                                        : (g.toplam ? 'Tüm mahaller tamam' : 'Seçim alanı yok')}
+                                                </span>
+                                            </div>
+                                            <div className={`h-2.5 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                                                <div className="h-full rounded-full transition-all duration-300"
+                                                     style={{ width: g.yuzde + '%', background: renk }}></div>
+                                            </div>
+                                            {odaIlerlemesi.eksikOda > 0 && (
+                                                <button
+                                                    onClick={() => setSadeceEksikMahal(!sadeceEksikMahal)}
+                                                    className={`mt-2 w-full px-2 py-1.5 rounded-md text-[11px] font-bold transition-colors ${
+                                                        sadeceEksikMahal
+                                                            ? 'bg-amber-500 text-white hover:bg-amber-600'
+                                                            : (theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-100')
+                                                    }`}
+                                                >
+                                                    {sadeceEksikMahal ? '✓ Yalnızca eksik mahaller — tümünü göster' : 'Yalnızca eksik mahalleri göster'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
+
                                 {/* Arama Kutusu */}
                                 <div className="mb-3">
                                     <div className="relative">
@@ -18758,7 +18834,14 @@
                                 
                                 {/* Mekan Listesi */}
                                 <div className="space-y-2">
-                                {visibleRooms.filter(r => r.name.toLowerCase().includes(searchRoom.toLowerCase())).map(r => (
+                                {visibleRooms
+                                    .filter(r => r.name.toLowerCase().includes(searchRoom.toLowerCase()))
+                                    .filter(r => {
+                                        if (!sadeceEksikMahal) return true;
+                                        const s = odaIlerlemesi.harita[r.id];
+                                        return r.id === currentRoom || (s && s.toplam > 0 && !s.tam);
+                                    })
+                                    .map(r => (
                                     <div 
                                         key={r.id} 
                                         className={`group relative rounded-lg border-2 transition-all duration-200 ${
@@ -18793,8 +18876,28 @@
                                                     {getRoomIcon(r)}
                                                 </span>
                                                 <span className="flex-1 break-words">{r.name}</span>
+                                                {(() => {
+                                                    const s = odaIlerlemesi.harita[r.id];
+                                                    if (!s || !s.toplam) return null;
+                                                    const renk = s.tam ? DURUM_TANIM.tamam.renk : (s.dolu ? DURUM_TANIM.eksik.renk : DURUM_TANIM.devam.renk);
+                                                    return (
+                                                        <span className="flex flex-col items-end gap-1 flex-shrink-0"
+                                                              title={`${s.dolu}/${s.toplam} seçim yapıldı` + (s.eksik ? ` — ${s.eksik} alan boş` : '')}>
+                                                            <span className="flex items-center gap-1 text-[11px] font-bold" style={{ color: renk }}>
+                                                                {s.tam ? (
+                                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
+                                                                    </svg>
+                                                                ) : (s.dolu + '/' + s.toplam)}
+                                                            </span>
+                                                            <span className="block w-10 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                                                                <span className="block h-full rounded-full" style={{ width: s.yuzde + '%', background: renk }}></span>
+                                                            </span>
+                                                        </span>
+                                                    );
+                                                })()}
                                             </button>
-                                            
+
                                             {/* Action Buttons - Hover'da görünür */}
                                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 {/* Icon Seçme */}
