@@ -429,6 +429,24 @@
             }
         };
 
+        // Storage bağlantısını bozan iki klasik durumu onar:
+        //  1) "&" karakteri HTML kaçışıyla "&amp;" olmuş → token parametresi
+        //     "amp;token" hâline gelir, Firebase jetonu görmez ve 403 "Permission denied" der.
+        //  2) Adres kaçırılmış/çift kodlanmış olabilir.
+        const storageUrlDuzelt = (url) => {
+            if (typeof url !== 'string' || !url.includes('firebasestorage')) return url;
+            let d = url.replace(/&amp;/g, '&').replace(/&#38;/g, '&').trim();
+            // "?alt=media&amp;token=" bozulmasının bıraktığı kalıntı
+            d = d.replace(/([?&])amp;/g, '$1');
+            return d;
+        };
+
+        // Bağlantıda erişim jetonu var mı? Yoksa 403 kesin.
+        const storageJetonuVarMi = (url) => {
+            if (typeof url !== 'string' || !url.includes('firebasestorage')) return true;
+            return /[?&]token=[^&]+/.test(url);
+        };
+
         // 403 alan bir Storage bağlantısını, oturum açıkken TAZELE.
         // getDownloadURL yeni ve geçerli bir erişim jetonu üretir.
         const storageBaglantisiniTazele = async (src) => {
@@ -1588,9 +1606,49 @@
         function UrunGorseli({ url, sinif, tikla, baslik, onYenilendi }) {
             const [src, setSrc] = React.useState(url);
             const [bozuk, setBozuk] = React.useState(false);
+            const [sebep, setSebep] = React.useState('');
             const denendiRef = React.useRef(false);
 
-            React.useEffect(() => { setSrc(url); setBozuk(false); denendiRef.current = false; }, [url]);
+            React.useEffect(() => {
+                const duzeltilmis = storageUrlDuzelt(url);
+                setSrc(duzeltilmis);
+                setBozuk(false);
+                denendiRef.current = false;
+                // Adres bozulmuşsa kaydı da düzelt
+                if (duzeltilmis !== url && onYenilendi) {
+                    console.log('🔧 Bozuk görsel adresi düzeltildi (&amp; → &)');
+                    onYenilendi(url, duzeltilmis);
+                }
+                // Jeton hiç yoksa beklemeden tazele
+                if (!storageJetonuVarMi(duzeltilmis)) {
+                    denendiRef.current = true;
+                    storageBaglantisiniTazele(duzeltilmis).then(yeni => {
+                        if (yeni) {
+                            setSrc(yeni);
+                            if (onYenilendi) onYenilendi(url, yeni);
+                            console.log('🔧 Jetonsuz adres için yeni bağlantı alındı');
+                        } else {
+                            setSebep('adreste erişim jetonu yok');
+                            setBozuk(true);
+                        }
+                    });
+                }
+            }, [url]);
+
+            // Görsel açılmadığında GERÇEK sebebi öğren: dosya mı yok, yetki mi yok,
+            // yoksa jeton mu eskimiş. 403 ile 404'ü ayırt etmek şart.
+            const sebepBul = async (adres) => {
+                if (!storage || !auth || !auth.currentUser) return 'oturum yok';
+                try {
+                    await storage.refFromURL(adres).getMetadata();
+                    return 'dosya var, jeton geçersiz';   // meta okunuyor ama indirme reddedildi
+                } catch (e) {
+                    const kod = (e && e.code) || '';
+                    if (kod === 'storage/object-not-found') return 'dosya silinmiş';
+                    if (kod === 'storage/unauthorized') return 'yetki yok (başka hesabın dosyası veya kural engeli)';
+                    return kod || 'bilinmeyen hata';
+                }
+            };
 
             const hata = async () => {
                 if (denendiRef.current) { setBozuk(true); return; }
@@ -1600,15 +1658,18 @@
                     setSrc(yeni);
                     if (onYenilendi) onYenilendi(url, yeni);
                     console.log('🔧 Ürün görseli bağlantısı tazelendi');
-                } else {
-                    setBozuk(true);
+                    return;
                 }
+                const s = await sebepBul(url);
+                setSebep(s);
+                setBozuk(true);
+                console.warn('❌ Görsel açılamadı →', s, '\n   ', url);
             };
 
             if (bozuk) {
                 return (
-                    <div className={(sinif || '') + ' flex items-center justify-center bg-red-50 border-2 border-red-300 text-red-500 text-[9px] text-center leading-tight'}
-                         title="Görsel dosyası açılamadı">
+                    <div className={(sinif || '') + ' flex items-center justify-center bg-red-50 border-2 border-red-300 text-red-500 text-[9px] text-center leading-tight cursor-help'}
+                         title={'Görsel açılamadı: ' + (sebep || 'sebep bilinmiyor') + '\n' + url}>
                         Açılmadı
                     </div>
                 );
@@ -2379,15 +2440,32 @@
                         setShowBulkActionsDropdown(false);
                         setShowArchiveDropdown(false);
                         setShowCopyDropdown(false);
+                        setAcikMenu(null);   // yeni araç menüleri de kapansın
+                    } else {
+                        // BAŞKA bir açılır menüye tıklandıysa açık olanı kapat
+                        const tiklanan = isInsideDropdown.getAttribute('data-menu');
+                        setAcikMenu(onceki => (onceki && onceki !== tiklanan) ? null : onceki);
+                        if (!tiklanan) { setShowCopyDropdown(false); }
                     }
                 };
-                
+
+                // Esc her menüyü kapatsın
+                const kacisTusu = (e) => {
+                    if (e.key !== 'Escape') return;
+                    setShowBulkActionsDropdown(false);
+                    setShowArchiveDropdown(false);
+                    setShowCopyDropdown(false);
+                    setAcikMenu(null);
+                };
+
                 // Document'a event listener ekle
                 document.addEventListener('mousedown', handleClickOutside);
-                
+                document.addEventListener('keydown', kacisTusu);
+
                 // Cleanup
                 return () => {
                     document.removeEventListener('mousedown', handleClickOutside);
+                    document.removeEventListener('keydown', kacisTusu);
                 };
             }, []);
 
@@ -6249,7 +6327,11 @@
 
             const menuDugmesi = (id, etiket, ikonPath) => (
                 <button
-                    onClick={() => setAcikMenu(acikMenu === id ? null : id)}
+                    onClick={() => {
+                        setShowArchiveDropdown(false);
+                        setShowCopyDropdown(false);
+                        setAcikMenu(acikMenu === id ? null : id);
+                    }}
                     className={`px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-all border ${
                         acikMenu === id
                             ? 'bg-blue-50 border-blue-600 text-blue-700'
@@ -8554,6 +8636,80 @@
                     window.removeEventListener('keydown', kacis);
                 };
             }, [dbYapistirHedef, showMissingPhotoModal, kirpmaAcik, productPhotos]);
+
+            // ===== TÜM GÖRSEL BAĞLANTILARINI DENETLE =====
+            // Her bağlantıyı tek tek açmayı dener; açılmayanların GERÇEK sebebini
+            // Storage'a sorar. 403 (yetki/jeton) ile 404 (silinmiş) ayrışır.
+            const baglantilariDenetle = async () => {
+                const kayitlar = Object.entries(productPhotos || {})
+                    .filter(([, u]) => typeof u === 'string' && u.includes('firebasestorage'));
+                if (kayitlar.length === 0) {
+                    alert('Denetlenecek bulut bağlantısı yok.');
+                    return;
+                }
+                if (!confirm(`${kayitlar.length} ürün görseli tek tek denenecek.\nBirkaç dakika sürebilir. Devam?`)) return;
+
+                const sonuc = { saglam: 0, duzeltildi: 0, jetonsuz: [], yetkisiz: [], silinmis: [], diger: [] };
+                const duzeltmeler = {};
+
+                for (let i = 0; i < kayitlar.length; i++) {
+                    const [anahtar, url] = kayitlar[i];
+                    const yuzde = Math.round(((i + 1) / kayitlar.length) * 100);
+                    setYedekDurumu({ calisiyor: true, mesaj: `Denetleniyor (${i + 1}/${kayitlar.length})`, yuzde });
+                    yuklemeAsama(`Bağlantılar denetleniyor (${i + 1}/${kayitlar.length})`, yuzde);
+
+                    const duzgun = storageUrlDuzelt(url);
+                    if (await baglantiAcilyorMu(duzgun)) {
+                        if (duzgun !== url) { duzeltmeler[url] = duzgun; sonuc.duzeltildi++; }
+                        else sonuc.saglam++;
+                        continue;
+                    }
+
+                    // Açılmadı → tazelemeyi dene
+                    const yeni = await storageBaglantisiniTazele(duzgun);
+                    if (yeni && await baglantiAcilyorMu(yeni)) {
+                        duzeltmeler[url] = yeni;
+                        sonuc.duzeltildi++;
+                        continue;
+                    }
+
+                    // Hâlâ olmuyor → gerçek sebep
+                    const ad = splitProductKey(anahtar).name || anahtar;
+                    if (!storageJetonuVarMi(duzgun)) { sonuc.jetonsuz.push(ad); continue; }
+                    try {
+                        await storage.refFromURL(duzgun).getMetadata();
+                        sonuc.yetkisiz.push(ad);   // dosya var, indirme reddediliyor → jeton uyuşmuyor
+                    } catch (e) {
+                        const kod = (e && e.code) || '';
+                        if (kod === 'storage/object-not-found') sonuc.silinmis.push(ad);
+                        else if (kod === 'storage/unauthorized') sonuc.yetkisiz.push(ad);
+                        else sonuc.diger.push(ad + ' (' + (kod || 'bilinmiyor') + ')');
+                    }
+                }
+
+                if (Object.keys(duzeltmeler).length) {
+                    saveProductPhotos(next => {
+                        Object.keys(next).forEach(k => { if (duzeltmeler[next[k]]) next[k] = duzeltmeler[next[k]]; });
+                        return next;
+                    });
+                }
+
+                yuklemeBitir();
+                setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+
+                const liste = (d) => d.length ? '\n   • ' + d.slice(0, 8).join('\n   • ') + (d.length > 8 ? `\n   • ...(+${d.length - 8})` : '') : '';
+                console.log('🔎 Bağlantı denetimi sonucu:', sonuc);
+                alert(
+                    '🔎 BAĞLANTI DENETİMİ\n\n' +
+                    `✅ Sağlam            : ${sonuc.saglam}\n` +
+                    `🔧 Onarıldı          : ${sonuc.duzeltildi}\n` +
+                    `🚫 Jeton yok (403)   : ${sonuc.jetonsuz.length}${liste(sonuc.jetonsuz)}\n` +
+                    `🔒 Jeton uyuşmuyor   : ${sonuc.yetkisiz.length}${liste(sonuc.yetkisiz)}\n` +
+                    `🗑️ Dosya silinmiş    : ${sonuc.silinmis.length}${liste(sonuc.silinmis)}\n` +
+                    (sonuc.diger.length ? `❓ Diğer: ${sonuc.diger.length}${liste(sonuc.diger)}\n` : '') +
+                    '\nOnarılanlar kaydedildi — Kaydet\'e basmayı unutmayın.'
+                );
+            };
 
             // ===== ÜRÜN GÖRSELİ TEŞHİSİ =====
             // "Görselleri yükledim ama gözükmüyor" durumunda nerede kaybolduğunu söyler.
@@ -13781,8 +13937,13 @@
                                         Görselli ürünleri de göster
                                     </label>
                                     <button
+                                        onClick={baglantilariDenetle}
+                                        className="ml-auto px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-200 text-amber-900 hover:bg-amber-300"
+                                        title="Her bağlantıyı tek tek dener, kırıkları onarır, onarılamayanların sebebini söyler"
+                                    >🔎 Bağlantıları Denetle</button>
+                                    <button
                                         onClick={gorselTeshisi}
-                                        className="ml-auto px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-200 text-slate-800 hover:bg-slate-300"
+                                        className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-200 text-slate-800 hover:bg-slate-300"
                                         title="Görseller kayboldusa nerede kaybolduğunu bulur"
                                     >🔬 Teşhis</button>
                                 </div>
@@ -17818,7 +17979,7 @@
                                 </button>
 
                                 {/* ===== ARAÇ MENÜLERİ ===== */}
-                                <div className="relative dropdown-container">
+                                <div className="relative dropdown-container" data-menu="daire">
                                     {menuDugmesi('daire', 'Daire', 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2')}
                                     {acikMenu === 'daire' && (
                                         <div className={menuKutuSinifi}>
@@ -17842,7 +18003,7 @@
                                     )}
                                 </div>
 
-                                <div className="relative dropdown-container">
+                                <div className="relative dropdown-container" data-menu="toplu">
                                     {menuDugmesi('toplu', 'Toplu İşlem', 'M4 6h16M4 12h16M4 18h10')}
                                     {acikMenu === 'toplu' && (
                                         <div className={menuKutuSinifi}>
@@ -17876,7 +18037,7 @@
                                     )}
                                 </div>
 
-                                <div className="relative dropdown-container">
+                                <div className="relative dropdown-container" data-menu="proje">
                                     {menuDugmesi('proje', 'Proje', 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z')}
                                     {acikMenu === 'proje' && (
                                         <div className={menuKutuSinifi}>
@@ -17912,7 +18073,7 @@
                                 {/* Arşiv Dropdown */}
                                         <div className="relative dropdown-container">
                                             <button 
-                                                onClick={() => setShowArchiveDropdown(!showArchiveDropdown)}
+                                                onClick={() => { setAcikMenu(null); setShowArchiveDropdown(!showArchiveDropdown); }}
                                                 className={`px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-all border ${showArchiveDropdown ? 'bg-blue-50 border-blue-600 text-blue-700' : (theme === 'dark' ? 'bg-gray-700 border-gray-600 text-gray-100 hover:bg-gray-600' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50')}`}
                                                 title="Arşiv işlemleri menüsü"
                                             >
