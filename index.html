@@ -7217,6 +7217,154 @@
                 }
             };
 
+            // ===== STORAGE'DAKİ HER ŞEYİ İNDİR =====
+            // Tam Paket yedeği yalnızca VERİDE bağlantısı olan görselleri indirir.
+            // Bu işlev Storage'ı doğrudan tarar: bağlantısı kopmuş, artık hiçbir ürüne
+            // bağlı olmayan dosyalar da dahil, klasör yapısını koruyarak her şeyi indirir.
+            const storageKlasoruTara = async (ref, bulunan, ilerlemeBildir) => {
+                let sayfa = null;
+                do {
+                    const sonuc = sayfa
+                        ? await ref.list({ maxResults: 500, pageToken: sayfa })
+                        : await ref.list({ maxResults: 500 });
+                    sonuc.items.forEach(i => bulunan.push(i));
+                    if (ilerlemeBildir) ilerlemeBildir(bulunan.length);
+                    for (const altKlasor of sonuc.prefixes) {
+                        await storageKlasoruTara(altKlasor, bulunan, ilerlemeBildir);
+                    }
+                    sayfa = sonuc.nextPageToken;
+                } while (sayfa);
+            };
+
+            const tumStorageDosyalariniIndir = async () => {
+                if (typeof JSZip === 'undefined') {
+                    alert('⚠️ ZIP kütüphanesi yüklenemedi.\n\nİnternet bağlantınızı kontrol edip sayfayı yenileyin.');
+                    return;
+                }
+                if (!(storage && auth && auth.currentUser)) {
+                    alert('⚠️ Bunun için oturum açık olmalı.');
+                    return;
+                }
+
+                setYedekDurumu({ calisiyor: true, mesaj: 'Storage taranıyor...', yuzde: 0 });
+                yuklemeAsama('Storage taranıyor...', 3);
+
+                let dosyalar = [];
+                try {
+                    const kok = storage.ref(`users/${auth.currentUser.uid}`);
+                    await storageKlasoruTara(kok, dosyalar, (n) => {
+                        setYedekDurumu({ calisiyor: true, mesaj: `Storage taranıyor... ${n} dosya`, yuzde: 3 });
+                        yuklemeAsama(`Storage taranıyor... ${n} dosya`, 3);
+                    });
+                } catch (e) {
+                    yuklemeBitir();
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    console.error('❌ Storage taranamadı:', e);
+                    alert('❌ Storage taranamadı!\n\n' + ((e && e.code) || (e && e.message) || e));
+                    return;
+                }
+
+                if (dosyalar.length === 0) {
+                    yuklemeBitir();
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    alert('Storage\'da hiç dosya bulunamadı.');
+                    return;
+                }
+
+                // Veride hangi bağlantılar kullanılıyor? (yol bazlı karşılaştırma)
+                const kullanilanYollar = new Set();
+                tumStorageBaglantilari().forEach(({ url }) => {
+                    const m = /\/o\/([^?]+)/.exec(url);
+                    if (m) { try { kullanilanYollar.add(decodeURIComponent(m[1])); } catch (e) {} }
+                });
+
+                const bagsiz = dosyalar.filter(d => !kullanilanYollar.has(d.fullPath)).length;
+                if (!confirm(
+                    `🗂️ STORAGE'DAKİ HER ŞEYİ İNDİR\n\n` +
+                    `Toplam dosya : ${dosyalar.length}\n` +
+                    `Bağlantılı   : ${dosyalar.length - bagsiz}\n` +
+                    `Bağlantısız  : ${bagsiz}  (hiçbir üründe/mahalde kullanılmıyor)\n\n` +
+                    `Hepsi klasör yapısı korunarak tek ZIP olarak inecek.\n` +
+                    `Dosya sayısına göre birkaç dakika sürebilir.\n\nDevam edilsin mi?`
+                )) {
+                    yuklemeBitir();
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    return;
+                }
+
+                try {
+                    const zip = new JSZip();
+                    const basarili = [];
+                    const basarisiz = [];
+
+                    for (let i = 0; i < dosyalar.length; i++) {
+                        const oge = dosyalar[i];
+                        const yuzde = Math.round(((i + 1) / dosyalar.length) * 100);
+                        setYedekDurumu({ calisiyor: true, mesaj: `İndiriliyor (${i + 1}/${dosyalar.length})`, yuzde });
+                        yuklemeAsama(`Storage dosyaları (${i + 1}/${dosyalar.length})`, yuzde);
+
+                        // Kullanıcının kökünden sonraki yolu klasör yapısı olarak kullan
+                        const gorecelYol = oge.fullPath.replace(`users/${auth.currentUser.uid}/`, '');
+                        const bagli = kullanilanYollar.has(oge.fullPath);
+
+                        try {
+                            const url = await oge.getDownloadURL();
+                            const sonuc = await storageDosyasiniIndir(url);
+                            if (sonuc.blob) {
+                                zip.file((bagli ? 'kullanilan/' : 'bagsiz/') + gorecelYol, sonuc.blob);
+                                basarili.push({ yol: oge.fullPath, bagli });
+                            } else {
+                                basarisiz.push({ yol: oge.fullPath, sebep: sonuc.sebep });
+                            }
+                        } catch (e) {
+                            basarisiz.push({ yol: oge.fullPath, sebep: (e && e.code) || (e && e.message) || 'bilinmiyor' });
+                        }
+                    }
+
+                    zip.file('RAPOR.txt',
+                        'STORAGE TAM İNDİRME RAPORU\n' +
+                        '==========================\n\n' +
+                        `Tarih          : ${new Date().toLocaleString('tr-TR')}\n` +
+                        `Toplam dosya   : ${dosyalar.length}\n` +
+                        `İndirilen      : ${basarili.length}\n` +
+                        `İndirilemeyen  : ${basarisiz.length}\n\n` +
+                        'KLASÖRLER\n' +
+                        '  kullanilan/ : verideki bir ürüne/mahale bağlı dosyalar\n' +
+                        '  bagsiz/     : Storage\'da duran ama hiçbir yerde kullanılmayan dosyalar\n' +
+                        '                (silinmiş kayıtların görselleri buradadır)\n\n' +
+                        (basarisiz.length
+                            ? 'İNDİRİLEMEYENLER\n' + basarisiz.map(b => `  ${b.yol}\n     ${b.sebep}`).join('\n') + '\n\n'
+                            : '') +
+                        'TÜM DOSYALAR\n' +
+                        basarili.map(b => `  [${b.bagli ? 'kullanılan' : 'bağsız  '}] ${b.yol}`).join('\n'));
+
+                    setYedekDurumu({ calisiyor: true, mesaj: 'ZIP oluşturuluyor...', yuzde: 100 });
+                    yuklemeAsama('ZIP oluşturuluyor...', 100);
+                    const icerik = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(icerik);
+                    link.download = 'storage-tum-dosyalar_' + new Date().toISOString().split('T')[0] + '.zip';
+                    link.click();
+                    setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+
+                    yuklemeBitir();
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    alert(
+                        `✅ Storage indirmesi hazır!\n\n` +
+                        `📦 ${basarili.length} / ${dosyalar.length} dosya indirildi\n` +
+                        `   • kullanilan/ klasörü: ${basarili.filter(b => b.bagli).length}\n` +
+                        `   • bagsiz/ klasörü    : ${basarili.filter(b => !b.bagli).length}\n` +
+                        (basarisiz.length ? `\n⚠️ ${basarisiz.length} dosya indirilemedi (RAPOR.txt'ye bakın)` : '')
+                    );
+                } catch (e) {
+                    yuklemeBitir();
+                    setYedekDurumu({ calisiyor: false, mesaj: '', yuzde: 0 });
+                    console.error('❌ Storage indirme hatası:', e);
+                    alert('❌ İndirme tamamlanamadı!\n\n' + ((e && e.message) || e));
+                }
+            };
+
             // ===== İNDİRME / CORS TEŞHİSİ =====
             // Yedek alırken görseller inmiyorsa sebebini kesin olarak söyler.
             const indirmeTesti = async () => {
@@ -18348,6 +18496,19 @@
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
                                             </svg>
                                             Tam Paket Geri Yükle
+                                        </button>
+
+                                        <button
+                                            onClick={tumStorageDosyalariniIndir}
+                                            disabled={yedekDurumu.calisiyor}
+                                            className={`w-full mt-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                                                yedekDurumu.calisiyor
+                                                    ? 'bg-gray-300 text-gray-500 cursor-wait'
+                                                    : 'bg-white text-slate-700 border-2 border-slate-400 hover:bg-slate-100'
+                                            }`}
+                                            title="Bağlantısı kopmuş dosyalar dahil, Storage'daki HER ŞEYİ indirir"
+                                        >
+                                            🗂️ Storage'daki Her Şeyi İndir
                                         </button>
 
                                         <button
