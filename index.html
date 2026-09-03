@@ -18866,7 +18866,7 @@
                                             {/* Mekan Adı */}
                                             <button 
                                                 onClick={() => setCurrentRoom(r.id)} 
-                                                className={`flex-1 text-left px-3 py-3 rounded-lg font-medium text-sm transition-all flex items-center gap-3 ${
+                                                className={`flex-1 min-w-0 text-left px-3 py-3 rounded-lg font-medium text-sm transition-all flex items-center gap-3 ${
                                                     currentRoom === r.id 
                                                         ? 'text-blue-700 font-semibold' 
                                                         : 'text-gray-700 hover:text-blue-600'
@@ -18876,26 +18876,6 @@
                                                     {getRoomIcon(r)}
                                                 </span>
                                                 <span className="flex-1 break-words">{r.name}</span>
-                                                {(() => {
-                                                    const s = odaIlerlemesi.harita[r.id];
-                                                    if (!s || !s.toplam) return null;
-                                                    const renk = s.tam ? DURUM_TANIM.tamam.renk : (s.dolu ? DURUM_TANIM.eksik.renk : DURUM_TANIM.devam.renk);
-                                                    return (
-                                                        <span className="flex flex-col items-end gap-1 flex-shrink-0"
-                                                              title={`${s.dolu}/${s.toplam} seçim yapıldı` + (s.eksik ? ` — ${s.eksik} alan boş` : '')}>
-                                                            <span className="flex items-center gap-1 text-[11px] font-bold" style={{ color: renk }}>
-                                                                {s.tam ? (
-                                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
-                                                                    </svg>
-                                                                ) : (s.dolu + '/' + s.toplam)}
-                                                            </span>
-                                                            <span className="block w-10 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                                                                <span className="block h-full rounded-full" style={{ width: s.yuzde + '%', background: renk }}></span>
-                                                            </span>
-                                                        </span>
-                                                    );
-                                                })()}
                                             </button>
 
                                             {/* Action Buttons - Hover'da görünür */}
@@ -18960,6 +18940,28 @@
                                                     </button>
                                                 )}
                                             </div>
+                                            {/* İlerleme rozeti — sabit genişlikte sütun, hepsi aynı hizada */}
+                                            {(() => {
+                                                const s = odaIlerlemesi.harita[r.id];
+                                                if (!s || !s.toplam) return <span className="w-12 flex-shrink-0"></span>;
+                                                const renk = s.tam ? DURUM_TANIM.tamam.renk : (s.dolu ? DURUM_TANIM.eksik.renk : DURUM_TANIM.devam.renk);
+                                                return (
+                                                    <span className="w-12 flex flex-col items-center gap-1 flex-shrink-0"
+                                                          title={`${s.dolu}/${s.toplam} seçim yapıldı` + (s.eksik ? ` — ${s.eksik} alan boş` : '')}>
+                                                        <span className="h-4 flex items-center justify-center text-[11px] font-bold leading-none" style={{ color: renk }}>
+                                                            {s.tam ? (
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path>
+                                                                </svg>
+                                                            ) : (s.dolu + '/' + s.toplam)}
+                                                        </span>
+                                                        <span className="block w-11 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                                                            <span className="block h-full rounded-full" style={{ width: s.yuzde + '%', background: renk }}></span>
+                                                        </span>
+                                                    </span>
+                                                );
+                                            })()}
+
                                         </div>
                                     </div>
                                 ))}
