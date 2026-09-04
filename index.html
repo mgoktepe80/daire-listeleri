@@ -1633,6 +1633,74 @@
         // Bir bağlantı açılmazsa (jeton geçersizleşmiş, dosya taşınmış) sessizce
         // Storage'dan yeni bağlantı ister ve kaydı günceller. Böylece görseller
         // "bir sabah kayboldu" durumuna düşmez.
+        // Çoklu seçim açılır listesi (malzeme analizi filtreleri)
+        function CokluSecim({ etiket, secenekler, secili, degistir, tema }) {
+            const [acik, setAcik] = React.useState(false);
+            const kutuRef = React.useRef(null);
+            React.useEffect(() => {
+                if (!acik) return;
+                const disariTikla = (e) => { if (kutuRef.current && !kutuRef.current.contains(e.target)) setAcik(false); };
+                const kacis = (e) => { if (e.key === 'Escape') setAcik(false); };
+                document.addEventListener('mousedown', disariTikla);
+                document.addEventListener('keydown', kacis);
+                return () => {
+                    document.removeEventListener('mousedown', disariTikla);
+                    document.removeEventListener('keydown', kacis);
+                };
+            }, [acik]);
+
+            const koyu = tema === 'dark';
+            const cevir = (deger) => {
+                degistir(secili.includes(deger) ? secili.filter(x => x !== deger) : [...secili, deger]);
+            };
+
+            return (
+                <div className="relative" ref={kutuRef}>
+                    <button
+                        onClick={() => setAcik(!acik)}
+                        className={`px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5 whitespace-nowrap transition-colors ${
+                            secili.length
+                                ? 'bg-cyan-600 border-cyan-600 text-white'
+                                : (koyu ? 'bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600'
+                                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50')
+                        }`}
+                    >
+                        {etiket}
+                        {secili.length > 0 && (
+                            <span className="px-1.5 rounded-full bg-white bg-opacity-30 text-[11px]">{secili.length}</span>
+                        )}
+                        <svg className={`w-3.5 h-3.5 transition-transform ${acik ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    {acik && (
+                        <div className={`absolute left-0 top-full mt-1 w-64 max-h-72 overflow-auto rounded-xl shadow-2xl z-[60] border py-1 ${
+                            koyu ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                        }`}>
+                            <div className={`flex gap-2 px-3 py-1.5 border-b ${koyu ? 'border-gray-700' : 'border-gray-100'}`}>
+                                <button onClick={() => degistir([...secenekler])}
+                                    className="text-[11px] font-bold text-cyan-600 hover:underline">Tümünü seç</button>
+                                <button onClick={() => degistir([])}
+                                    className="text-[11px] font-bold text-gray-500 hover:underline">Temizle</button>
+                            </div>
+                            {secenekler.length === 0 && (
+                                <div className={`px-3 py-3 text-xs ${koyu ? 'text-gray-500' : 'text-gray-400'}`}>Seçenek yok</div>
+                            )}
+                            {secenekler.map(o => (
+                                <label key={o} className={`flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer ${
+                                    koyu ? 'hover:bg-gray-700 text-gray-100' : 'hover:bg-gray-50 text-gray-800'
+                                }`}>
+                                    <input type="checkbox" checked={secili.includes(o)} onChange={() => cevir(o)}
+                                           className="w-4 h-4 accent-cyan-600 flex-shrink-0" />
+                                    <span className="truncate" title={o}>{o}</span>
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         // Halka (donut) grafik. dilimler: [{ deger, renk, ad }]
         function HalkaGrafik({ dilimler, boyut = 120, kalinlik = 16, ustYazi, altYazi, ustRenk }) {
             const toplam = dilimler.reduce((t, d) => t + (d.deger || 0), 0);
@@ -2235,6 +2303,17 @@
             const [theme, setTheme] = useState(localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
             const [showMaterialAnalysis, setShowMaterialAnalysis] = useState(false);
             const [activeAnalysisTab, setActiveAnalysisTab] = useState('Tümü');
+            // ---- Malzeme analizi: görünüm + filtreler ----
+            const [analizGorunum, setAnalizGorunum] = useState(
+                localStorage.getItem('analiz_gorunum') || 'capraz');
+            const [analizAra, setAnalizAra] = useState('');
+            const [analizKategori, setAnalizKategori] = useState([]);
+            const [analizAltGrup, setAnalizAltGrup] = useState([]);
+            const [analizProje, setAnalizProje] = useState([]);
+            const [analizDaire, setAnalizDaire] = useState([]);
+            const [analizMahal, setAnalizMahal] = useState([]);
+            const [analizSira, setAnalizSira] = useState({ alan: 'malzeme', yon: 1 });
+            const [analizAcikSatir, setAnalizAcikSatir] = useState({});
             const [showAdminPanel, setShowAdminPanel] = useState(false);
             const [allUsers, setAllUsers] = useState([]);
             const [allUsersData, setAllUsersData] = useState({});
@@ -7351,8 +7430,10 @@
                                             const key = `${fc.category}|${v.subgroup || '-'}|${v.malzeme}`;
                                             if (!analysis[key]) {
                                                 analysis[key] = {
+                                                    key,
                                                     category: fc.category,
                                                     subgroup: v.subgroup || '-',
+                                                    subgroup2: v.subgroup2 || '-',
                                                     material: v.malzeme,
                                                     unit: fc.unit || '',
                                                     totalAmount: 0,
@@ -7361,8 +7442,11 @@
                                             }
                                             analysis[key].totalAmount += parseFloat(v.miktar || 0);
                                             analysis[key].usages.push({
+                                                projectId: project.id,
                                                 project: project.name,
+                                                aptId: apt.id,
                                                 apartment: apt.name,
+                                                roomId: room.id,
                                                 room: room.name,
                                                 field: v.name || `Duvar ${wallIdx + 1}`, // Özel duvar ismi veya varsayılan
                                                 amount: parseFloat(v.miktar || 0)
@@ -7373,8 +7457,10 @@
                                     const key = `${fc.category}|${rd[f].subgroup || '-'}|${rd[f].malzeme}`;
                                     if (!analysis[key]) {
                                         analysis[key] = {
+                                            key,
                                             category: fc.category,
                                             subgroup: rd[f].subgroup || '-',
+                                            subgroup2: rd[f].subgroup2 || '-',
                                             material: rd[f].malzeme,
                                             unit: fc.unit || '',
                                             totalAmount: 0,
@@ -7383,8 +7469,11 @@
                                     }
                                     analysis[key].totalAmount += parseFloat(rd[f].miktar || 0);
                                     analysis[key].usages.push({
+                                        projectId: project.id,
                                         project: project.name,
+                                        aptId: apt.id,
                                         apartment: apt.name,
+                                        roomId: room.id,
                                         room: room.name,
                                         field: fc.label,
                                         amount: parseFloat(rd[f].miktar || 0)
@@ -7400,6 +7489,178 @@
                     if (a.subgroup !== b.subgroup) return a.subgroup.localeCompare(b.subgroup);
                     return a.material.localeCompare(b.material);
                 });
+            };
+
+            // ==========================================
+            // MALZEME ANALİZİ — filtreleme ve görünümler
+            // ==========================================
+
+            const sayiBicim = (n) => {
+                const s = Math.round((n + Number.EPSILON) * 100) / 100;
+                return s.toLocaleString('tr-TR', { maximumFractionDigits: 2 });
+            };
+
+            const analizVerisi = useMemo(() => {
+                if (!showMaterialAnalysis) return null;   // ağır hesap yalnızca pencere açıkken
+                const ham = getMaterialUsageAnalysis();
+
+                // ---- Seçenek listeleri (ham veriden) ----
+                const kategoriler = [...new Set(ham.map(x => x.category))].sort((a, b) => a.localeCompare(b, 'tr'));
+                const altGruplar = [...new Set(
+                    ham.filter(x => !analizKategori.length || analizKategori.includes(x.category))
+                       .map(x => x.subgroup).filter(x => x && x !== '-')
+                )].sort((a, b) => a.localeCompare(b, 'tr'));
+                const tumKullanim = ham.flatMap(x => x.usages);
+                const projeler = [...new Set(tumKullanim.map(u => u.project))].sort((a, b) => a.localeCompare(b, 'tr'));
+                const daireler = [...new Set(tumKullanim.map(u => u.apartment))].sort((a, b) => a.localeCompare(b, 'tr'));
+                const mahaller = [...new Set(tumKullanim.map(u => u.room))].sort((a, b) => a.localeCompare(b, 'tr'));
+
+                // ---- Süzme ----
+                const ara = (analizAra || '').toLocaleLowerCase('tr-TR').trim();
+                const satirlar = [];
+                ham.forEach(x => {
+                    if (analizKategori.length && !analizKategori.includes(x.category)) return;
+                    if (analizAltGrup.length && !analizAltGrup.includes(x.subgroup)) return;
+                    if (ara) {
+                        const metin = (x.material + ' ' + x.category + ' ' + x.subgroup).toLocaleLowerCase('tr-TR');
+                        if (!metin.includes(ara)) return;
+                    }
+                    const kullanimlar = x.usages.filter(u =>
+                        (!analizProje.length || analizProje.includes(u.project)) &&
+                        (!analizDaire.length || analizDaire.includes(u.apartment)) &&
+                        (!analizMahal.length || analizMahal.includes(u.room))
+                    );
+                    if (!kullanimlar.length) return;
+                    satirlar.push({
+                        ...x,
+                        usages: kullanimlar,
+                        totalAmount: kullanimlar.reduce((t, u) => t + u.amount, 0)
+                    });
+                });
+
+                // ---- Çapraz tablo sütunları ----
+                const cokProje = new Set(satirlar.flatMap(x => x.usages.map(u => u.project))).size > 1;
+                const etiket = (u) => cokProje ? (u.project + ' › ' + u.apartment) : u.apartment;
+                const sutunlar = [...new Set(satirlar.flatMap(x => x.usages.map(etiket)))]
+                    .sort((a, b) => a.localeCompare(b, 'tr', { numeric: true }));
+                const hucre = {};       // hucre[malzemeKey][sutun] = miktar
+                const sutunToplam = {};
+                let enBuyukHucre = 0;
+                satirlar.forEach(x => {
+                    hucre[x.key] = {};
+                    x.usages.forEach(u => {
+                        const s = etiket(u);
+                        hucre[x.key][s] = (hucre[x.key][s] || 0) + u.amount;
+                        sutunToplam[s] = (sutunToplam[s] || 0) + u.amount;
+                        if (hucre[x.key][s] > enBuyukHucre) enBuyukHucre = hucre[x.key][s];
+                    });
+                });
+
+                // ---- Detay satırları ----
+                const detay = [];
+                satirlar.forEach(x => x.usages.forEach(u => detay.push({
+                    proje: u.project, daire: u.apartment, mahal: u.room, alan: u.field,
+                    kategori: x.category, altGrup: x.subgroup, malzeme: x.material,
+                    miktar: u.amount, birim: x.unit,
+                    projectId: u.projectId, aptId: u.aptId, roomId: u.roomId
+                })));
+                const yon = analizSira.yon;
+                const alanEsleme = { malzeme: 'malzeme', daire: 'daire', mahal: 'mahal', miktar: 'miktar',
+                                     kategori: 'kategori', altGrup: 'altGrup', proje: 'proje', alan: 'alan' };
+                const sa = alanEsleme[analizSira.alan] || 'malzeme';
+                detay.sort((a, b) => {
+                    if (sa === 'miktar') return (a.miktar - b.miktar) * yon;
+                    return String(a[sa]).localeCompare(String(b[sa]), 'tr', { numeric: true }) * yon;
+                });
+
+                const toplamMiktar = satirlar.reduce((t, x) => t + x.totalAmount, 0);
+                const birimler = [...new Set(satirlar.map(x => x.unit).filter(Boolean))];
+
+                return {
+                    ham, satirlar, sutunlar, hucre, sutunToplam, enBuyukHucre, detay,
+                    secenek: { kategoriler, altGruplar, projeler, daireler, mahaller },
+                    ozet: {
+                        malzeme: satirlar.length,
+                        daire: sutunlar.length,
+                        kullanim: detay.length,
+                        toplam: toplamMiktar,
+                        birim: birimler.length === 1 ? birimler[0] : ''
+                    }
+                };
+            }, [showMaterialAnalysis, projects, allRooms, fieldLabels,
+                analizAra, analizKategori, analizAltGrup, analizProje, analizDaire, analizMahal, analizSira]);
+
+            const analizFiltreSayisi = analizKategori.length + analizAltGrup.length +
+                analizProje.length + analizDaire.length + analizMahal.length + (analizAra.trim() ? 1 : 0);
+
+            const analizFiltreleriTemizle = () => {
+                setAnalizAra(''); setAnalizKategori([]); setAnalizAltGrup([]);
+                setAnalizProje([]); setAnalizDaire([]); setAnalizMahal([]);
+            };
+
+            const analizGorunumSec = (g) => {
+                setAnalizGorunum(g);
+                try { localStorage.setItem('analiz_gorunum', g); } catch (e) {}
+            };
+
+            const analizSirala = (alan) => {
+                setAnalizSira(o => o.alan === alan ? { alan, yon: -o.yon } : { alan, yon: 1 });
+            };
+
+            // Analizden doğrudan ilgili daire/mahal seçimine atla
+            const analizdenGit = (projectId, aptId, roomId) => {
+                if (projectId != null) setCurrentPrj(projectId);
+                if (aptId != null) setCurrentApt(aptId);
+                if (roomId != null) setCurrentRoom(roomId);
+                setShowMaterialAnalysis(false);
+            };
+
+            // Ekranda görünen tabloyu (filtreli hâliyle) Excel'e aktar
+            const analiziExceleAktar = () => {
+                if (typeof XLSX === 'undefined') { alert('Excel kitaplığı yüklenemedi. Sayfayı yenileyip tekrar deneyin.'); return; }
+                const d = analizVerisi;
+                if (!d || !d.satirlar.length) { alert('Aktarılacak veri yok.'); return; }
+
+                const wb = XLSX.utils.book_new();
+                const bugun = new Date().toISOString().split('T')[0];
+
+                if (analizGorunum === 'capraz') {
+                    const baslik = ['Kategori', 'Alt Grup', 'Malzeme', 'Birim', ...d.sutunlar, 'TOPLAM'];
+                    const satir = d.satirlar.map(x => ([
+                        x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.unit,
+                        ...d.sutunlar.map(s => d.hucre[x.key][s] || ''),
+                        x.totalAmount
+                    ]));
+                    satir.push(['', '', 'TOPLAM', '', ...d.sutunlar.map(s => d.sutunToplam[s] || 0), d.ozet.toplam]);
+                    const ws = XLSX.utils.aoa_to_sheet([baslik, ...satir]);
+                    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 34 }, { wch: 7 },
+                                   ...d.sutunlar.map(() => ({ wch: 12 })), { wch: 12 }];
+                    ws['!freeze'] = { xSplit: 3, ySplit: 1 };
+                    XLSX.utils.book_append_sheet(wb, ws, 'Capraz Tablo');
+                } else if (analizGorunum === 'detay') {
+                    const baslik = ['Proje', 'Daire', 'Mahal', 'Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Miktar', 'Birim'];
+                    const satir = d.detay.map(r => [r.proje, r.daire, r.mahal, r.alan, r.kategori,
+                        r.altGrup === '-' ? '' : r.altGrup, r.malzeme, r.miktar, r.birim]);
+                    const ws = XLSX.utils.aoa_to_sheet([baslik, ...satir]);
+                    ws['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+                                   { wch: 14 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, { wch: 7 }];
+                    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: satir.length, c: 8 } }) };
+                    XLSX.utils.book_append_sheet(wb, ws, 'Detay');
+                } else {
+                    const baslik = ['Kategori', 'Alt Grup', 'Malzeme', 'Toplam', 'Birim', 'Daire Sayısı', 'Kullanım'];
+                    const satir = d.satirlar.map(x => [
+                        x.category, x.subgroup === '-' ? '' : x.subgroup, x.material,
+                        x.totalAmount, x.unit,
+                        new Set(x.usages.map(u => u.project + '|' + u.apartment)).size,
+                        x.usages.length
+                    ]);
+                    const ws = XLSX.utils.aoa_to_sheet([baslik, ...satir]);
+                    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 34 }, { wch: 12 }, { wch: 7 }, { wch: 12 }, { wch: 10 }];
+                    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: satir.length, c: 6 } }) };
+                    XLSX.utils.book_append_sheet(wb, ws, 'Ozet');
+                }
+
+                XLSX.writeFile(wb, 'malzeme_analizi_' + analizGorunum + '_' + bugun + '.xlsx');
             };
 
             // ==========================================
@@ -16897,192 +17158,280 @@
                         </div>
                     )}
 
-                    {showMaterialAnalysis && (
+                    {showMaterialAnalysis && (() => {
+                        const d = analizVerisi;
+                        const koyu = theme === 'dark';
+                        const gorunumler = [
+                            { id: 'ozet',   ad: 'Özet' },
+                            { id: 'capraz', ad: 'Çapraz Tablo' },
+                            { id: 'detay',  ad: 'Detay' }
+                        ];
+                        const cerceve = koyu ? 'border-gray-700' : 'border-gray-200';
+                        const basSinif = `sticky top-0 z-10 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wide select-none ${
+                            koyu ? 'bg-gray-900 text-gray-300' : 'bg-gray-100 text-gray-600'}`;
+
+                        return (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className={`rounded-lg p-6 max-w-7xl w-full h-[90vh] flex flex-col transition-colors ${
-                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                            <div className={`rounded-xl w-full max-w-[1500px] h-[92vh] flex flex-col overflow-hidden transition-colors ${
+                                koyu ? 'bg-gray-800' : 'bg-white'
                             }`}>
-                                <div className="flex justify-between mb-6 pb-4 border-b">
-                                    <h2 className={`text-2xl font-bold flex items-center gap-2 ${
-                                        theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
-                                    }`}>
-                                        <svg className="w-7 h-7 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {/* ---- Başlık + görünüm değiştirici ---- */}
+                                <div className={`flex items-center gap-4 px-5 py-3 border-b ${cerceve}`}>
+                                    <h2 className={`text-lg font-bold flex items-center gap-2 flex-shrink-0 ${koyu ? 'text-gray-100' : 'text-gray-800'}`}>
+                                        <svg className="w-6 h-6 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
                                         </svg>
                                         Malzeme Kullanım Analizi
                                     </h2>
-                                    <button 
-                                        onClick={() => setShowMaterialAnalysis(false)} 
-                                        className="text-3xl hover:text-gray-600 transition-colors"
-                                    >×</button>
+
+                                    <div className={`ml-auto flex rounded-lg p-1 gap-1 ${koyu ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                                        {gorunumler.map(g => (
+                                            <button key={g.id}
+                                                onClick={() => analizGorunumSec(g.id)}
+                                                className={`px-4 py-1.5 rounded-md text-sm font-bold transition-all ${
+                                                    analizGorunum === g.id
+                                                        ? 'bg-cyan-600 text-white shadow-sm'
+                                                        : (koyu ? 'text-gray-300 hover:bg-gray-600' : 'text-gray-600 hover:bg-white')
+                                                }`}
+                                            >{g.ad}</button>
+                                        ))}
+                                    </div>
+
+                                    <button onClick={() => setShowMaterialAnalysis(false)}
+                                        className={`text-2xl leading-none px-2 ${koyu ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}>×</button>
                                 </div>
-                                
-                                {(() => {
-                                    const analysis = getMaterialUsageAnalysis();
-                                    
-                                    // Kategorileri al ve alfabetik sırala, Tümü'yü sona ekle
-                                    const uniqueCategories = [...new Set(analysis.map(item => item.category))].sort();
-                                    const categories = [...uniqueCategories, 'Tümü'];
-                                    
-                                    // Aktif sekmeye göre filtrele
-                                    const filteredAnalysis = activeAnalysisTab === 'Tümü' 
-                                        ? analysis 
-                                        : analysis.filter(item => item.category === activeAnalysisTab);
-                                    
-                                    return analysis.length === 0 ? (
-                                        <div className={`text-center py-12 ${
-                                            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                                        }`}>
-                                            <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+                                {/* ---- Ortak filtre çubuğu ---- */}
+                                <div className={`px-5 py-3 border-b ${cerceve} ${koyu ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div className="relative flex-1 min-w-[200px]">
+                                            <input
+                                                type="text"
+                                                value={analizAra}
+                                                onChange={(e) => setAnalizAra(e.target.value)}
+                                                placeholder="Malzeme ara… (ör. nocturne)"
+                                                className={`w-full pl-9 pr-3 py-2 rounded-lg border text-sm ${
+                                                    koyu ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400'
+                                                         : 'bg-white border-gray-300 text-gray-900'
+                                                }`}
+                                            />
+                                            <svg className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                            </svg>
+                                        </div>
+                                        <CokluSecim etiket="Kategori"  tema={theme} secenekler={d ? d.secenek.kategoriler : []} secili={analizKategori} degistir={setAnalizKategori} />
+                                        <CokluSecim etiket="Alt grup"  tema={theme} secenekler={d ? d.secenek.altGruplar : []} secili={analizAltGrup} degistir={setAnalizAltGrup} />
+                                        <CokluSecim etiket="Proje"     tema={theme} secenekler={d ? d.secenek.projeler : []}   secili={analizProje}    degistir={setAnalizProje} />
+                                        <CokluSecim etiket="Daire"     tema={theme} secenekler={d ? d.secenek.daireler : []}   secili={analizDaire}    degistir={setAnalizDaire} />
+                                        <CokluSecim etiket="Mahal"     tema={theme} secenekler={d ? d.secenek.mahaller : []}   secili={analizMahal}    degistir={setAnalizMahal} />
+                                        {analizFiltreSayisi > 0 && (
+                                            <button onClick={analizFiltreleriTemizle}
+                                                className="px-3 py-2 rounded-lg text-sm font-semibold bg-red-100 text-red-700 hover:bg-red-200 whitespace-nowrap">
+                                                Filtreleri temizle ({analizFiltreSayisi})
+                                            </button>
+                                        )}
+                                        <button onClick={analiziExceleAktar}
+                                            className="px-3 py-2 rounded-lg text-sm font-bold bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 whitespace-nowrap">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                            </svg>
+                                            Excel'e aktar
+                                        </button>
+                                    </div>
+
+                                    {d && (
+                                        <div className={`mt-2 text-xs font-semibold flex flex-wrap gap-x-4 gap-y-1 ${koyu ? 'text-gray-400' : 'text-gray-600'}`}>
+                                            <span>{d.ozet.malzeme} malzeme</span>
+                                            <span>{d.ozet.daire} daire</span>
+                                            <span>{d.ozet.kullanim} kullanım</span>
+                                            <span className="text-cyan-600">
+                                                toplam {sayiBicim(d.ozet.toplam)} {d.ozet.birim}
+                                                {!d.ozet.birim && ' (karışık birim)'}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ---- İçerik ---- */}
+                                <div className="flex-1 overflow-auto">
+                                    {!d || d.satirlar.length === 0 ? (
+                                        <div className={`text-center py-16 ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>
+                                            <svg className="w-16 h-16 mx-auto mb-4 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
                                             </svg>
-                                            <p className="text-lg font-medium">Henüz malzeme kullanımı yok</p>
-                                            <p className="text-sm mt-2">Dairelere malzeme ekledikçe burada görünecek</p>
+                                            <p className="text-lg font-medium">
+                                                {analizFiltreSayisi ? 'Bu filtreye uyan kayıt yok' : 'Henüz malzeme kullanımı yok'}
+                                            </p>
+                                            {analizFiltreSayisi > 0 && (
+                                                <button onClick={analizFiltreleriTemizle} className="mt-3 text-cyan-600 font-semibold hover:underline">
+                                                    Filtreleri temizle
+                                                </button>
+                                            )}
                                         </div>
-                                    ) : (
-                                        <>
-                                            {/* Sekmeler */}
-                                            <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-                                                {categories.map(category => (
-                                                    <button
-                                                        key={category}
-                                                        onClick={() => setActiveAnalysisTab(category)}
-                                                        className={`px-4 py-2 rounded-lg font-semibold text-sm whitespace-nowrap transition-all ${
-                                                            activeAnalysisTab === category
-                                                                ? theme === 'dark'
-                                                                    ? 'bg-cyan-600 text-white shadow-lg'
-                                                                    : 'bg-cyan-500 text-white shadow-lg'
-                                                                : theme === 'dark'
-                                                                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                        }`}
-                                                    >
-                                                        {category}
-                                                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                                                            activeAnalysisTab === category
-                                                                ? 'bg-white bg-opacity-30'
-                                                                : theme === 'dark'
-                                                                    ? 'bg-gray-600'
-                                                                    : 'bg-gray-300'
-                                                        }`}>
-                                                            {category === 'Tümü' 
-                                                                ? analysis.length 
-                                                                : analysis.filter(item => item.category === category).length
-                                                            }
-                                                        </span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            
-                                            {/* Malzeme Listesi */}
-                                            <div className="flex-1 overflow-auto">
-                                                <div className="space-y-3">
-                                                    {filteredAnalysis.map((item, idx) => {
-                                                    const uniqueProjects = [...new Set(item.usages.map(u => u.project))];
-                                                    const uniqueApartments = [...new Set(item.usages.map(u => `${u.project}|${u.apartment}`))];
-                                                    
+                                    ) : analizGorunum === 'capraz' ? (
+                                        /* ================= ÇAPRAZ TABLO ================= */
+                                        <table className="min-w-full text-sm border-collapse">
+                                            <thead>
+                                                <tr>
+                                                    <th className={`${basSinif} left-0 z-20 min-w-[300px] w-[300px] border-r ${cerceve}`}>Malzeme</th>
+                                                    {d.sutunlar.map(s => (
+                                                        <th key={s} className={`${basSinif} text-right min-w-[92px]`} title={s}>{s}</th>
+                                                    ))}
+                                                    <th className={`${basSinif} text-right min-w-[100px] border-l ${cerceve}`}>TOPLAM</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {d.satirlar.map(x => {
+                                                    const foto = getProductPhoto(x.category, x.subgroup, x.subgroup2, x.material);
                                                     return (
-                                                        <div 
-                                                            key={idx} 
-                                                            className={`border-2 rounded-lg p-4 transition-all ${
-                                                                theme === 'dark'
-                                                                    ? 'border-gray-700 bg-gray-750 hover:bg-gray-700'
-                                                                    : 'border-gray-200 bg-white hover:shadow-md'
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center justify-between mb-3">
-                                                                <div className="flex-1">
-                                                                    <div className="flex items-center gap-3 mb-2">
-                                                                        <h3 className={`font-bold text-lg ${
-                                                                            theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
-                                                                        }`}>
-                                                                            {item.material}
-                                                                        </h3>
-                                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                                            theme === 'dark'
-                                                                                ? 'bg-blue-900 text-blue-100'
-                                                                                : 'bg-blue-100 text-blue-800'
-                                                                        }`}>
-                                                                            {item.category}
+                                                        <tr key={x.key} className={koyu ? 'hover:bg-gray-750' : 'hover:bg-cyan-50'}>
+                                                            <td className={`sticky left-0 z-10 px-3 py-2 border-b border-r ${cerceve} ${koyu ? 'bg-gray-800' : 'bg-white'}`}>
+                                                                <div className="flex items-center gap-2">
+                                                                    {foto
+                                                                        ? <img src={foto} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 border border-gray-200" />
+                                                                        : <span className={`w-8 h-8 rounded flex-shrink-0 ${koyu ? 'bg-gray-700' : 'bg-gray-100'}`}></span>}
+                                                                    <span className="min-w-0">
+                                                                        <span className={`block font-semibold truncate max-w-[240px] ${koyu ? 'text-gray-100' : 'text-gray-900'}`} title={x.material}>{x.material}</span>
+                                                                        <span className={`block text-[11px] truncate ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                            {x.category}{x.subgroup !== '-' ? ' · ' + x.subgroup : ''}{x.unit ? ' · ' + x.unit : ''}
                                                                         </span>
-                                                                        {item.subgroup !== '-' && (
-                                                                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                                                                theme === 'dark'
-                                                                                    ? 'bg-purple-900 text-purple-100'
-                                                                                    : 'bg-purple-100 text-purple-800'
-                                                                            }`}>
-                                                                                {item.subgroup}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className={`flex gap-6 text-sm ${
-                                                                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                                                                    }`}>
-                                                                        <span>🏢 {uniqueProjects.length} Proje</span>
-                                                                        <span>🏠 {uniqueApartments.length} Daire</span>
-                                                                        <span>📍 {item.usages.length} Kullanım</span>
-                                                                    </div>
+                                                                    </span>
                                                                 </div>
-                                                                <div className={`text-right ${
-                                                                    theme === 'dark' ? 'text-gray-100' : 'text-gray-800'
-                                                                }`}>
-                                                                    <div className="text-2xl font-bold text-cyan-600">
-                                                                        {item.totalAmount.toFixed(2)}
-                                                                    </div>
-                                                                    <div className="text-sm">{item.unit}</div>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            {/* Kullanım Detayları */}
-                                                            <details className="mt-3">
-                                                                <summary className={`cursor-pointer font-medium ${
-                                                                    theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'
-                                                                } hover:underline`}>
-                                                                    Detayları Göster ({item.usages.length} kullanım)
-                                                                </summary>
-                                                                <div className="mt-3 space-y-2 max-h-48 overflow-auto">
-                                                                    {item.usages.map((usage, uIdx) => (
-                                                                        <div 
-                                                                            key={uIdx}
-                                                                            className={`flex justify-between items-center p-3 rounded-lg text-sm ${
-                                                                                theme === 'dark'
-                                                                                    ? 'bg-gray-800 border border-gray-700'
-                                                                                    : 'bg-gray-50 border border-gray-200'
-                                                                            }`}
-                                                                        >
-                                                                            <div className={theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}>
-                                                                                <span className="font-medium">{usage.project}</span>
-                                                                                <span className="mx-2">→</span>
-                                                                                <span className="font-medium">{usage.apartment}</span>
-                                                                                <span className="mx-2">→</span>
-                                                                                <span>{usage.room}</span>
-                                                                                <span className="mx-2 text-gray-400">•</span>
-                                                                                <span className={theme === 'dark' ? 'text-gray-500' : 'text-gray-500'}>
-                                                                                    {usage.field}
-                                                                                </span>
-                                                                            </div>
-                                                                            <div className={`font-bold ${
-                                                                                theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'
-                                                                            }`}>
-                                                                                {usage.amount.toFixed(2)} {item.unit}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </details>
-                                                        </div>
+                                                            </td>
+                                                            {d.sutunlar.map(s => {
+                                                                const v = d.hucre[x.key][s];
+                                                                const oran = v && d.enBuyukHucre ? v / d.enBuyukHucre : 0;
+                                                                const kul = v ? x.usages.find(u => u.apartment === s || (u.project + ' › ' + u.apartment) === s) : null;
+                                                                return (
+                                                                    <td key={s}
+                                                                        onClick={() => kul && analizdenGit(kul.projectId, kul.aptId, kul.roomId)}
+                                                                        title={v ? `${x.material} — ${s}: ${sayiBicim(v)} ${x.unit}\n(tıkla → bu daireye git)` : ''}
+                                                                        className={`px-3 py-2 text-right border-b ${cerceve} tabular-nums ${v ? 'cursor-pointer font-semibold' : ''}`}
+                                                                        style={v ? {
+                                                                            backgroundColor: koyu
+                                                                                ? `rgba(6, 182, 212, ${0.12 + oran * 0.45})`
+                                                                                : `rgba(6, 182, 212, ${0.08 + oran * 0.42})`
+                                                                        } : {}}
+                                                                    >
+                                                                        {v ? sayiBicim(v) : <span className={koyu ? 'text-gray-700' : 'text-gray-300'}>·</span>}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                            <td className={`px-3 py-2 text-right border-b border-l font-bold tabular-nums text-cyan-600 ${cerceve} ${koyu ? 'bg-gray-800' : 'bg-white'}`}>
+                                                                {sayiBicim(x.totalAmount)}
+                                                            </td>
+                                                        </tr>
                                                     );
                                                 })}
-                                            </div>
+                                                <tr className={koyu ? 'bg-gray-900' : 'bg-gray-100'}>
+                                                    <td className={`sticky left-0 z-10 px-3 py-2 font-bold border-r ${cerceve} ${koyu ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-800'}`}>TOPLAM</td>
+                                                    {d.sutunlar.map(s => (
+                                                        <td key={s} className={`px-3 py-2 text-right font-bold tabular-nums ${koyu ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                            {sayiBicim(d.sutunToplam[s] || 0)}
+                                                        </td>
+                                                    ))}
+                                                    <td className={`px-3 py-2 text-right font-extrabold tabular-nums text-cyan-600 border-l ${cerceve}`}>
+                                                        {sayiBicim(d.ozet.toplam)}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    ) : analizGorunum === 'detay' ? (
+                                        /* ================= DETAY LİSTESİ ================= */
+                                        <table className="w-full text-sm border-collapse">
+                                            <thead>
+                                                <tr>
+                                                    {[['proje','Proje'],['daire','Daire'],['mahal','Mahal'],['alan','Alan'],
+                                                      ['kategori','Kategori'],['altGrup','Alt Grup'],['malzeme','Malzeme'],['miktar','Miktar']].map(([k, ad]) => (
+                                                        <th key={k} onClick={() => analizSirala(k)}
+                                                            className={`${basSinif} cursor-pointer ${k === 'miktar' ? 'text-right' : ''} ${koyu ? 'hover:bg-gray-800' : 'hover:bg-gray-200'}`}>
+                                                            {ad}
+                                                            {analizSira.alan === k && <span className="ml-1">{analizSira.yon > 0 ? '▲' : '▼'}</span>}
+                                                        </th>
+                                                    ))}
+                                                    <th className={basSinif}></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {d.detay.map((r, i) => (
+                                                    <tr key={i}
+                                                        onClick={() => analizdenGit(r.projectId, r.aptId, r.roomId)}
+                                                        title="Tıkla → bu daire/mahale git"
+                                                        className={`cursor-pointer ${koyu ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-cyan-50 text-gray-800'}`}>
+                                                        <td className={`px-3 py-1.5 border-b ${cerceve}`}>{r.proje}</td>
+                                                        <td className={`px-3 py-1.5 border-b font-semibold ${cerceve}`}>{r.daire}</td>
+                                                        <td className={`px-3 py-1.5 border-b ${cerceve}`}>{r.mahal}</td>
+                                                        <td className={`px-3 py-1.5 border-b ${cerceve}`}>{r.alan}</td>
+                                                        <td className={`px-3 py-1.5 border-b ${cerceve}`}>{r.kategori}</td>
+                                                        <td className={`px-3 py-1.5 border-b ${cerceve}`}>{r.altGrup === '-' ? '' : r.altGrup}</td>
+                                                        <td className={`px-3 py-1.5 border-b ${cerceve}`}>{r.malzeme}</td>
+                                                        <td className={`px-3 py-1.5 border-b text-right font-bold tabular-nums text-cyan-600 ${cerceve}`}>{sayiBicim(r.miktar)}</td>
+                                                        <td className={`px-2 py-1.5 border-b text-[11px] ${cerceve} ${koyu ? 'text-gray-500' : 'text-gray-400'}`}>{r.birim}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : (
+                                        /* ================= ÖZET ================= */
+                                        <div className="p-4 space-y-2">
+                                            {d.satirlar.map(x => {
+                                                const acik = !!analizAcikSatir[x.key];
+                                                const daireSayisi = new Set(x.usages.map(u => u.project + '|' + u.apartment)).size;
+                                                const foto = getProductPhoto(x.category, x.subgroup, x.subgroup2, x.material);
+                                                return (
+                                                    <div key={x.key} className={`rounded-lg border ${cerceve} ${koyu ? 'bg-gray-900/40' : 'bg-white'}`}>
+                                                        <button
+                                                            onClick={() => setAnalizAcikSatir(o => ({ ...o, [x.key]: !o[x.key] }))}
+                                                            className={`w-full px-3 py-2.5 flex items-center gap-3 text-left rounded-lg ${koyu ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}`}
+                                                        >
+                                                            {foto
+                                                                ? <img src={foto} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0 border border-gray-200" />
+                                                                : <span className={`w-10 h-10 rounded flex-shrink-0 ${koyu ? 'bg-gray-700' : 'bg-gray-100'}`}></span>}
+                                                            <span className="flex-1 min-w-0">
+                                                                <span className={`block font-bold truncate ${koyu ? 'text-gray-100' : 'text-gray-900'}`}>{x.material}</span>
+                                                                <span className={`block text-[11px] ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                    {x.category}{x.subgroup !== '-' ? ' · ' + x.subgroup : ''} · {daireSayisi} daire · {x.usages.length} kullanım
+                                                                </span>
+                                                            </span>
+                                                            <span className="text-right flex-shrink-0">
+                                                                <span className="block text-lg font-extrabold text-cyan-600 tabular-nums">{sayiBicim(x.totalAmount)}</span>
+                                                                <span className={`block text-[11px] ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>{x.unit}</span>
+                                                            </span>
+                                                            <svg className={`w-4 h-4 flex-shrink-0 transition-transform ${acik ? 'rotate-180' : ''} ${koyu ? 'text-gray-500' : 'text-gray-400'}`}
+                                                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M19 9l-7 7-7-7"></path>
+                                                            </svg>
+                                                        </button>
+                                                        {acik && (
+                                                            <div className={`px-3 pb-3 pt-1 border-t ${cerceve}`}>
+                                                                {x.usages.map((u, ui) => (
+                                                                    <button key={ui}
+                                                                        onClick={() => analizdenGit(u.projectId, u.aptId, u.roomId)}
+                                                                        title="Tıkla → bu daire/mahale git"
+                                                                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm ${
+                                                                            koyu ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-cyan-50 text-gray-700'}`}>
+                                                                        <span className="font-semibold">{u.apartment}</span>
+                                                                        <span className={koyu ? 'text-gray-500' : 'text-gray-400'}>›</span>
+                                                                        <span>{u.room}</span>
+                                                                        <span className={koyu ? 'text-gray-600' : 'text-gray-400'}>·</span>
+                                                                        <span className={koyu ? 'text-gray-500' : 'text-gray-500'}>{u.field}</span>
+                                                                        <span className="ml-auto font-bold tabular-nums text-cyan-600">{sayiBicim(u.amount)} {x.unit}</span>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
-                                        </>
-                                    );
-                                })()}
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    )}
-                    
-                    
+                        );
+                    })()}
+
+
                     {/* YENİ PROJE MODAL */}
                     {showNewProjectModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
