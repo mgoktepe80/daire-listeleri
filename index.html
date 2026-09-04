@@ -1082,6 +1082,16 @@
             return JSON.stringify(sortKeys(obj));
         };
 
+        // Kaydedilen verinin parmak izi. Autosave, elle kaydetme ve bulut dinleyicisi
+        // AYNI alanları kullanmalı; yoksa kendi kaydımızın yankısı "yeni veri" sanılır
+        // ya da gerçek bir değişiklik "aynı" sanılıp atlanır.
+        const veriHashi = (d) => stableStringify({
+            p: d.projects, c: d.customRooms, b: d.baseRooms,
+            f: d.fieldLabels, r: d.roomOrder, m: d.materials, cd: d.ceramicData,
+            pp: d.productPhotos, cn: d.companyName || '', cl: d.companyLogo || '',
+            pf: d.pdfFonts || {}
+        });
+
         // Eski projelerdeki mahallere editable/deletable özelliklerini ekler
         const migrateRoomsData = (rooms) => {
             if (!rooms || !Array.isArray(rooms)) return rooms;
@@ -2629,11 +2639,9 @@
                 // ÖNEMLİ: Firma adı/logosu ve PDF ayarları da hash'e dahil.
                 // Eskiden dahil DEĞİLDİ: sadece logoyu değiştirince "içerik değişmedi"
                 // denip kayıt atlanıyordu, logo buluta hiç gitmiyordu.
-                const currentHash = stableStringify({
-                    p: projects, c: customRooms, b: baseRooms,
-                    f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData,
-                    pp: productPhotos,
-                    cn: companyName, cl: companyLogo, pf: pdfFonts
+                const currentHash = veriHashi({
+                    projects, customRooms, baseRooms, fieldLabels, roomOrder,
+                    materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts
                 });
                 if (currentHash === lastAppliedDataRef.current) {
                     console.log('⏭️ İçerik değişmedi, autosave gereksiz');
@@ -2664,7 +2672,16 @@
                 }
                 // NOT: companyName/companyLogo/pdfFonts da bağımlılıklara eklendi;
                 // yoksa yalnızca logo değişince effect hiç çalışmıyor ve kayıt olmuyordu.
-            }, [materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts, firebaseSync, user]);
+                //
+                // NOT (önemli): projects/customRooms/baseRooms/roomOrder/fieldLabels de
+                // bağımlılıklara EKLENDİ. Eskiden bunlar hash'e giriyor ama bağımlılıkta
+                // olmadığı için effect hiç çalışmıyordu: daire seçimleri, daire durumu
+                // (tamam/eksik işaretleri), mahal düzeni... yalnızca elle "Kaydet"e
+                // basılırsa buluta gidiyordu. Başka bilgisayarda açınca sıfır görünmesinin
+                // sebebi buydu.
+            }, [projects, customRooms, baseRooms, roomOrder, fieldLabels,
+                materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts,
+                firebaseSync, user]);
 
             // Tema yüklendiğinde CSS güncelle
             useEffect(() => {
@@ -3105,10 +3122,16 @@
                         // ÖNEMLİ: Gelen veri şu anki veriyle AYNI ise hiçbir şey yapma
                         // (kendi kaydımızın sunucudan geri yankısı olabilir)
                         // stableStringify: Firestore anahtarları alfabetik döndürdüğü için şart
-                        const incomingHash = stableStringify({
-                            p: cleanData.projects, c: cleanData.customRooms, b: cleanData.baseRooms,
-                            f: cleanData.fieldLabels, r: cleanData.roomOrder, m: cleanData.materials, cd: cleanData.ceramicData,
-                            pp: productPhotosFromAny(cleanData.productPhotos)
+                        // Bu hash, autosave'deki currentHash ile BİREBİR aynı alanları
+                        // içermeli; yoksa kendi kaydımızın yankısı "yeni veri" sanılır.
+                        const incomingHash = veriHashi({
+                            projects: cleanData.projects, customRooms: cleanData.customRooms,
+                            baseRooms: cleanData.baseRooms, fieldLabels: cleanData.fieldLabels,
+                            roomOrder: cleanData.roomOrder, materials: cleanData.materials,
+                            ceramicData: cleanData.ceramicData,
+                            productPhotos: productPhotosFromAny(cleanData.productPhotos),
+                            companyName: cleanData.companyName, companyLogo: cleanData.companyLogo,
+                            pdfFonts: cleanData.pdfFonts ? { ...PDF_DEFAULT_FONTS, ...cleanData.pdfFonts } : PDF_DEFAULT_FONTS
                         });
                         if (incomingHash === lastAppliedDataRef.current) {
                             console.log('⏭️ Gelen veri mevcut veriyle aynı, listener atlıyor');
@@ -3429,10 +3452,9 @@
             const guvenliKaydet = async () => {
                 if (!(firebaseSync && firebaseEnabled && user)) return false;
                 const targetUserId = viewingUserId || user.uid;
-                lastAppliedDataRef.current = stableStringify({
-                    p: projects, c: customRooms, b: baseRooms,
-                    f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData,
-                    pp: productPhotos
+                lastAppliedDataRef.current = veriHashi({
+                    projects, customRooms, baseRooms, fieldLabels, roomOrder,
+                    materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts
                 });
                 return await saveToFirebaseWithUserId(targetUserId, {
                     projects, customRooms, baseRooms, roomOrder,
@@ -3478,10 +3500,9 @@
                     }
                     
                     // Kaydedilen verinin hash'ini tut - listener sunucu yankısını atlasın
-                    lastAppliedDataRef.current = stableStringify({
-                        p: projects, c: customRooms, b: baseRooms,
-                        f: fieldLabels, r: roomOrder, m: materials, cd: ceramicData,
-                        pp: productPhotos
+                    lastAppliedDataRef.current = veriHashi({
+                        projects, customRooms, baseRooms, fieldLabels, roomOrder,
+                        materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts
                     });
 
                     const success = await saveToFirebaseWithUserId(targetUserId, {
