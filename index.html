@@ -18860,6 +18860,43 @@
                                     ? 'bg-gray-800 border-gray-700'
                                     : 'bg-white border-gray-200'
                             }`}>
+                                {/* Daire durum grafiği — tıklayınca pano açılır */}
+                                <button
+                                    onClick={() => setShowDurumModal(true)}
+                                    title="Daire durum panosunu aç"
+                                    className={`w-full mb-4 p-3 rounded-xl border-2 text-left flex items-center gap-3 transition-all hover:shadow-md ${
+                                        theme === 'dark'
+                                            ? 'bg-gray-900/40 border-gray-700 hover:border-gray-600'
+                                            : 'bg-gradient-to-br from-slate-50 to-white border-gray-200 hover:border-blue-300'
+                                    }`}
+                                >
+                                    <HalkaGrafik
+                                        boyut={88} kalinlik={13}
+                                        ustYazi={`%${durumOzeti.yuzde.tamam}`}
+                                        altYazi="tamam"
+                                        ustRenk={DURUM_TANIM.tamam.renk}
+                                        dilimler={DURUM_SIRA.map(k => ({
+                                            deger: durumOzeti.say[k], renk: DURUM_TANIM[k].renk, ad: DURUM_TANIM[k].ad
+                                        }))}
+                                    />
+                                    <span className="flex-1 min-w-0">
+                                        <span className={`flex items-center gap-1 text-xs font-bold mb-1.5 ${theme === 'dark' ? 'text-gray-200' : 'text-gray-700'}`}>
+                                            <span className="flex-1 truncate">Daire Durumu · {durumOzeti.toplam} daire</span>
+                                            <svg className="w-3.5 h-3.5 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4" d="M9 5l7 7-7 7"></path>
+                                            </svg>
+                                        </span>
+                                        {DURUM_SIRA.map(k => (
+                                            <span key={k} className="flex items-center gap-1.5 text-[11px] leading-5">
+                                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: DURUM_TANIM[k].renk }}></span>
+                                                <span className={`flex-1 truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>{DURUM_TANIM[k].ad}</span>
+                                                <span className={`font-bold ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>%{durumOzeti.yuzde[k]}</span>
+                                                <span className={theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}>({durumOzeti.say[k]})</span>
+                                            </span>
+                                        ))}
+                                    </span>
+                                </button>
+
                                 {/* Header */}
                                 <div className="flex justify-between items-center mb-4 pb-3 border-b-2 border-gray-100">
                                     <h3 className={`font-bold text-lg flex items-center gap-2 ${
@@ -19059,38 +19096,6 @@
                                 {/* Tema Değiştirme */}
                                     
                                 {panelBolumu('analiz', 'Analiz & Raporlar', (<>
-                                    {/* Daire durum grafiği — tıklayınca pano açılır */}
-                                    <button
-                                        onClick={() => setShowDurumModal(true)}
-                                        title="Daire durum panosunu aç"
-                                        className={`w-full mb-3 p-3 rounded-lg border text-left flex items-center gap-3 transition-all hover:shadow-md ${
-                                            theme === 'dark' ? 'bg-gray-800 border-gray-700 hover:bg-gray-700' : 'bg-white border-gray-200 hover:bg-gray-50'
-                                        }`}
-                                    >
-                                        <HalkaGrafik
-                                            boyut={78} kalinlik={11}
-                                            ustYazi={`%${durumOzeti.yuzde.tamam}`}
-                                            altYazi="tamam"
-                                            ustRenk={DURUM_TANIM.tamam.renk}
-                                            dilimler={DURUM_SIRA.map(k => ({
-                                                deger: durumOzeti.say[k], renk: DURUM_TANIM[k].renk, ad: DURUM_TANIM[k].ad
-                                            }))}
-                                        />
-                                        <span className="flex-1 min-w-0">
-                                            <span className={`block text-xs font-bold mb-1.5 ${theme === 'dark' ? 'text-gray-200' : 'text-gray-700'}`}>
-                                                Daire Durumu · {durumOzeti.toplam} daire
-                                            </span>
-                                            {DURUM_SIRA.map(k => (
-                                                <span key={k} className="flex items-center gap-1.5 text-[11px] leading-5">
-                                                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: DURUM_TANIM[k].renk }}></span>
-                                                    <span className={`flex-1 truncate ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>{DURUM_TANIM[k].ad}</span>
-                                                    <span className={`font-bold ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>%{durumOzeti.yuzde[k]}</span>
-                                                    <span className={theme === 'dark' ? 'text-gray-500' : 'text-gray-400'}>({durumOzeti.say[k]})</span>
-                                                </span>
-                                            ))}
-                                        </span>
-                                    </button>
-
                                     {/* Admin Panel Butonu */}
                                     {isAdmin && (
                                         <button 
