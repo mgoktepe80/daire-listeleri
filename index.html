@@ -43,6 +43,26 @@
             color: #111827 !important;
         }
     </style>
+    <script>
+        // TEMA — React/Babel yüklenmeden ÖNCE uygulanır.
+        // Bu betik olmadan sayfa, uygulama derlenip ilk çizim yapılana kadar
+        // (büyük dosyada bu birkaç saniye sürebiliyor) BEYAZ duruyordu.
+        (function () {
+            try {
+                var t = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+                var renk = t === 'dark' ? '#111827' : '#f3f4f6';
+                document.documentElement.setAttribute('data-tema', t);
+                document.documentElement.style.backgroundColor = renk;
+                var govde = function () { if (document.body) document.body.style.backgroundColor = renk; };
+                govde();
+                document.addEventListener('DOMContentLoaded', govde);
+                if (t === 'dark') {
+                    var s = document.getElementById('theme-style');
+                    if (s) s.innerHTML = 'select option{background-color:#374151!important;color:#f3f4f6!important}';
+                }
+            } catch (e) {}
+        })();
+    </script>
 </head>
 <body>
     <div id="root"></div>
@@ -2212,7 +2232,7 @@
                 if (ceramicListSize) set.add(ceramicListSize);
                 return [...set].sort((a, b) => a.localeCompare(b, 'tr'));
             }, [ceramicFilterPool, ceramicListSerie, ceramicListSize]);
-            const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+            const [theme, setTheme] = useState(localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
             const [showMaterialAnalysis, setShowMaterialAnalysis] = useState(false);
             const [activeAnalysisTab, setActiveAnalysisTab] = useState('Tümü');
             const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -2683,8 +2703,59 @@
                 materials, ceramicData, productPhotos, companyName, companyLogo, pdfFonts,
                 firebaseSync, user]);
 
+            // ===== TEMA TERCİHİNİ BULUTLA EŞİTLE =====
+            // Kural: yerel tercih HER ZAMAN geçerlidir; buluttaki değer yalnızca
+            // DAHA YENİ ise uygulanır. (Eskiden bulut koşulsuz kazanıyordu: çevrimdışıyken
+            // yapılan bir tema değişikliği buluta yazılamayınca, sonraki her açılışta
+            // buluttaki eski değer geri gelip sayfayı beyaza döndürüyordu.)
+            useEffect(() => {
+                if (!user || !firebaseEnabled || !db) return;
+                let iptal = false;
+                (async () => {
+                    try {
+                        const kayit = await db.collection('userSettings').doc(user.uid).get();
+                        if (iptal || !kayit.exists) return;
+                        const s = kayit.data() || {};
+                        if (s.theme !== 'dark' && s.theme !== 'light') return;
+
+                        const yerelTema = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+                        const yerelZaman = localStorage.getItem('theme_updated') || '';
+                        const bulutZaman = s.updatedAt || '';
+
+                        // Yerel tercih daha yeni → buluttakini DÜZELT, ekranı değiştirme
+                        if (yerelZaman && (!bulutZaman || yerelZaman > bulutZaman)) {
+                            if (s.theme !== yerelTema) {
+                                await db.collection('userSettings').doc(user.uid)
+                                    .set({ theme: yerelTema, updatedAt: yerelZaman }, { merge: true });
+                                console.log('⬆️ Yerel tema tercihi buluta yazıldı:', yerelTema);
+                            }
+                            return;
+                        }
+
+                        // Bulut daha yeni → uygula ve YERELE DE YAZ
+                        localStorage.setItem('theme', s.theme);
+                        if (bulutZaman) localStorage.setItem('theme_updated', bulutZaman);
+                        if (s.theme !== yerelTema) {
+                            setTheme(s.theme);
+                            console.log('✅ Tema tercihi buluttan yüklendi:', s.theme);
+                        }
+                    } catch (error) {
+                        // Okunamazsa yerel tercih kullanılmaya devam eder — beyaz açılmaz
+                        console.error('❌ Tema buluttan okunamadı (yerel tercih geçerli):', error);
+                    }
+                })();
+                return () => { iptal = true; };
+            }, [user, firebaseEnabled]);
+
             // Tema yüklendiğinde CSS güncelle
             useEffect(() => {
+                // Sayfa zeminini de boya: React kökünün dışında kalan alanlar
+                // (kaydırma taşması, adres çubuğu altı) beyaz kalmasın.
+                const renk = theme === 'dark' ? '#111827' : '#f3f4f6';
+                document.documentElement.setAttribute('data-tema', theme);
+                document.documentElement.style.backgroundColor = renk;
+                if (document.body) document.body.style.backgroundColor = renk;
+
                 const themeStyle = document.getElementById('theme-style');
                 if (themeStyle) {
                     if (theme === 'dark') {
@@ -2984,21 +3055,13 @@
                             }
                         }
                         
-                        // Kullanıcı ayarlarını yükle (tema tercihi)
-                        if (db) {
-                            try {
-                                const userSettingsDoc = await db.collection('userSettings').doc(user.uid).get();
-                                if (userSettingsDoc.exists) {
-                                    const settings = userSettingsDoc.data();
-                                    if (settings.theme) {
-                                        setTheme(settings.theme);
-                                        console.log('✅ Tema tercihi Firebase\'den yüklendi:', settings.theme);
-                                    }
-                                }
-                            } catch (error) {
-                                console.error('❌ Tema Firebase\'den yüklenemedi:', error);
-                            }
-                        }
+                        // NOT: Tema tercihi artık burada okunmuyor.
+                        // Eskiden buradaydı ve iki sorun çıkarıyordu:
+                        //  1) Yukarıdaki herhangi bir await hata verirse bu satırlara hiç
+                        //     gelinmiyor, tema uygulanmıyordu (sayfa beyaz açılıyordu).
+                        //  2) Buluttan gelen değer localStorage'a yazılmadığı için her
+                        //     açılışta yeniden beklemek gerekiyordu.
+                        // Artık kendi effect'inde, bu yüklemeden bağımsız çalışıyor.
                     } else {
                         // Firebase yoksa localStorage'dan yükle
                         console.log('💾 Firebase devre dışı - veriler localStorage\'dan yükleniyor...');
@@ -5909,15 +5972,19 @@
             // Tema değiştirme
             const toggleTheme = async () => {
                 const newTheme = theme === 'light' ? 'dark' : 'light';
+                const zaman = new Date().toISOString();
                 setTheme(newTheme);
                 localStorage.setItem('theme', newTheme);
-                
+                // Zaman damgası şart: bulut/yerel çakışmasında hangisinin yeni
+                // olduğunu bundan anlıyoruz.
+                localStorage.setItem('theme_updated', zaman);
+
                 // Firebase'e kaydet (kullanıcı giriş yapmışsa)
                 if (user && firebaseEnabled && db) {
                     try {
                         await db.collection('userSettings').doc(user.uid).set({
                             theme: newTheme,
-                            updatedAt: new Date().toISOString()
+                            updatedAt: zaman
                         }, { merge: true });
                         console.log('✅ Tema tercihi Firebase\'e kaydedildi:', newTheme);
                     } catch (error) {
@@ -8526,6 +8593,7 @@
                                 if (imported.theme) {
                                     setTheme(imported.theme);
                                     localStorage.setItem('theme', imported.theme);
+                                    localStorage.setItem('theme_updated', new Date().toISOString());
                                 }
                                 
                                 let message = '✅ Sistem ayarları başarıyla yüklendi!\n\n';
