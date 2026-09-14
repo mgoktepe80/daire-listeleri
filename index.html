@@ -2,7 +2,13 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!-- Telefonda "ana ekrana ekle" ile tam ekran açılsın -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Daire Listeleri">
+    <meta name="theme-color" content="#f3f4f6">
     <!-- Tarayıcı bu dosyayı önbelleğe almasın: yeni sürüm her açılışta gelsin -->
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
     <meta http-equiv="Pragma" content="no-cache">
@@ -34,6 +40,36 @@
         input[type=number] {
             -moz-appearance: textfield;
             appearance: textfield;
+        }
+    </style>
+    <style>
+        /* ===== TELEFON / TABLET (dokunmatik) DÜZENLEMELERİ =====
+           Yalnızca dar ekran + dokunmatik cihazlarda geçerli.
+           Masaüstünde pencere daraltılsa bile hiçbir şey değişmez. */
+        @media (max-width: 1023px) and (pointer: coarse) {
+            /* Parmakla rahat basılacak boyut */
+            button, select, input[type="text"], input[type="number"], input[type="email"], input[type="password"] {
+                min-height: 44px;
+            }
+            /* iOS'ta 16px altındaki alanlar odaklanınca sayfayı yakınlaştırıyor */
+            input, select, textarea { font-size: 16px !important; }
+
+            /* Pencereler tam ekran açılsın (ortalanmış küçük diyalog yerine) */
+            .fixed.inset-0 { padding: 0 !important; }
+            .fixed.inset-0 > div:not(.mobil-serbest) {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 100% !important;
+                max-height: 100% !important;
+                border-radius: 0 !important;
+            }
+            /* Alt sekme çubuğunun altında içerik kalmasın */
+            .mobil-alt-bosluk { padding-bottom: 76px; }
+        }
+        /* Alt sekme çubuğu — yalnız dar ekranda görünür */
+        .mobil-sekme-cubugu { display: none; }
+        @media (max-width: 1023px) {
+            .mobil-sekme-cubugu { display: flex; }
         }
     </style>
     <style id="theme-style">
@@ -2313,6 +2349,11 @@
             const [analizDaire, setAnalizDaire] = useState([]);
             const [analizMahal, setAnalizMahal] = useState([]);
             const [analizSira, setAnalizSira] = useState({ alan: 'malzeme', yon: 1 });
+            // Çapraz tablodaki "Malzeme" sütununun genişliği (kenarından sürüklenir)
+            const [analizAdEni, setAnalizAdEni] = useState(() => {
+                const k = parseInt(localStorage.getItem('analiz_ad_eni') || '', 10);
+                return (k >= 180 && k <= 900) ? k : 360;
+            });
             const [analizAcikSatir, setAnalizAcikSatir] = useState({});
             const [showAdminPanel, setShowAdminPanel] = useState(false);
             const [allUsers, setAllUsers] = useState([]);
@@ -7520,10 +7561,11 @@
                     });
                 });
                 
+                const dogal = (x, y) => x.localeCompare(y, 'tr', { numeric: true, sensitivity: 'base' });
                 return Object.values(analysis).sort((a, b) => {
-                    if (a.category !== b.category) return a.category.localeCompare(b.category);
-                    if (a.subgroup !== b.subgroup) return a.subgroup.localeCompare(b.subgroup);
-                    return a.material.localeCompare(b.material);
+                    if (a.category !== b.category) return dogal(a.category, b.category);
+                    if (a.subgroup !== b.subgroup) return dogal(a.subgroup, b.subgroup);
+                    return dogal(a.material, b.material);
                 });
             };
 
@@ -7541,15 +7583,17 @@
                 const ham = getMaterialUsageAnalysis();
 
                 // ---- Seçenek listeleri (ham veriden) ----
-                const kategoriler = [...new Set(ham.map(x => x.category))].sort((a, b) => a.localeCompare(b, 'tr'));
+                // Doğal sıralama: "Daire 2" < "Daire 10" (numeric olmadan 10, 2'den önce geliyordu)
+                const dogalSirala = (a, b) => a.localeCompare(b, 'tr', { numeric: true, sensitivity: 'base' });
+                const kategoriler = [...new Set(ham.map(x => x.category))].sort(dogalSirala);
                 const altGruplar = [...new Set(
                     ham.filter(x => !analizKategori.length || analizKategori.includes(x.category))
                        .map(x => x.subgroup).filter(x => x && x !== '-')
-                )].sort((a, b) => a.localeCompare(b, 'tr'));
+                )].sort(dogalSirala);
                 const tumKullanim = ham.flatMap(x => x.usages);
-                const projeler = [...new Set(tumKullanim.map(u => u.project))].sort((a, b) => a.localeCompare(b, 'tr'));
-                const daireler = [...new Set(tumKullanim.map(u => u.apartment))].sort((a, b) => a.localeCompare(b, 'tr'));
-                const mahaller = [...new Set(tumKullanim.map(u => u.room))].sort((a, b) => a.localeCompare(b, 'tr'));
+                const projeler = [...new Set(tumKullanim.map(u => u.project))].sort(dogalSirala);
+                const daireler = [...new Set(tumKullanim.map(u => u.apartment))].sort(dogalSirala);
+                const mahaller = [...new Set(tumKullanim.map(u => u.room))].sort(dogalSirala);
 
                 // ---- Süzme ----
                 const ara = (analizAra || '').toLocaleLowerCase('tr-TR').trim();
@@ -7634,9 +7678,97 @@
                 setAnalizProje([]); setAnalizDaire([]); setAnalizMahal([]);
             };
 
+            // ===== PENCERE BÜYÜTME (Windows'taki "ekranı kapla" gibi) =====
+            // Tarayıcıyı tam ekrana almaz; yalnızca açık pencereyi tarayıcı alanını
+            // dolduracak şekilde büyütür, tekrar basınca eski boyuna döner.
+            const [buyukPencere, setBuyukPencere] = useState(() => {
+                try { return JSON.parse(localStorage.getItem('buyuk_pencereler') || '{}') || {}; }
+                catch (e) { return {}; }
+            });
+            const pencereBuyut = (anahtar) => {
+                setBuyukPencere(o => {
+                    const y = { ...o, [anahtar]: !o[anahtar] };
+                    try { localStorage.setItem('buyuk_pencereler', JSON.stringify(y)); } catch (e) {}
+                    return y;
+                });
+            };
+            // Dış çerçeve ve iç kutu sınıfları (büyükken tarayıcı alanını kaplar)
+            const pencereDisSinif = (anahtar, normal) => buyukPencere[anahtar] ? 'p-0' : normal;
+            const pencereIcSinif = (anahtar, normal) =>
+                buyukPencere[anahtar] ? 'w-full h-full max-w-none max-h-none rounded-none' : normal;
+            // Başlık çubuğundaki büyüt/küçült düğmesi
+            const buyutmeDugmesi = (anahtar, koyuMu) => (
+                <button
+                    onClick={() => pencereBuyut(anahtar)}
+                    title={buyukPencere[anahtar] ? 'Önceki boyuta döndür' : 'Ekranı kapla'}
+                    className={`px-2 py-2 rounded-lg transition-colors ${
+                        koyuMu ? 'text-gray-300 hover:bg-white hover:bg-opacity-20'
+                               : 'text-gray-500 hover:bg-gray-200'
+                    }`}
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        {buyukPencere[anahtar]
+                            ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 8V5a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1h-3M4 9h11a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9a1 1 0 011-1z"></path>
+                            : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"></path>}
+                    </svg>
+                </button>
+            );
+
             const analizGorunumSec = (g) => {
                 setAnalizGorunum(g);
                 try { localStorage.setItem('analiz_gorunum', g); } catch (e) {}
+            };
+
+            // "Malzeme" sütununu kenarından sürükleyerek genişlet/daralt
+            const analizAdEniRef = React.useRef(analizAdEni);
+            analizAdEniRef.current = analizAdEni;
+            const adEniniYaz = (deger) => {
+                setAnalizAdEni(deger);
+                analizAdEniRef.current = deger;
+            };
+            const adSutunuSurukle = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const dokunmatik = e.type === 'touchstart';
+                const basX = dokunmatik ? e.touches[0].clientX : e.clientX;
+                const basEn = analizAdEniRef.current;
+                const hareket = (ev) => {
+                    const x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+                    adEniniYaz(Math.min(900, Math.max(180, Math.round(basEn + (x - basX)))));
+                };
+                const birak = () => {
+                    document.removeEventListener('mousemove', hareket);
+                    document.removeEventListener('mouseup', birak);
+                    document.removeEventListener('touchmove', hareket);
+                    document.removeEventListener('touchend', birak);
+                    document.body.style.userSelect = '';
+                    document.body.style.cursor = '';
+                    try { localStorage.setItem('analiz_ad_eni', String(analizAdEniRef.current)); } catch (err) {}
+                };
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = 'col-resize';
+                document.addEventListener('mousemove', hareket);
+                document.addEventListener('mouseup', birak);
+                document.addEventListener('touchmove', hareket, { passive: false });
+                document.addEventListener('touchend', birak);
+            };
+            // Çift tıklama: en uzun malzeme adına göre otomatik genişlik
+            const adSutunuOtomatik = () => {
+                const d = analizVerisi;
+                if (!d || !d.satirlar.length) return;
+                let en = 0;
+                try {
+                    const t = document.createElement('canvas').getContext('2d');
+                    t.font = '600 14px system-ui, -apple-system, Segoe UI, sans-serif';
+                    d.satirlar.forEach(x => {
+                        const a = t.measureText(x.material).width;
+                        const b = t.measureText(x.category + ' · ' + x.subgroup + ' · ' + x.unit).width * 0.8;
+                        en = Math.max(en, a, b);
+                    });
+                } catch (err) { en = 320; }
+                // 32px görsel + 8px boşluk + 24px iç kenar + küçük pay
+                adEniniYaz(Math.min(900, Math.max(180, Math.ceil(en) + 78)));
+                try { localStorage.setItem('analiz_ad_eni', String(analizAdEniRef.current)); } catch (err) {}
             };
 
             const analizSirala = (alan) => {
@@ -14505,19 +14637,22 @@
                         };
 
                         return (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
-                            <div className={`rounded-2xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden ${
-                                koyu ? 'bg-gray-800' : 'bg-white'
-                            }`}>
+                        <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${pencereDisSinif('notlar', 'p-3')}`}>
+                            <div className={`shadow-2xl flex flex-col overflow-hidden transition-all ${
+                                pencereIcSinif('notlar', 'rounded-2xl max-w-4xl w-full max-h-[92vh]')
+                            } ${koyu ? 'bg-gray-800' : 'bg-white'}`}>
                                 <div className="bg-gradient-to-r from-yellow-500 to-amber-600 px-4 py-3 flex items-center justify-between">
                                     <h2 className="text-base font-bold text-white truncate">
                                         📝 Tüm Daire Notları{notTumProjeler ? '' : ' — ' + ((getProject() || {}).name || '')}
                                     </h2>
+                                    <span className="flex items-center gap-1 flex-shrink-0">
+                                    {buyutmeDugmesi('notlar', true)}
                                     <button onClick={() => setShowTumNotlar(false)} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                                         </svg>
                                     </button>
+                                    </span>
                                 </div>
 
                                 {/* Süzgeç çubuğu */}
@@ -14644,19 +14779,22 @@
                     })()}
 
                     {showDurumModal && (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
-                            <div className={`rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden ${
-                                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                            }`}>
+                        <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${pencereDisSinif('durum', 'p-3')}`}>
+                            <div className={`shadow-2xl flex flex-col overflow-hidden transition-all ${
+                                pencereIcSinif('durum', 'rounded-2xl max-w-3xl w-full max-h-[92vh]')
+                            } ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'}`}>
                                 <div className="bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 flex items-center justify-between">
                                     <h2 className="text-base font-bold text-white truncate">
                                         📊 Daire Durumu — {(getProject() || {}).name || ''}
                                     </h2>
+                                    <span className="flex items-center gap-1 flex-shrink-0">
+                                    {buyutmeDugmesi('durum', true)}
                                     <button onClick={() => setShowDurumModal(false)} className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1.5">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                                         </svg>
                                     </button>
+                                    </span>
                                 </div>
 
                                 {/* Grafik + özet */}
@@ -17376,10 +17514,10 @@
                             koyu ? 'bg-gray-900 text-gray-300' : 'bg-gray-100 text-gray-600'}`;
 
                         return (
-                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                            <div className={`rounded-xl w-full max-w-[1500px] h-[92vh] flex flex-col overflow-hidden transition-colors ${
-                                koyu ? 'bg-gray-800' : 'bg-white'
-                            }`}>
+                        <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${pencereDisSinif('analiz', 'p-4')}`}>
+                            <div className={`flex flex-col overflow-hidden transition-all ${
+                                pencereIcSinif('analiz', 'rounded-xl w-full max-w-[1500px] h-[92vh]')
+                            } ${koyu ? 'bg-gray-800' : 'bg-white'}`}>
                                 {/* ---- Başlık + görünüm değiştirici ---- */}
                                 <div className={`flex items-center gap-4 px-5 py-3 border-b ${cerceve}`}>
                                     <h2 className={`text-lg font-bold flex items-center gap-2 flex-shrink-0 ${koyu ? 'text-gray-100' : 'text-gray-800'}`}>
@@ -17402,6 +17540,7 @@
                                         ))}
                                     </div>
 
+                                    {buyutmeDugmesi('analiz', koyu)}
                                     <button onClick={() => setShowMaterialAnalysis(false)}
                                         className={`text-2xl leading-none px-2 ${koyu ? 'text-gray-400 hover:text-white' : 'text-gray-400 hover:text-gray-700'}`}>×</button>
                                 </div>
@@ -17478,7 +17617,26 @@
                                         <table className="min-w-full text-sm border-collapse">
                                             <thead>
                                                 <tr>
-                                                    <th className={`${basSinif} left-0 z-20 min-w-[300px] w-[300px] border-r ${cerceve}`}>Malzeme</th>
+                                                    <th className={`${basSinif} left-0 z-20 border-r ${cerceve}`}
+                                                        style={{ width: analizAdEni, minWidth: analizAdEni, maxWidth: analizAdEni }}>
+                                                        <span className="flex items-center gap-1">
+                                                            Malzeme
+                                                            <span className={`font-normal normal-case tracking-normal text-[10px] ${koyu ? 'text-gray-500' : 'text-gray-400'}`}>
+                                                                (kenarı sürükle)
+                                                            </span>
+                                                        </span>
+                                                        {/* Sütun genişletme tutamağı */}
+                                                        <span
+                                                            onMouseDown={adSutunuSurukle}
+                                                            onTouchStart={adSutunuSurukle}
+                                                            onDoubleClick={adSutunuOtomatik}
+                                                            title="Sürükleyerek genişlet — çift tıkla: içeriğe göre ayarla"
+                                                            className="absolute top-0 right-0 h-full w-3 cursor-col-resize flex items-center justify-center group"
+                                                            style={{ touchAction: 'none' }}
+                                                        >
+                                                            <span className={`h-5 w-0.5 rounded ${koyu ? 'bg-gray-600 group-hover:bg-cyan-400' : 'bg-gray-300 group-hover:bg-cyan-500'}`}></span>
+                                                        </span>
+                                                    </th>
                                                     {d.sutunlar.map(s => (
                                                         <th key={s} className={`${basSinif} text-right min-w-[92px]`} title={s}>{s}</th>
                                                     ))}
@@ -17490,14 +17648,15 @@
                                                     const foto = getProductPhoto(x.category, x.subgroup, x.subgroup2, x.material);
                                                     return (
                                                         <tr key={x.key} className={koyu ? 'hover:bg-gray-750' : 'hover:bg-cyan-50'}>
-                                                            <td className={`sticky left-0 z-10 px-3 py-2 border-b border-r ${cerceve} ${koyu ? 'bg-gray-800' : 'bg-white'}`}>
+                                                            <td className={`sticky left-0 z-10 px-3 py-2 border-b border-r ${cerceve} ${koyu ? 'bg-gray-800' : 'bg-white'}`}
+                                                                style={{ width: analizAdEni, minWidth: analizAdEni, maxWidth: analizAdEni }}>
                                                                 <div className="flex items-center gap-2">
                                                                     {foto
                                                                         ? <img src={foto} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 border border-gray-200" />
                                                                         : <span className={`w-8 h-8 rounded flex-shrink-0 ${koyu ? 'bg-gray-700' : 'bg-gray-100'}`}></span>}
                                                                     <span className="min-w-0">
-                                                                        <span className={`block font-semibold truncate max-w-[240px] ${koyu ? 'text-gray-100' : 'text-gray-900'}`} title={x.material}>{x.material}</span>
-                                                                        <span className={`block text-[11px] truncate ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                                        <span className={`block font-semibold break-words leading-snug ${koyu ? 'text-gray-100' : 'text-gray-900'}`} title={x.material}>{x.material}</span>
+                                                                        <span className={`block text-[11px] break-words leading-snug ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>
                                                                             {x.category}{x.subgroup !== '-' ? ' · ' + x.subgroup : ''}{x.unit ? ' · ' + x.unit : ''}
                                                                         </span>
                                                                     </span>
@@ -17529,7 +17688,8 @@
                                                     );
                                                 })}
                                                 <tr className={koyu ? 'bg-gray-900' : 'bg-gray-100'}>
-                                                    <td className={`sticky left-0 z-10 px-3 py-2 font-bold border-r ${cerceve} ${koyu ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-800'}`}>TOPLAM</td>
+                                                    <td className={`sticky left-0 z-10 px-3 py-2 font-bold border-r ${cerceve} ${koyu ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-800'}`}
+                                                        style={{ width: analizAdEni, minWidth: analizAdEni, maxWidth: analizAdEni }}>TOPLAM</td>
                                                     {d.sutunlar.map(s => (
                                                         <td key={s} className={`px-3 py-2 text-right font-bold tabular-nums ${koyu ? 'text-gray-200' : 'text-gray-800'}`}>
                                                             {sayiBicim(d.sutunToplam[s] || 0)}
@@ -17593,7 +17753,7 @@
                                                                 ? <img src={foto} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0 border border-gray-200" />
                                                                 : <span className={`w-10 h-10 rounded flex-shrink-0 ${koyu ? 'bg-gray-700' : 'bg-gray-100'}`}></span>}
                                                             <span className="flex-1 min-w-0">
-                                                                <span className={`block font-bold truncate ${koyu ? 'text-gray-100' : 'text-gray-900'}`}>{x.material}</span>
+                                                                <span className={`block font-bold break-words leading-snug ${koyu ? 'text-gray-100' : 'text-gray-900'}`}>{x.material}</span>
                                                                 <span className={`block text-[11px] ${koyu ? 'text-gray-400' : 'text-gray-500'}`}>
                                                                     {x.category}{x.subgroup !== '-' ? ' · ' + x.subgroup : ''} · {daireSayisi} daire · {x.usages.length} kullanım
                                                                 </span>
@@ -19406,6 +19566,7 @@
                                                 </div>
                                             )}
                                         </div>
+
                                     </div>
                                 </div>
 
