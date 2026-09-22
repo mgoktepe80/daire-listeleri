@@ -2487,6 +2487,7 @@ function App() {
   const [analizProje, setAnalizProje] = useState([]);
   const [analizDaire, setAnalizDaire] = useState([]);
   const [analizMahal, setAnalizMahal] = useState([]);
+  const [analizAlan, setAnalizAlan] = useState([]);
   const [analizSira, setAnalizSira] = useState({
     alan: 'malzeme',
     yon: 1
@@ -7398,10 +7399,12 @@ function App() {
               for (let wallIdx = 0; wallIdx < wallCount; wallIdx++) {
                 const v = rd[f][wallIdx];
                 if (v && v.malzeme) {
-                  const key = `${fc.category}|${v.subgroup || '-'}|${v.malzeme}`;
+                  const key = `${f}|${fc.category}|${v.subgroup || '-'}|${v.malzeme}`;
                   if (!analysis[key]) {
                     analysis[key] = {
                       key,
+                      alanId: f,
+                      alan: fc.label || f,
                       category: fc.category,
                       subgroup: v.subgroup || '-',
                       subgroup2: v.subgroup2 || '-',
@@ -7425,10 +7428,12 @@ function App() {
                 }
               }
             } else if (rd[f] && rd[f].malzeme) {
-              const key = `${fc.category}|${rd[f].subgroup || '-'}|${rd[f].malzeme}`;
+              const key = `${f}|${fc.category}|${rd[f].subgroup || '-'}|${rd[f].malzeme}`;
               if (!analysis[key]) {
                 analysis[key] = {
                   key,
+                  alanId: f,
+                  alan: fc.label || f,
                   category: fc.category,
                   subgroup: rd[f].subgroup || '-',
                   subgroup2: rd[f].subgroup2 || '-',
@@ -7459,6 +7464,7 @@ function App() {
       sensitivity: 'base'
     });
     return Object.values(analysis).sort((a, b) => {
+      if (a.alan !== b.alan) return dogal(a.alan || '', b.alan || '');
       if (a.category !== b.category) return dogal(a.category, b.category);
       if (a.subgroup !== b.subgroup) return dogal(a.subgroup, b.subgroup);
       return dogal(a.material, b.material);
@@ -7477,6 +7483,7 @@ function App() {
       numeric: true,
       sensitivity: 'base'
     });
+    const alanlar = [...new Set(ham.map(x => x.alan).filter(Boolean))].sort(dogalSirala);
     const kategoriler = [...new Set(ham.map(x => x.category))].sort(dogalSirala);
     const altGruplar = [...new Set(ham.filter(x => !analizKategori.length || analizKategori.includes(x.category)).map(x => x.subgroup).filter(x => x && x !== '-'))].sort(dogalSirala);
     const tumKullanim = ham.flatMap(x => x.usages);
@@ -7486,10 +7493,11 @@ function App() {
     const ara = (analizAra || '').toLocaleLowerCase('tr-TR').trim();
     const satirlar = [];
     ham.forEach(x => {
+      if (analizAlan.length && !analizAlan.includes(x.alan)) return;
       if (analizKategori.length && !analizKategori.includes(x.category)) return;
       if (analizAltGrup.length && !analizAltGrup.includes(x.subgroup)) return;
       if (ara) {
-        const metin = (x.material + ' ' + x.category + ' ' + x.subgroup).toLocaleLowerCase('tr-TR');
+        const metin = (x.material + ' ' + (x.alan || '') + ' ' + x.category + ' ' + x.subgroup).toLocaleLowerCase('tr-TR');
         if (!metin.includes(ara)) return;
       }
       const kullanimlar = x.usages.filter(u => (!analizProje.length || analizProje.includes(u.project)) && (!analizDaire.length || analizDaire.includes(u.apartment)) && (!analizMahal.length || analizMahal.includes(u.room)));
@@ -7561,6 +7569,7 @@ function App() {
       enBuyukHucre,
       detay,
       secenek: {
+        alanlar,
         kategoriler,
         altGruplar,
         projeler,
@@ -7575,10 +7584,11 @@ function App() {
         birim: birimler.length === 1 ? birimler[0] : ''
       }
     };
-  }, [showMaterialAnalysis, projects, allRooms, fieldLabels, analizAra, analizKategori, analizAltGrup, analizProje, analizDaire, analizMahal, analizSira]);
-  const analizFiltreSayisi = analizKategori.length + analizAltGrup.length + analizProje.length + analizDaire.length + analizMahal.length + (analizAra.trim() ? 1 : 0);
+  }, [showMaterialAnalysis, projects, allRooms, fieldLabels, analizAra, analizAlan, analizKategori, analizAltGrup, analizProje, analizDaire, analizMahal, analizSira]);
+  const analizFiltreSayisi = analizAlan.length + analizKategori.length + analizAltGrup.length + analizProje.length + analizDaire.length + analizMahal.length + (analizAra.trim() ? 1 : 0);
   const analizFiltreleriTemizle = () => {
     setAnalizAra('');
+    setAnalizAlan([]);
     setAnalizKategori([]);
     setAnalizAltGrup([]);
     setAnalizProje([]);
@@ -7716,11 +7726,13 @@ function App() {
     const wb = XLSX.utils.book_new();
     const bugun = new Date().toISOString().split('T')[0];
     if (analizGorunum === 'capraz') {
-      const baslik = ['Kategori', 'Alt Grup', 'Malzeme', 'Birim', ...d.sutunlar, 'TOPLAM'];
-      const satir = d.satirlar.map(x => [x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.unit, ...d.sutunlar.map(s => d.hucre[x.key][s] || ''), x.totalAmount]);
-      satir.push(['', '', 'TOPLAM', '', ...d.sutunlar.map(s => d.sutunToplam[s] || 0), d.ozet.toplam]);
+      const baslik = ['Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Birim', ...d.sutunlar, 'TOPLAM'];
+      const satir = d.satirlar.map(x => [x.alan || '', x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.unit, ...d.sutunlar.map(s => d.hucre[x.key][s] || ''), x.totalAmount]);
+      satir.push(['', '', '', 'TOPLAM', '', ...d.sutunlar.map(s => d.sutunToplam[s] || 0), d.ozet.toplam]);
       const ws = XLSX.utils.aoa_to_sheet([baslik, ...satir]);
       ws['!cols'] = [{
+        wch: 18
+      }, {
         wch: 14
       }, {
         wch: 16
@@ -7734,7 +7746,7 @@ function App() {
         wch: 12
       }];
       ws['!freeze'] = {
-        xSplit: 3,
+        xSplit: 4,
         ySplit: 1
       };
       XLSX.utils.book_append_sheet(wb, ws, 'Capraz Tablo');
@@ -7775,10 +7787,12 @@ function App() {
       };
       XLSX.utils.book_append_sheet(wb, ws, 'Detay');
     } else {
-      const baslik = ['Kategori', 'Alt Grup', 'Malzeme', 'Toplam', 'Birim', 'Daire Sayısı', 'Kullanım'];
-      const satir = d.satirlar.map(x => [x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.totalAmount, x.unit, new Set(x.usages.map(u => u.project + '|' + u.apartment)).size, x.usages.length]);
+      const baslik = ['Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Toplam', 'Birim', 'Daire Sayısı', 'Kullanım'];
+      const satir = d.satirlar.map(x => [x.alan || '', x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.totalAmount, x.unit, new Set(x.usages.map(u => u.project + '|' + u.apartment)).size, x.usages.length]);
       const ws = XLSX.utils.aoa_to_sheet([baslik, ...satir]);
       ws['!cols'] = [{
+        wch: 18
+      }, {
         wch: 14
       }, {
         wch: 16
@@ -7801,7 +7815,7 @@ function App() {
           },
           e: {
             r: satir.length,
-            c: 6
+            c: 7
           }
         })
       };
@@ -8671,7 +8685,7 @@ function App() {
               if (v && v.malzeme) {
                 const subgroup = v.subgroup || '-';
                 const subgroup2 = v.subgroup2 || '-';
-                const materialKey = fc.category + '|' + subgroup + '|' + subgroup2 + '|' + v.malzeme + '|' + (fc.unit || '');
+                const materialKey = (fc.label || f) + '|' + fc.category + '|' + subgroup + '|' + subgroup2 + '|' + v.malzeme + '|' + (fc.unit || '');
                 const amount = parseFloat(v.miktar || 0);
                 const m = allMaterials[materialKey] || (allMaterials[materialKey] = {
                   toplam: 0,
@@ -8684,7 +8698,7 @@ function App() {
           } else if (rd[f] && rd[f].malzeme) {
             const subgroup = rd[f].subgroup || '-';
             const subgroup2 = rd[f].subgroup2 || '-';
-            const key = fc.category + '|' + subgroup + '|' + subgroup2 + '|' + rd[f].malzeme + '|' + (fc.unit || '');
+            const key = (fc.label || f) + '|' + fc.category + '|' + subgroup + '|' + subgroup2 + '|' + rd[f].malzeme + '|' + (fc.unit || '');
             const amount = parseFloat(rd[f].miktar || 0);
             const m = allMaterials[key] || (allMaterials[key] = {
               toplam: 0,
@@ -8696,18 +8710,20 @@ function App() {
         });
       });
     });
-    const totalData = [['═══════════════════════════════════════════════════════════════════'], ['📦 PROJE TOPLAM MALZEME LİSTESİ'], ['═══════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], [], ['─────────────────────────────────────────────────────────────────────'], ['KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'TOPLAM MİKTAR', 'BİRİM', 'DAİRE SAYISI', 'KULLANILDIĞI DAİRELER']];
+    const totalData = [['═══════════════════════════════════════════════════════════════════'], ['📦 PROJE TOPLAM MALZEME LİSTESİ'], ['═══════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], [], ['─────────────────────────────────────────────────────────────────────'], ['ALAN', 'KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'TOPLAM MİKTAR', 'BİRİM', 'DAİRE SAYISI', 'KULLANILDIĞI DAİRELER']];
     const daireSirasi = proj.apartments.map(a => a.name);
     Object.keys(allMaterials).sort().forEach(key => {
-      const [category, subgroup, subgroup2, material, unit] = key.split('|');
+      const [alan, category, subgroup, subgroup2, material, unit] = key.split('|');
       const kayit = allMaterials[key];
       const totalAmount = kayit.toplam;
       const finalAmount = isNaN(totalAmount) ? 0 : parseFloat(totalAmount.toFixed(2));
       const kullananlar = daireSirasi.filter(ad => kayit.daireler[ad] !== undefined);
-      totalData.push([category, subgroup, subgroup2, material, finalAmount, unit, kullananlar.length, kullananlar.join(', ')]);
+      totalData.push([alan, category, subgroup, subgroup2, material, finalAmount, unit, kullananlar.length, kullananlar.join(', ')]);
     });
     const totalWs = XLSX.utils.aoa_to_sheet(totalData);
     totalWs['!cols'] = [{
+      wch: 20
+    }, {
       wch: 18
     }, {
       wch: 18
@@ -8732,7 +8748,7 @@ function App() {
       },
       e: {
         r: 0,
-        c: 7
+        c: 8
       }
     });
     totalWs['!merges'].push({
@@ -8742,7 +8758,7 @@ function App() {
       },
       e: {
         r: 1,
-        c: 7
+        c: 8
       }
     });
     totalWs['!merges'].push({
@@ -8752,7 +8768,7 @@ function App() {
       },
       e: {
         r: 2,
-        c: 7
+        c: 8
       }
     });
     totalWs['!merges'].push({
@@ -8762,7 +8778,7 @@ function App() {
       },
       e: {
         r: 7,
-        c: 7
+        c: 8
       }
     });
     const totalMaterialCount = Object.keys(allMaterials).length;
@@ -8776,19 +8792,19 @@ function App() {
           },
           e: {
             r: totalDataRows,
-            c: 7
+            c: 8
           }
         })
       };
     }
     XLSX.utils.book_append_sheet(wb, totalWs, '📦 TOPLAM MALZEME');
-    const caprazBaslik = ['KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'BİRİM', ...daireSirasi, 'TOPLAM', 'DAİRE SAYISI'];
+    const caprazBaslik = ['ALAN', 'KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'BİRİM', ...daireSirasi, 'TOPLAM', 'DAİRE SAYISI'];
     const caprazData = [['═══════════════════════════════════════════════════════════════════'], ['🔎 MALZEME → DAİRE DAĞILIMI'], ['═══════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], ['ℹ️ Not:', 'Her satır bir malzeme, her sütun bir daire. Hücredeki sayı o dairede kullanılan miktardır.'], ['─────────────────────────────────────────────────────────────────────'], caprazBaslik];
     const daireToplamlari = {};
     Object.keys(allMaterials).sort().forEach(key => {
-      const [category, subgroup, subgroup2, material, unit] = key.split('|');
+      const [alan, category, subgroup, subgroup2, material, unit] = key.split('|');
       const kayit = allMaterials[key];
-      const satir = [category, subgroup, subgroup2, material, unit];
+      const satir = [alan, category, subgroup, subgroup2, material, unit];
       let kullananSayisi = 0;
       daireSirasi.forEach(ad => {
         const v = kayit.daireler[ad];
@@ -8804,7 +8820,7 @@ function App() {
       satir.push(kullananSayisi);
       caprazData.push(satir);
     });
-    const altToplam = ['', '', '', 'TOPLAM', ''];
+    const altToplam = ['', '', '', '', 'TOPLAM', ''];
     let genelToplam = 0;
     daireSirasi.forEach(ad => {
       const v = daireToplamlari[ad] || 0;
@@ -8816,6 +8832,8 @@ function App() {
     caprazData.push(altToplam);
     const caprazWs = XLSX.utils.aoa_to_sheet(caprazData);
     caprazWs['!cols'] = [{
+      wch: 20
+    }, {
       wch: 18
     }, {
       wch: 18
@@ -8869,7 +8887,7 @@ function App() {
       };
     }
     caprazWs['!freeze'] = {
-      xSplit: 5,
+      xSplit: 6,
       ySplit: 9
     };
     XLSX.utils.book_append_sheet(wb, caprazWs, '🔎 MALZEME-DAİRE');
@@ -16188,6 +16206,12 @@ function App() {
       strokeWidth: "2",
       d: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
     }))), React.createElement(CokluSecim, {
+      etiket: "Alan",
+      tema: theme,
+      secenekler: d ? d.secenek.alanlar : [],
+      secili: analizAlan,
+      degistir: setAnalizAlan
+    }), React.createElement(CokluSecim, {
       etiket: "Kategori",
       tema: theme,
       secenekler: d ? d.secenek.kategoriler : [],
@@ -16313,7 +16337,7 @@ function App() {
         title: x.material
       }, x.material), React.createElement("span", {
         className: `block text-[11px] break-words leading-snug ${koyu ? 'text-gray-400' : 'text-gray-500'}`
-      }, x.category, x.subgroup !== '-' ? ' · ' + x.subgroup : '', x.unit ? ' · ' + x.unit : '')))), d.sutunlar.map(s => {
+      }, x.alan || x.category, x.subgroup !== '-' ? ' · ' + x.subgroup : '', x.unit ? ' · ' + x.unit : '')))), d.sutunlar.map(s => {
         const v = d.hucre[x.key][s];
         const oran = v && d.enBuyukHucre ? v / d.enBuyukHucre : 0;
         const kul = v ? x.usages.find(u => u.apartment === s || u.project + ' › ' + u.apartment === s) : null;
@@ -16405,7 +16429,7 @@ function App() {
         className: `block font-bold break-words leading-snug ${koyu ? 'text-gray-100' : 'text-gray-900'}`
       }, x.material), React.createElement("span", {
         className: `block text-[11px] ${koyu ? 'text-gray-400' : 'text-gray-500'}`
-      }, x.category, x.subgroup !== '-' ? ' · ' + x.subgroup : '', " · ", daireSayisi, " daire · ", x.usages.length, " kullanım")), React.createElement("span", {
+      }, x.alan || x.category, x.subgroup !== '-' ? ' · ' + x.subgroup : '', " · ", daireSayisi, " daire · ", x.usages.length, " kullanım")), React.createElement("span", {
         className: "text-right flex-shrink-0"
       }, React.createElement("span", {
         className: "block text-lg font-extrabold text-cyan-600 tabular-nums"
