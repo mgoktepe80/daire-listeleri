@@ -8673,7 +8673,12 @@ function App() {
                 const subgroup2 = v.subgroup2 || '-';
                 const materialKey = fc.category + '|' + subgroup + '|' + subgroup2 + '|' + v.malzeme + '|' + (fc.unit || '');
                 const amount = parseFloat(v.miktar || 0);
-                allMaterials[materialKey] = (allMaterials[materialKey] || 0) + (isNaN(amount) ? 0 : amount);
+                const m = allMaterials[materialKey] || (allMaterials[materialKey] = {
+                  toplam: 0,
+                  daireler: {}
+                });
+                m.toplam += isNaN(amount) ? 0 : amount;
+                m.daireler[apt.name] = (m.daireler[apt.name] || 0) + (isNaN(amount) ? 0 : amount);
               }
             }
           } else if (rd[f] && rd[f].malzeme) {
@@ -8681,17 +8686,25 @@ function App() {
             const subgroup2 = rd[f].subgroup2 || '-';
             const key = fc.category + '|' + subgroup + '|' + subgroup2 + '|' + rd[f].malzeme + '|' + (fc.unit || '');
             const amount = parseFloat(rd[f].miktar || 0);
-            allMaterials[key] = (allMaterials[key] || 0) + (isNaN(amount) ? 0 : amount);
+            const m = allMaterials[key] || (allMaterials[key] = {
+              toplam: 0,
+              daireler: {}
+            });
+            m.toplam += isNaN(amount) ? 0 : amount;
+            m.daireler[apt.name] = (m.daireler[apt.name] || 0) + (isNaN(amount) ? 0 : amount);
           }
         });
       });
     });
-    const totalData = [['═══════════════════════════════════════════════════════════════════'], ['📦 PROJE TOPLAM MALZEME LİSTESİ'], ['═══════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], [], ['─────────────────────────────────────────────────────────────────────'], ['KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'TOPLAM MİKTAR', 'BİRİM']];
+    const totalData = [['═══════════════════════════════════════════════════════════════════'], ['📦 PROJE TOPLAM MALZEME LİSTESİ'], ['═══════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], [], ['─────────────────────────────────────────────────────────────────────'], ['KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'TOPLAM MİKTAR', 'BİRİM', 'DAİRE SAYISI', 'KULLANILDIĞI DAİRELER']];
+    const daireSirasi = proj.apartments.map(a => a.name);
     Object.keys(allMaterials).sort().forEach(key => {
       const [category, subgroup, subgroup2, material, unit] = key.split('|');
-      const totalAmount = allMaterials[key];
+      const kayit = allMaterials[key];
+      const totalAmount = kayit.toplam;
       const finalAmount = isNaN(totalAmount) ? 0 : parseFloat(totalAmount.toFixed(2));
-      totalData.push([category, subgroup, subgroup2, material, finalAmount, unit]);
+      const kullananlar = daireSirasi.filter(ad => kayit.daireler[ad] !== undefined);
+      totalData.push([category, subgroup, subgroup2, material, finalAmount, unit, kullananlar.length, kullananlar.join(', ')]);
     });
     const totalWs = XLSX.utils.aoa_to_sheet(totalData);
     totalWs['!cols'] = [{
@@ -8706,6 +8719,10 @@ function App() {
       wch: 15
     }, {
       wch: 10
+    }, {
+      wch: 13
+    }, {
+      wch: 60
     }];
     if (!totalWs['!merges']) totalWs['!merges'] = [];
     totalWs['!merges'].push({
@@ -8715,7 +8732,7 @@ function App() {
       },
       e: {
         r: 0,
-        c: 5
+        c: 7
       }
     });
     totalWs['!merges'].push({
@@ -8725,7 +8742,7 @@ function App() {
       },
       e: {
         r: 1,
-        c: 5
+        c: 7
       }
     });
     totalWs['!merges'].push({
@@ -8735,7 +8752,7 @@ function App() {
       },
       e: {
         r: 2,
-        c: 5
+        c: 7
       }
     });
     totalWs['!merges'].push({
@@ -8745,7 +8762,7 @@ function App() {
       },
       e: {
         r: 7,
-        c: 5
+        c: 7
       }
     });
     const totalMaterialCount = Object.keys(allMaterials).length;
@@ -8759,12 +8776,103 @@ function App() {
           },
           e: {
             r: totalDataRows,
-            c: 5
+            c: 7
           }
         })
       };
     }
     XLSX.utils.book_append_sheet(wb, totalWs, '📦 TOPLAM MALZEME');
+    const caprazBaslik = ['KATEGORİ', 'ALT GRUP', 'TİP', 'MALZEME', 'BİRİM', ...daireSirasi, 'TOPLAM', 'DAİRE SAYISI'];
+    const caprazData = [['═══════════════════════════════════════════════════════════════════'], ['🔎 MALZEME → DAİRE DAĞILIMI'], ['═══════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], ['ℹ️ Not:', 'Her satır bir malzeme, her sütun bir daire. Hücredeki sayı o dairede kullanılan miktardır.'], ['─────────────────────────────────────────────────────────────────────'], caprazBaslik];
+    const daireToplamlari = {};
+    Object.keys(allMaterials).sort().forEach(key => {
+      const [category, subgroup, subgroup2, material, unit] = key.split('|');
+      const kayit = allMaterials[key];
+      const satir = [category, subgroup, subgroup2, material, unit];
+      let kullananSayisi = 0;
+      daireSirasi.forEach(ad => {
+        const v = kayit.daireler[ad];
+        if (v === undefined) {
+          satir.push('');
+          return;
+        }
+        kullananSayisi++;
+        daireToplamlari[ad] = (daireToplamlari[ad] || 0) + v;
+        satir.push(parseFloat(v.toFixed(2)));
+      });
+      satir.push(parseFloat(kayit.toplam.toFixed(2)));
+      satir.push(kullananSayisi);
+      caprazData.push(satir);
+    });
+    const altToplam = ['', '', '', 'TOPLAM', ''];
+    let genelToplam = 0;
+    daireSirasi.forEach(ad => {
+      const v = daireToplamlari[ad] || 0;
+      genelToplam += v;
+      altToplam.push(v ? parseFloat(v.toFixed(2)) : '');
+    });
+    altToplam.push(parseFloat(genelToplam.toFixed(2)));
+    altToplam.push('');
+    caprazData.push(altToplam);
+    const caprazWs = XLSX.utils.aoa_to_sheet(caprazData);
+    caprazWs['!cols'] = [{
+      wch: 18
+    }, {
+      wch: 18
+    }, {
+      wch: 15
+    }, {
+      wch: 38
+    }, {
+      wch: 8
+    }, ...daireSirasi.map(() => ({
+      wch: 12
+    })), {
+      wch: 12
+    }, {
+      wch: 13
+    }];
+    if (!caprazWs['!merges']) caprazWs['!merges'] = [];
+    const sonSutun = caprazBaslik.length - 1;
+    [0, 1, 2, 7].forEach(r => caprazWs['!merges'].push({
+      s: {
+        r,
+        c: 0
+      },
+      e: {
+        r,
+        c: sonSutun
+      }
+    }));
+    caprazWs['!merges'].push({
+      s: {
+        r: 6,
+        c: 1
+      },
+      e: {
+        r: 6,
+        c: sonSutun
+      }
+    });
+    if (Object.keys(allMaterials).length > 0) {
+      caprazWs['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: {
+            r: 8,
+            c: 0
+          },
+          e: {
+            r: 8 + Object.keys(allMaterials).length,
+            c: sonSutun
+          }
+        })
+      };
+    }
+    caprazWs['!freeze'] = {
+      xSplit: 5,
+      ySplit: 9
+    };
+    XLSX.utils.book_append_sheet(wb, caprazWs, '🔎 MALZEME-DAİRE');
     proj.apartments.forEach(apt => {
       const data = [['═══════════════════════════════════════════════════════════════════════'], ['🏠 ' + apt.name.toUpperCase() + ' - DETAYLI MALZEME LİSTESİ'], ['═══════════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], [], ['─────────────────────────────────────────────────────────────────────────'], ['MEKAN', 'TÜR', 'ALT GRUP', 'TİP', 'MALZEME', 'MİKTAR', 'BİRİM']];
       let hasData = false;
@@ -9000,7 +9108,7 @@ function App() {
     }
     XLSX.utils.book_append_sheet(wb, roomSummaryWs, '🏘️ MEKAN ÖZET');
     XLSX.writeFile(wb, proj.name + '_detayli_rapor_' + new Date().toISOString().split('T')[0] + '.xlsx');
-    alert('✅ Detaylı Excel raporu oluşturuldu!\n\n📊 Sayfalar:\n- 📊 ÖZET\n- 📦 TOPLAM MALZEME (Alt gruplu)\n- 🏘️ MEKAN ÖZET\n- 🏠 Her daire için ayrı sayfa\n\n✨ Özellikler:\n✅ Profesyonel görünüm\n✅ Hiyerarşik malzeme yapısı\n🔍 Otomatik filtreler (tüm sayfalarda)');
+    alert('✅ Detaylı Excel raporu oluşturuldu!\n\n📊 Sayfalar:\n- 📊 ÖZET\n- 📦 TOPLAM MALZEME (hangi dairelerde kullanıldığı dahil)\n- 🔎 MALZEME-DAİRE (malzeme × daire çapraz tablosu)\n- 🏘️ MEKAN ÖZET\n- 🏠 Her daire için ayrı sayfa\n\n✨ Özellikler:\n✅ Profesyonel görünüm\n✅ Hiyerarşik malzeme yapısı\n🔍 Otomatik filtreler (tüm sayfalarda)');
   };
   const exportMaterialDatabase = () => {
     const exportObj = {
