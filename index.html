@@ -7842,7 +7842,15 @@ function App() {
   const sayiOku = h => {
     if (h === null || h === undefined || h === '') return null;
     if (typeof h === 'number') return isNaN(h) ? null : h;
-    const t = String(h).replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
+    let t = String(h).replace(/[^0-9.,\-]/g, '').trim();
+    if (!t) return null;
+    const sonNokta = t.lastIndexOf('.');
+    const sonVirgul = t.lastIndexOf(',');
+    if (sonNokta >= 0 && sonVirgul >= 0) {
+      if (sonVirgul > sonNokta) t = t.replace(/\./g, '').replace(',', '.');else t = t.replace(/,/g, '');
+    } else if (sonVirgul >= 0) {
+      t = t.replace(',', '.');
+    }
     const s = parseFloat(t);
     return isNaN(s) ? null : s;
   };
@@ -7898,6 +7906,19 @@ function App() {
       }, ...mahaller.map(() => ({
         wch: 14
       }))];
+      for (let r = 4; r < 4 + satirlar.length; r++) {
+        for (let c = 1; c <= mahaller.length; c++) {
+          const adres = XLSX.utils.encode_cell({
+            r,
+            c
+          });
+          const hucre = ws[adres];
+          if (hucre && typeof hucre.v === 'number') {
+            hucre.t = 'n';
+            hucre.z = '0.00';
+          }
+        }
+      }
       XLSX.utils.book_append_sheet(wb, ws, alan.ad.substring(0, 28));
       sayfaSayisi++;
     });
