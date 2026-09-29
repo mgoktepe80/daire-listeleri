@@ -6743,6 +6743,12 @@ function App() {
       return true;
     });
   };
+  const raporOdalari = a => {
+    const liste = daireninOdalari(a);
+    if (!roomOrder || !roomOrder.length) return liste;
+    const sirali = roomOrder.map(id => liste.find(r => r.id === id)).filter(Boolean);
+    return sirali.concat(liste.filter(r => !roomOrder.includes(r.id)));
+  };
   const DURUM_TANIM = {
     tamam: {
       ad: 'Tamamlandı',
@@ -7311,7 +7317,7 @@ function App() {
           if (project.apartments) {
             totalApartments += project.apartments.length;
             project.apartments.forEach(apt => {
-              allRooms.forEach(room => {
+              raporOdalari(apt).forEach(room => {
                 const rd = apt.data[room.id];
                 if (rd) {
                   if (rd.foto) {
@@ -7388,7 +7394,7 @@ function App() {
     const analysis = {};
     projects.forEach(project => {
       project.apartments.forEach(apt => {
-        allRooms.forEach(room => {
+        raporOdalari(apt).forEach(room => {
           const rd = apt.data[room.id];
           if (!rd) return;
           room.fields.forEach(f => {
@@ -8845,7 +8851,7 @@ function App() {
       let mekanSayisi = 0;
       let malzemeSayisi = 0;
       let fotoSayisi = 0;
-      allRooms.forEach(room => {
+      raporOdalari(apt).forEach(room => {
         const rd = apt.data[room.id];
         if (rd) {
           mekanSayisi++;
@@ -8977,7 +8983,7 @@ function App() {
     XLSX.utils.book_append_sheet(wb, summaryWs, '📊 ÖZET');
     const allMaterials = {};
     proj.apartments.forEach(apt => {
-      allRooms.forEach(room => {
+      raporOdalari(apt).forEach(room => {
         const rd = apt.data[room.id];
         if (!rd) return;
         room.fields.forEach(f => {
@@ -9223,7 +9229,7 @@ function App() {
     proj.apartments.forEach(apt => {
       const data = [['═══════════════════════════════════════════════════════════════════════'], ['🏠 ' + apt.name.toUpperCase() + ' - DETAYLI MALZEME LİSTESİ'], ['═══════════════════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], ['📅 Tarih:', new Date().toLocaleDateString('tr-TR')], [], ['─────────────────────────────────────────────────────────────────────────'], ['MEKAN', 'TÜR', 'ALT GRUP', 'TİP', 'MALZEME', 'MİKTAR', 'BİRİM']];
       let hasData = false;
-      allRooms.forEach(room => {
+      raporOdalari(apt).forEach(room => {
         const rd = apt.data[room.id];
         if (!rd) return;
         let roomHasData = false;
@@ -9263,7 +9269,7 @@ function App() {
       });
       if (hasData) {
         let totalPhotos = 0;
-        allRooms.forEach(room => {
+        raporOdalari(apt).forEach(room => {
           const rd = apt.data[room.id];
           if (rd && rd.foto) {
             totalPhotos += Object.keys(rd.foto).length;
@@ -9272,7 +9278,7 @@ function App() {
         if (totalPhotos > 0) {
           data.push([]);
           data.push(['FOTOĞRAF BİLGİSİ']);
-          allRooms.forEach(room => {
+          raporOdalari(apt).forEach(room => {
             const rd = apt.data[room.id];
             if (rd && rd.foto && Object.keys(rd.foto).length > 0) {
               data.push([room.name, 'Fotoğraf', Object.keys(rd.foto).length + ' adet', '', '', '', '']);
@@ -9358,7 +9364,7 @@ function App() {
     const roomSummaryData = [['═══════════════════════════════════════════════════════════'], ['🏘️ MEKAN BAZLI MALZEME ÖZET'], ['═══════════════════════════════════════════════════════════'], [], ['🏢 Proje:', proj.name], [], ['─────────────────────────────────────────────────────────────'], ['MEKAN', 'MALZEME TÜRÜ', 'TOPLAM KULLANIM (Daire Sayısı)']];
     const roomMaterials = {};
     proj.apartments.forEach(apt => {
-      allRooms.forEach(room => {
+      raporOdalari(apt).forEach(room => {
         const rd = apt.data[room.id];
         if (!rd) return;
         if (!roomMaterials[room.name]) roomMaterials[room.name] = {};
@@ -10538,7 +10544,7 @@ function App() {
       photosMissing++;
       return '<td class="urun-gorsel"><div class="g-bos">' + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" ' + 'stroke-linecap="round" stroke-linejoin="round">' + '<rect x="3" y="4" width="18" height="16" rx="2"></rect>' + '<circle cx="8.5" cy="9.5" r="1.5"></circle>' + '<path d="M21 16l-5-5-4 4-2-2-7 7"></path>' + '<path d="M3 3l18 18"></path>' + '</svg><span>Görsel yok</span></div></td>';
     };
-    allRooms.forEach(room => {
+    raporOdalari(apt).forEach(room => {
       const rd = apt.data[room.id];
       if (!rd) return;
       const kolonSayisi = withPhotos ? 7 : 6;
