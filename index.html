@@ -7794,8 +7794,16 @@ function App() {
       };
       XLSX.utils.book_append_sheet(wb, ws, 'Detay');
     } else {
-      const baslik = ['Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Toplam', 'Birim', 'Daire Sayısı', 'Kullanım'];
-      const satir = d.satirlar.map(x => [x.alan || '', x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.totalAmount, x.unit, new Set(x.usages.map(u => u.project + '|' + u.apartment)).size, x.usages.length]);
+      const baslik = ['Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Toplam', 'Birim', 'Daire Sayısı', 'Kullanım', 'Kullanıldığı Daireler', 'Mahaller'];
+      const satir = d.satirlar.map(x => {
+        const daireler = [...new Set(x.usages.map(u => u.apartment))].sort((p, q) => p.localeCompare(q, 'tr', {
+          numeric: true
+        }));
+        const mahaller = [...new Set(x.usages.map(u => u.room))].sort((p, q) => p.localeCompare(q, 'tr', {
+          numeric: true
+        }));
+        return [x.alan || '', x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.totalAmount, x.unit, daireler.length, x.usages.length, daireler.join(', '), mahaller.join(', ')];
+      });
       const ws = XLSX.utils.aoa_to_sheet([baslik, ...satir]);
       ws['!cols'] = [{
         wch: 18
@@ -7813,6 +7821,10 @@ function App() {
         wch: 12
       }, {
         wch: 10
+      }, {
+        wch: 60
+      }, {
+        wch: 40
       }];
       ws['!autofilter'] = {
         ref: XLSX.utils.encode_range({
@@ -7822,11 +7834,74 @@ function App() {
           },
           e: {
             r: satir.length,
-            c: 7
+            c: 9
           }
         })
       };
       XLSX.utils.book_append_sheet(wb, ws, 'Ozet');
+    }
+    if (analizGorunum !== 'capraz') {
+      const cBaslik = ['Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Birim', ...d.sutunlar, 'TOPLAM'];
+      const cSatir = d.satirlar.map(x => [x.alan || '', x.category, x.subgroup === '-' ? '' : x.subgroup, x.material, x.unit, ...d.sutunlar.map(sn => d.hucre[x.key][sn] || ''), x.totalAmount]);
+      cSatir.push(['', '', '', 'TOPLAM', '', ...d.sutunlar.map(sn => d.sutunToplam[sn] || 0), d.ozet.toplam]);
+      const cWs = XLSX.utils.aoa_to_sheet([cBaslik, ...cSatir]);
+      cWs['!cols'] = [{
+        wch: 18
+      }, {
+        wch: 14
+      }, {
+        wch: 16
+      }, {
+        wch: 34
+      }, {
+        wch: 7
+      }, ...d.sutunlar.map(() => ({
+        wch: 12
+      })), {
+        wch: 12
+      }];
+      cWs['!freeze'] = {
+        xSplit: 4,
+        ySplit: 1
+      };
+      XLSX.utils.book_append_sheet(wb, cWs, 'Daire Dagilimi');
+    }
+    if (analizGorunum !== 'detay') {
+      const kBaslik = ['Proje', 'Daire', 'Mahal', 'Alan', 'Kategori', 'Alt Grup', 'Malzeme', 'Miktar', 'Birim'];
+      const kSatir = d.detay.map(r => [r.proje, r.daire, r.mahal, r.alan, r.kategori, r.altGrup === '-' ? '' : r.altGrup, r.malzeme, r.miktar, r.birim]);
+      const kWs = XLSX.utils.aoa_to_sheet([kBaslik, ...kSatir]);
+      kWs['!cols'] = [{
+        wch: 18
+      }, {
+        wch: 16
+      }, {
+        wch: 16
+      }, {
+        wch: 16
+      }, {
+        wch: 14
+      }, {
+        wch: 16
+      }, {
+        wch: 34
+      }, {
+        wch: 10
+      }, {
+        wch: 7
+      }];
+      kWs['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: {
+            r: 0,
+            c: 0
+          },
+          e: {
+            r: kSatir.length,
+            c: 8
+          }
+        })
+      };
+      XLSX.utils.book_append_sheet(wb, kWs, 'Kullanim Detayi');
     }
     XLSX.writeFile(wb, 'malzeme_analizi_' + analizGorunum + '_' + bugun + '.xlsx');
   };
